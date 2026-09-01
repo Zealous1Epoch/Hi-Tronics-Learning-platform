@@ -103,7 +103,7 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
     setEssayAnswer("");
     setKeywords("");
     setDifficulty("medium");
-    setCategoryId("");
+    setCategoryId(propCategoryId || "");
   };
 
   const openCreate = () => {
@@ -476,16 +476,18 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
               </div>
 
               {/* 题库分类 */}
-              <div>
-                <label className="block text-sm text-text-secondary mb-1">题库分类</label>
-                <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm">
-                  <option value="">未分类</option>
-                  {flatCategories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.parent_id ? "  " : ""}{c.name}</option>
-                  ))}
-                </select>
-              </div>
+              {!propCategoryId && (
+                <div>
+                  <label className="block text-sm text-text-secondary mb-1">题库分类</label>
+                  <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}
+                    className="w-full border border-border rounded-md px-3 py-2 text-sm">
+                    <option value="">未分类</option>
+                    {flatCategories.map((c) => (
+                      <option key={c.id} value={c.id}>{c.parent_id ? "  " : ""}{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
                           </div>
 

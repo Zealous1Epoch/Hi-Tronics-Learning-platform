@@ -165,7 +165,20 @@ export default function QuestionBank() {
               isSelected ? "bg-primary/10 text-primary font-medium" : ""
             }`}
             style={{ paddingLeft: `${8 + depth * 16}px` }}
-            onClick={() => setSelectedId(node.id)}
+            onClick={() => {
+                setSelectedId(node.id);
+                if (hasChildren) {
+                  setExpandedIds(prev => {
+                    const next = new Set(prev);
+                    if (next.has(node.id)) {
+                      next.delete(node.id);
+                    } else {
+                      next.add(node.id);
+                    }
+                    return next;
+                  });
+                }
+              }}
           >
             {hasChildren ? (
               <button

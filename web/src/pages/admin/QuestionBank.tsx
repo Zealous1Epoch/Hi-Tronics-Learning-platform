@@ -47,7 +47,9 @@ export default function QuestionBank() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
-  const [showAddChild, setShowAddChild] = useState(false);
+  const [addingRoot, setAddingRoot] = useState(false);
+  const [newRootName, setNewRootName] = useState("");
+  const [addingChildUnder, setAddingChildUnder] = useState<string | null>(null);
   const [newChildName, setNewChildName] = useState("");
 
   const fetchTree = async () => {
@@ -90,25 +92,33 @@ export default function QuestionBank() {
     fetchTree();
   };
 
-  const handleAddChild = async () => {
-    if (!newChildName.trim() || !selectedId) return;
+  const handleAddRoot = async () => {
+    if (!newRootName.trim()) return;
     await api("/question-categories", {
       method: "POST",
-      body: JSON.stringify({ name: newChildName.trim(), parent_id: selectedId }),
+      body: JSON.stringify({ name: newRootName.trim() }),
     });
-    setNewChildName("");
-    setShowAddChild(false);
+    setNewRootName("");
+    setAddingRoot(false);
     fetchTree();
   };
 
-  const handleAddRoot = async () => {
-    const name = prompt("输入根分类名称:");
-    if (!name?.trim()) return;
+  const handleAddChild = async (parentId: string) => {
+    if (!newChildName.trim()) return;
     await api("/question-categories", {
       method: "POST",
-      body: JSON.stringify({ name: name.trim() }),
+      body: JSON.stringify({ name: newChildName.trim(), parent_id: parentId }),
     });
+    setNewChildName("");
+    setAddingChildUnder(null);
     fetchTree();
+  };
+
+  const startAddChild = () => {
+    if (!selectedId) return;
+    setNewChildName("");
+    setAddingChildUnder(selectedId);
+    setExpandedIds(prev => new Set(prev).add(selectedId));
   };
 
   // 搜索过滤树：匹配节点保留，同时保留其祖先链
@@ -146,6 +156,7 @@ export default function QuestionBank() {
       const isExpanded = expandedIds.has(node.id);
       const isSelected = selectedId === node.id;
       const hasChildren = node.children.length > 0;
+      const isAddingChild = addingChildUnder === node.id;
 
       return (
         <div key={node.id}>
@@ -169,6 +180,23 @@ export default function QuestionBank() {
             <span className="truncate">{node.name}</span>
           </div>
           {isExpanded && hasChildren && renderTree(node.children, depth + 1)}
+          {isAddingChild && (
+            <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${8 + (depth + 1) * 16}px` }}>
+              <span className="w-5 shrink-0" />
+              <input
+                type="text"
+                value={newChildName}
+                onChange={(e) => setNewChildName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAddChild(node.id);
+                  if (e.key === "Escape") { setAddingChildUnder(null); setNewChildName(""); }
+                }}
+                placeholder="输入名称..."
+                className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
+                autoFocus
+              />
+            </div>
+          )}
         </div>
       );
     });
@@ -204,11 +232,30 @@ export default function QuestionBank() {
                 {searchText ? "无匹配结果" : "暂无分类，点击下方按钮添加"}
               </div>
             ) : (
-              <div className="py-1">{renderTree(filteredTree)}</div>
+              <div className="py-1">
+                {renderTree(filteredTree)}
+                {addingRoot && (
+                  <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
+                    <span className="w-5 shrink-0" />
+                    <input
+                      type="text"
+                      value={newRootName}
+                      onChange={(e) => setNewRootName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleAddRoot();
+                        if (e.key === "Escape") { setAddingRoot(false); setNewRootName(""); }
+                      }}
+                      placeholder="输入名称..."
+                      className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
+                      autoFocus
+                    />
+                  </div>
+                )}
+              </div>
             )}
           </div>
           <button
-            onClick={handleAddRoot}
+            onClick={() => { setAddingRoot(true); setNewRootName(""); }}
             className="mt-2 w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-primary/5"
           >
             <Plus size={12} /> 添加根分类
@@ -216,7 +263,7 @@ export default function QuestionBank() {
           {selectedId && (
             <div className="mt-1.5 space-y-1.5">
               <button
-                onClick={() => { setShowAddChild(true); setNewChildName(""); }}
+                onClick={startAddChild}
                 className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-light"
               >
                 <Plus size={12} /> 添加子节点
@@ -291,7 +338,6 @@ export default function QuestionBank() {
                     </p>
                   </div>
 
-                  
                   {/* 改名输入框 */}
                   {editingId && (
                     <div className="flex items-center gap-2 bg-bg-base rounded-lg border border-border p-3">
@@ -304,22 +350,6 @@ export default function QuestionBank() {
                       />
                       <button onClick={handleRename} className="px-3 py-1.5 text-xs bg-primary text-white rounded-md">保存</button>
                       <button onClick={() => setEditingId(null)} className="px-3 py-1.5 text-xs border border-border rounded-md">取消</button>
-                    </div>
-                  )}
-
-                  {/* 添加子节点输入框 */}
-                  {showAddChild && (
-                    <div className="flex items-center gap-2 bg-bg-base rounded-lg border border-border p-3">
-                      <input
-                        type="text" value={newChildName}
-                        onChange={(e) => setNewChildName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleAddChild()}
-                        placeholder="输入子节点名称"
-                        className="flex-1 border border-border rounded-md px-3 py-1.5 text-sm"
-                        autoFocus
-                      />
-                      <button onClick={handleAddChild} className="px-3 py-1.5 text-xs bg-primary text-white rounded-md">添加</button>
-                      <button onClick={() => setShowAddChild(false)} className="px-3 py-1.5 text-xs border border-border rounded-md">取消</button>
                     </div>
                   )}
                 </div>

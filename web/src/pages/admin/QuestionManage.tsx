@@ -209,7 +209,10 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
 
   const handleExport = async () => {
     const token = localStorage.getItem("token");
-    const res = await fetch("/api/questions/export", {
+    const exportUrl = propCategoryId
+      ? `/api/questions/export?category_id=${propCategoryId}`
+      : "/api/questions/export";
+    const res = await fetch(exportUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const blob = await res.blob();
@@ -217,6 +220,20 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
     const a = document.createElement("a");
     a.href = url;
     a.download = "questions.xlsx";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadTemplate = async () => {
+    const token = localStorage.getItem("token");
+    const res = await fetch("/api/questions/template", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "questions_template.xlsx";
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -230,6 +247,7 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
       if (!file) return;
       const formData = new FormData();
       formData.append("file", file);
+      if (propCategoryId) formData.append("category_id", propCategoryId);
       const token = localStorage.getItem("token");
       const res = await fetch("/api/questions/import", {
         method: "POST",
@@ -256,6 +274,7 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
     <div>
       <div className="flex items-center justify-between mb-4">
         <div className="flex gap-2">
+          <button onClick={handleDownloadTemplate} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">模板</button>
           <button onClick={handleExport} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">导出</button>
           <button onClick={handleImport} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">导入</button>
           <button onClick={openCreate} className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light">新增试题</button>

@@ -2,7 +2,7 @@
 
 import uuid
 import io
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from openpyxl import Workbook, load_workbook
@@ -123,18 +123,22 @@ TYPE_MAP = {
 
 @router.get("/questions/export")
 def export_questions(
+    category_id: str | None = Query(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
     """导出题库为 Excel"""
-    questions = db.query(Question).order_by(Question.created_at.desc()).all()
+    query = db.query(Question)
+    if category_id:
+        query = query.filter(Question.category_id == category_id)
+    questions = query.order_by(Question.created_at.desc()).all()
 
     wb = Workbook()
     ws = wb.active
     ws.title = "题库"
 
     # 表头
-    headers = ["题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "关键词", "难度", "标签", "章节"]
+    headers = ["题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "关键词", "难度"]
     ws.append(headers)
 
     for q in questions:
@@ -150,8 +154,6 @@ def export_questions(
             _format_answer(q.type, answer),
             ",".join(q.keywords) if q.keywords else "",
             q.difficulty,
-            ",".join(q.tags) if q.tags else "",
-            q.section or "",
         ]
         ws.append(row)
 
@@ -163,6 +165,31 @@ def export_questions(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=questions.xlsx"},
+    )
+
+
+@router.get("/questions/template")
+def download_template():
+    """下载导入模板"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "导入模板"
+    headers = ["题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "关键词", "难度"]
+    ws.append(headers)
+    # 示例行：每种题型一行
+    ws.append(["单选题", "Python 中列表和元组的区别是什么？", "可变", "不可变", "有序", "无序", "A", "", "easy"])
+    ws.append(["多选题", "以下哪些是 Python 不可变类型？", "字符串", "列表", "元组", "字典", "A,C", "", "medium"])
+    ws.append(["判断题", "Python 是解释型语言", "", "", "", "", "true", "", "easy"])
+    ws.append(["填空题", "Python 中定义函数使用___关键字", "", "", "", "", "def", "", "easy"])
+    ws.append(["问答题", "简述面向对象编程的三大特性", "", "", "", "", "", "封装,继承,多态", "hard"])
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=questions_template.xlsx"},
     )
 
 
@@ -185,6 +212,7 @@ def _format_answer(q_type: str, answer: dict) -> str:
 @router.post("/questions/import")
 async def import_questions(
     file: UploadFile = File(...),
+    category_id: str | None = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -242,14 +270,6 @@ async def import_questions(
             if difficulty not in ("easy", "medium", "hard"):
                 difficulty = "medium"
 
-            # 标签
-            tags = None
-            if row[9] and str(row[9]).strip():
-                tags = [t.strip() for t in str(row[9]).split(",") if t.strip()]
-
-            # 章节
-            section = str(row[10]).strip() if len(row) > 10 and row[10] else None
-
             question = Question(
                 id=str(uuid.uuid4()),
                 type=q_type_en,
@@ -258,8 +278,7 @@ async def import_questions(
                 answer=answer,
                 keywords=keywords,
                 difficulty=difficulty,
-                tags=tags,
-                section=section,
+                category_id=category_id,
                 created_by=current_user.id,
             )
             db.add(question)

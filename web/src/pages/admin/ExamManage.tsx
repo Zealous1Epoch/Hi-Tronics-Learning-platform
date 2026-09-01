@@ -124,30 +124,30 @@ export default function ExamManage() {
         </div>
       ) : (
         <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-fixed">
             <thead className="bg-bg-layout border-b border-border">
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-text-secondary">考试名称</th>
-                <th className="text-left px-4 py-3 font-medium text-text-secondary w-20">组卷方式</th>
-                <th className="text-left px-4 py-3 font-medium text-text-secondary w-24">时长/分数</th>
-                <th className="text-left px-4 py-3 font-medium text-text-secondary w-28">时间范围</th>
-                <th className="text-left px-4 py-3 font-medium text-text-secondary w-16">状态</th>
-                <th className="text-right px-4 py-3 font-medium text-text-secondary w-32">操作</th>
+                <th className="text-left px-2 py-3 font-medium text-text-secondary w-14">组卷</th>
+                <th className="text-left px-2 py-3 font-medium text-text-secondary w-24">时长/分数</th>
+                <th className="text-left px-2 py-3 font-medium text-text-secondary w-28">时间范围</th>
+                <th className="text-left px-2 py-3 font-medium text-text-secondary w-16">状态</th>
+                <th className="text-right px-3 py-3 font-medium text-text-secondary w-28">操作</th>
               </tr>
             </thead>
             <tbody>
               {exams.map((e) => (
                 <tr key={e.id} className="border-b border-border last:border-0 hover:bg-bg-layout/50">
-                  <td className="px-4 py-3 font-medium">{e.title}</td>
-                  <td className="px-4 py-3 text-text-secondary">{e.paper_type === "fixed" ? "固定" : "随机"}</td>
-                  <td className="px-4 py-3 text-text-secondary">{e.duration}分钟 / {e.total_score}分</td>
-                  <td className="px-4 py-3 text-xs text-text-secondary">
-                    {formatTime(e.start_time)}<br/>~ {formatTime(e.end_time)}
+                  <td className="px-4 py-3 font-medium truncate">{e.title}</td>
+                  <td className="px-2 py-3 text-text-secondary whitespace-nowrap">{e.paper_type === "fixed" ? "固定" : "随机"}</td>
+                  <td className="px-2 py-3 text-text-secondary whitespace-nowrap">{e.duration}分钟 / {e.total_score}分</td>
+                  <td className="px-2 py-3 text-xs text-text-secondary whitespace-nowrap">
+                    {formatTime(e.start_time)} ~ {formatTime(e.end_time)}
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[e.status]}`}>{STATUS_LABELS[e.status]}</span>
+                  <td className="px-2 py-3 whitespace-nowrap">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_COLORS[e.status]}`}>{STATUS_LABELS[e.status]}</span>
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-3 py-3 text-right whitespace-nowrap">
                     <Link to={`/admin/exams/${e.id}/paper`} className="text-xs text-primary hover:underline mr-2">组卷</Link>
                     <button onClick={() => openEdit(e)} className="text-xs text-primary hover:underline mr-2">编辑</button>
                     <button onClick={() => handleDelete(e.id)} className="text-xs text-red-500 hover:underline">删除</button>

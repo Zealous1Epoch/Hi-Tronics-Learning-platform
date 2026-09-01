@@ -4,10 +4,7 @@ import { api } from "../../lib/api";
 interface QuestionItem {
   id: string; type: string; stem: string; options: Record<string, string> | null;
   answer: Record<string, unknown>; keywords: string[] | null;
-  difficulty: string; tags: string[] | null; section: string | null; created_at: string;
-}
-interface FlatTag {
-  id: string; name: string; parent_id: string | null;
+  difficulty: string; created_at: string;
 }
 interface FlatCategory {
   id: string; name: string; parent_id: string | null;
@@ -39,7 +36,7 @@ const DIFF_COLORS: Record<string, string> = {
   easy: "bg-green-100 text-green-700", medium: "bg-yellow-100 text-yellow-700", hard: "bg-red-100 text-red-700",
 };
 
-export default function QuestionManage() {
+export default function QuestionManage({ categoryId: propCategoryId }: { categoryId?: string | null }) {
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState("");
@@ -49,7 +46,6 @@ export default function QuestionManage() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [flatTags, setFlatTags] = useState<FlatTag[]>([]);
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
   const [categoryFilter, setCategoryFilter] = useState("");
 
@@ -64,31 +60,28 @@ export default function QuestionManage() {
   const [essayAnswer, setEssayAnswer] = useState("");
   const [keywords, setKeywords] = useState("");
   const [difficulty, setDifficulty] = useState("medium");
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [section, setSection] = useState("");
   const [categoryId, setCategoryId] = useState("");
 
   const fetchQuestions = async () => {
     const params = new URLSearchParams();
     if (typeFilter) params.set("type", typeFilter);
     if (diffFilter) params.set("difficulty", diffFilter);
-    if (categoryFilter) params.set("category_id", categoryFilter);
+    const effectiveCategoryId = propCategoryId ?? categoryFilter;
+    if (effectiveCategoryId) params.set("category_id", effectiveCategoryId);
     if (search) params.set("search", search);
     const qs = params.toString();
-    const [data, tagsData, catsData] = await Promise.all([
+    const [data, catsData] = await Promise.all([
       api<QuestionItem[]>(`/questions${qs ? `?${qs}` : ""}`),
-      api<FlatTag[]>("/question-tags/flat"),
       api<FlatCategory[]>("/question-categories/flat"),
     ]);
     setQuestions(data);
-    setFlatTags(tagsData);
     setFlatCategories(catsData);
     setLoading(false);
   };
 
   useEffect(() => {
     fetchQuestions();
-  }, [typeFilter, diffFilter, categoryFilter]);
+  }, [typeFilter, diffFilter, categoryFilter, propCategoryId]);
 
   useEffect(() => {
     if (!search) {
@@ -110,8 +103,6 @@ export default function QuestionManage() {
     setEssayAnswer("");
     setKeywords("");
     setDifficulty("medium");
-    setSelectedTags([]);
-    setSection("");
     setCategoryId("");
   };
 
@@ -126,8 +117,6 @@ export default function QuestionManage() {
     setQType(q.type);
     setStem(q.stem);
     setDifficulty(q.difficulty);
-    setSelectedTags(q.tags || []);
-    setSection(q.section || "");
     setCategoryId((q as any).category_id || "");
     if (q.options) setOptions(q.options);
     if (q.type === "single_choice") {
@@ -164,8 +153,6 @@ export default function QuestionManage() {
 
     const body: Record<string, unknown> = {
       type: qType, stem, answer, difficulty,
-      tags: selectedTags,
-      section: section || null,
       category_id: categoryId || null,
     };
     if (qType === "single_choice" || qType === "multi_choice") {
@@ -268,7 +255,6 @@ export default function QuestionManage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-primary">题库管理</h2>
         <div className="flex gap-2">
           <button onClick={handleExport} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">导出</button>
           <button onClick={handleImport} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">导入</button>
@@ -284,24 +270,22 @@ export default function QuestionManage() {
             const value = prompt("新难度 (easy / medium / hard):");
             if (value) handleBatch("update_difficulty", value);
           }} className="text-primary hover:underline">批量改难度</button>
-          <button onClick={() => {
-            const value = prompt("追加标签（逗号分隔）:");
-            if (value) handleBatch("add_tags", value.split(",").map((t) => t.trim()).filter(Boolean));
-          }} className="text-primary hover:underline">批量加标签</button>
-          <button onClick={() => handleBatch("delete")} className="text-red-500 hover:underline">批量删除</button>
+                    <button onClick={() => handleBatch("delete")} className="text-red-500 hover:underline">批量删除</button>
           <button onClick={() => setSelectedIds(new Set())} className="text-text-secondary hover:underline ml-auto">取消选择</button>
         </div>
       )}
 
       {/* 筛选栏 */}
       <div className="flex gap-3 mb-4">
-        <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setLoading(true); }}
-          className="border border-border rounded-md px-3 py-1.5 text-sm">
-          <option value="">全部分类</option>
-          {flatCategories.map((c) => (
-            <option key={c.id} value={c.id}>{c.parent_id ? "  " : ""}{c.name}</option>
-          ))}
-        </select>
+        {!propCategoryId && (
+          <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setLoading(true); }}
+            className="border border-border rounded-md px-3 py-1.5 text-sm">
+            <option value="">全部分类</option>
+            {flatCategories.map((c) => (
+              <option key={c.id} value={c.id}>{c.parent_id ? "  " : ""}{c.name}</option>
+            ))}
+          </select>
+        )}
         <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setLoading(true); }}
           className="border border-border rounded-md px-3 py-1.5 text-sm">
           {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -326,7 +310,7 @@ export default function QuestionManage() {
         </div>
       ) : (
         <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-fixed">
             <thead className="bg-bg-layout border-b border-border">
               <tr>
                 <th className="px-4 py-3 w-8">
@@ -334,10 +318,10 @@ export default function QuestionManage() {
                     onChange={toggleSelectAll} />
                 </th>
                 <th className="text-left px-4 py-3 font-medium text-text-secondary">题干</th>
-                <th className="text-left px-4 py-3 font-medium text-text-secondary w-16">题型</th>
-                <th className="text-left px-4 py-3 font-medium text-text-secondary w-16">难度</th>
-                <th className="text-left px-4 py-3 font-medium text-text-secondary w-20">标签</th>
-                <th className="text-right px-4 py-3 font-medium text-text-secondary w-24">操作</th>
+                <th className="text-left px-2 py-3 font-medium text-text-secondary w-14">题型</th>
+                <th className="text-left px-2 py-3 font-medium text-text-secondary w-14">难度</th>
+                <th className="text-left px-2 py-3 font-medium text-text-secondary w-24">类别</th>
+                <th className="text-right px-3 py-3 font-medium text-text-secondary w-20">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -346,18 +330,20 @@ export default function QuestionManage() {
                   <td className="px-4 py-3">
                     <input type="checkbox" checked={selectedIds.has(q.id)} onChange={() => toggleSelect(q.id)} />
                   </td>
-                  <td className="px-4 py-3">{q.stem.length > 60 ? q.stem.slice(0, 60) + "..." : q.stem}</td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded">{TYPE_LABELS[q.type]}</span>
+                  <td className="px-4 py-3 truncate">{q.stem}</td>
+                  <td className="px-2 py-3 whitespace-nowrap">
+                    <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded">{TYPE_LABELS[q.type]}</span>
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-0.5 rounded ${DIFF_COLORS[q.difficulty]}`}>{DIFF_LABELS[q.difficulty]}</span>
+                  <td className="px-2 py-3 whitespace-nowrap">
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${DIFF_COLORS[q.difficulty]}`}>{DIFF_LABELS[q.difficulty]}</span>
                   </td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs text-text-secondary">{q.tags?.join(", ") || "-"}</span>
+                  <td className="px-2 py-3">
+                    <span className="text-xs text-text-secondary truncate block">
+                      {flatCategories.find((c) => c.id === (q as any).category_id)?.name || "-"}
+                    </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <button onClick={() => openEdit(q)} className="text-xs text-primary hover:underline mr-3">编辑</button>
+                  <td className="px-3 py-3 text-right whitespace-nowrap">
+                    <button onClick={() => openEdit(q)} className="text-xs text-primary hover:underline mr-2">编辑</button>
                     <button onClick={() => handleDelete(q.id)} className="text-xs text-red-500 hover:underline">删除</button>
                   </td>
                 </tr>
@@ -501,40 +487,7 @@ export default function QuestionManage() {
                 </select>
               </div>
 
-              {/* 章节 */}
-              <div>
-                <label className="block text-sm text-text-secondary mb-1">关联章节（可选）</label>
-                <input type="text" value={section} onChange={(e) => setSection(e.target.value)}
-                  placeholder="例如：第3章 数据结构"
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm" />
-              </div>
-
-              {/* 标签 */}
-              <div>
-                <label className="block text-sm text-text-secondary mb-1">知识点标签</label>
-                {flatTags.length === 0 ? (
-                  <p className="text-xs text-text-secondary">暂无预设标签，可在标签管理中添加</p>
-                ) : (
-                  <div className="max-h-32 overflow-y-auto border border-border rounded-md p-2 space-y-0.5">
-                    {flatTags.map((t) => (
-                      <label key={t.id} className="flex items-center gap-2 py-1 px-1 hover:bg-bg-layout rounded text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedTags.includes(t.name.trim())}
-                          onChange={() => {
-                            const tagName = t.name.trim();
-                            setSelectedTags((prev) =>
-                              prev.includes(tagName) ? prev.filter((x) => x !== tagName) : [...prev, tagName]
-                            );
-                          }}
-                        />
-                        <span>{t.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+                          </div>
 
             <div className="flex gap-3 justify-end mt-6">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.question_category import QuestionCategory
+from app.models.question import Question
 from app.routers.auth import require_admin
 
 router = APIRouter(prefix="/api", tags=["题库分类"])
@@ -151,3 +152,56 @@ def delete_category(
     db.delete(category)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/question-categories/{category_id}/stats")
+def get_category_stats(
+    category_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """获取分类统计（递归统计所有子节点的题目数量）"""
+    category = db.query(QuestionCategory).filter(QuestionCategory.id == category_id).first()
+    if not category:
+        raise HTTPException(status_code=404, detail="分类不存在")
+
+    # 递归收集所有子节点 ID（含自身）
+    def collect_descendant_ids(parent_id: str) -> list[str]:
+        ids = [parent_id]
+        children = db.query(QuestionCategory).filter(QuestionCategory.parent_id == parent_id).all()
+        for child in children:
+            ids.extend(collect_descendant_ids(child.id))
+        return ids
+
+    all_ids = collect_descendant_ids(category_id)
+
+    # 统计各题型数量
+    questions = db.query(Question).filter(Question.category_id.in_(all_ids)).all()
+
+    type_counts = {
+        "single_choice": 0,
+        "multi_choice": 0,
+        "true_false": 0,
+        "fill_blank": 0,
+        "essay": 0,
+    }
+    for q in questions:
+        if q.type in type_counts:
+            type_counts[q.type] += 1
+
+    total = sum(type_counts.values())
+
+    # 判断是否有子节点（是否叶子节点）
+    child_count = db.query(QuestionCategory).filter(
+        QuestionCategory.parent_id == category_id
+    ).count()
+
+    return {
+        "id": category.id,
+        "name": category.name,
+        "is_leaf": child_count == 0,
+        "child_count": child_count,
+        **type_counts,
+        "total_count": total,
+        "created_at": category.created_at.isoformat() if category.created_at else None,
+    }

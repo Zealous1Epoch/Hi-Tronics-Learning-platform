@@ -6,6 +6,7 @@ from app.models.question_tag import QuestionTag
 from app.models.question_category import QuestionCategory
 from app.models.exam import Exam, ExamPaper, ExamResult
 from app.models.learning_progress import LearningProgress
+from app.models.paper import PaperCategory, Paper
 
 __all__ = [
     "User",
@@ -20,4 +21,6 @@ __all__ = [
     "ExamResult",
     "QuestionCategory",
     "LearningProgress",
+    "PaperCategory",
+    "Paper",
 ]

@@ -1,0 +1,20 @@
+from app.models.user import User
+from app.models.department import Department
+from app.models.course import CourseCategory, Course, CourseAssignment, Video
+from app.models.question import Question
+from app.models.exam import Exam, ExamPaper, ExamResult
+from app.models.learning_progress import LearningProgress
+
+__all__ = [
+    "User",
+    "Department",
+    "CourseCategory",
+    "Course",
+    "CourseAssignment",
+    "Video",
+    "Question",
+    "Exam",
+    "ExamPaper",
+    "ExamResult",
+    "LearningProgress",
+]

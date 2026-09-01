@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* kami 设计系统 — 海创光电统一设计语言 */
+@theme {
+  --color-primary: #1B365D;
+  --color-primary-light: #2D5080;
+  --color-primary-dark: #0F2240;
+  --color-bg-base: #FAF9F5;
+  --color-bg-layout: #F5F4ED;
+  --color-text-base: #141413;
+  --color-text-secondary: #5C5B55;
+  --color-border: #E8E6DC;
+  --color-border-dark: #D4D1C2;
+  --radius-default: 6px;
+  --font-family-sans: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif SC", "PingFang SC", "Microsoft YaHei", serif;
+}
+
+/* 基础样式 */
+body {
+  margin: 0;
+  background-color: var(--color-bg-layout);
+  color: var(--color-text-base);
+  font-family: var(--font-family-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* video.js 播放器样式 */
+.video-js {
+  border-radius: var(--radius-default);
+  overflow: hidden;
+}

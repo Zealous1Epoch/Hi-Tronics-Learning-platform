@@ -13,10 +13,16 @@ def seed_builtin_admin(db: Session):
     if existing:
         return
 
+    # 生产环境必须通过环境变量 ADMIN_PASSWORD 设置密码
+    password = settings.BUILTIN_ADMIN_PASSWORD
+    if not password:
+        print("[WARNING] ADMIN_PASSWORD 未设置，使用默认密码")
+        password = "Ht12345!"
+
     admin = User(
         id=str(uuid.uuid4()),
         username=settings.BUILTIN_ADMIN_USERNAME,
-        password_hash=hash_password(settings.BUILTIN_ADMIN_PASSWORD),
+        password_hash=hash_password(password),
         name="系统管理员",
         role="admin",
         status="active",

@@ -6,7 +6,10 @@ import ExamPage from "../pages/student/ExamPage";
 import StudentProfile from "../pages/student/Profile";
 
 export default function StudentLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
+
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
 
   return (
     <div className="min-h-screen bg-bg-layout">

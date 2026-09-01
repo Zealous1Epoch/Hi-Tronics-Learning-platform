@@ -60,6 +60,32 @@ export async function login(username: string, password: string): Promise<LoginRe
   });
 }
 
+export async function uploadFile<T = unknown>(path: string, file: File): Promise<T> {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    window.location.href = "/login";
+    throw new Error("认证已过期");
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `请求失败: ${res.status}`);
+  }
+
+  return res.json();
+}
+
 export async function getMe(): Promise<UserInfo> {
   return api<UserInfo>("/auth/me");
 }

@@ -22,7 +22,7 @@ class Settings:
     )
 
     # JWT 配置
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production")
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "")
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_HOURS: int = 24
 
@@ -37,9 +37,9 @@ class Settings:
     OBS_ENDPOINT: str = os.getenv("OBS_ENDPOINT", "")
     OBS_BUCKET: str = os.getenv("OBS_BUCKET", "hitronics-learning")
 
-    # 内置管理员账号
-    BUILTIN_ADMIN_USERNAME: str = "hitronics"
-    BUILTIN_ADMIN_PASSWORD: str = "Ht12345!"
+    # 内置管理员账号（生产环境必须通过环境变量设置密码）
+    BUILTIN_ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "hitronics")
+    BUILTIN_ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
 
 
 settings = Settings()

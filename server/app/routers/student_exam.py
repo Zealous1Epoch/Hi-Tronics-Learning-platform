@@ -183,8 +183,25 @@ def submit_exam(
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
 
-    # 获取所有题目
-    question_ids = [a.question_id for a in data.answers]
+    # 获取合法题目 ID 集合（防止提交不属于本次考试的题目）
+    paper = db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).first()
+    valid_question_ids: set[str] = set()
+    if paper and paper.questions:
+        valid_question_ids = {q["question_id"] for q in paper.questions}
+    elif paper and paper.random_rules:
+        # 随机组卷：获取所有可能被抽到的题目
+        for rule in paper.random_rules:
+            pool = db.query(Question).filter(
+                Question.type == rule["type"],
+                Question.difficulty == rule["difficulty"],
+            ).all()
+            valid_question_ids.update(q.id for q in pool)
+
+    # 过滤掉非法题目
+    question_ids = [a.question_id for a in data.answers if a.question_id in valid_question_ids]
+    if not question_ids:
+        raise HTTPException(status_code=400, detail="提交的题目均不属于本次考试")
+
     questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
     question_map = {q.id: q for q in questions}
 
@@ -275,7 +292,7 @@ def get_results(
             "score": r.score,
             "passed": r.passed,
             "attempt_number": r.attempt_number,
-            "started_at": r.started_at.isoformat(),
+            "started_at": r.started_at.isoformat() if r.started_at else None,
             "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
         }
         for r in results

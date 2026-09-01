@@ -11,6 +11,12 @@ interface ExamItem {
 interface CourseItem {
   id: string; title: string;
 }
+interface ExamFormData {
+  title: string; course_id: string; paper_type: string;
+  duration: number; total_score: number; pass_score: number;
+  max_attempts: number | null;
+  start_time: string | null; end_time: string | null;
+}
 
 const STATUS_LABELS: Record<string, string> = { draft: "草稿", not_started: "未开始", in_progress: "进行中", ended: "已结束" };
 const STATUS_COLORS: Record<string, string> = {
@@ -73,7 +79,7 @@ export default function ExamManage() {
   const handleSave = async () => {
     if (!title.trim() || !courseId) return;
     setSaving(true);
-    const body: Record<string, unknown> = {
+    const body: ExamFormData = {
       title, course_id: courseId, paper_type: paperType,
       duration, total_score: totalScore, pass_score: passScore,
       max_attempts: maxAttempts ? parseInt(maxAttempts) : null,

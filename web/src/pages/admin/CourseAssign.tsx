@@ -7,6 +7,7 @@ interface UserItem {
 }
 interface DeptItem {
   id: string; name: string;
+  children?: DeptItem[];
 }
 interface CourseInfo {
   id: string; title: string;
@@ -43,8 +44,8 @@ export default function CourseAssign() {
 
   useEffect(() => { fetchData(); }, [id]);
 
-  const flattenDepts = (depts: any[]): DeptItem[] => {
-    return depts.flatMap((d: any) => [
+  const flattenDepts = (depts: DeptItem[]): DeptItem[] => {
+    return depts.flatMap((d) => [
       { id: d.id, name: d.name },
       ...flattenDepts(d.children || []),
     ]);

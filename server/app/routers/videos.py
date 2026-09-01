@@ -45,8 +45,12 @@ async def upload_video(
 
 
 @router.get("/videos/stream/{filename}")
-async def stream_video(filename: str, request: Request):
-    """流式播放视频（支持 Range 请求）"""
+async def stream_video(
+    filename: str,
+    request: Request,
+    _: User = Depends(get_current_user),
+):
+    """流式播放视频（支持 Range 请求，需登录）"""
     filepath = os.path.join(UPLOAD_DIR, filename)
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="视频不存在")

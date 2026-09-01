@@ -1,6 +1,7 @@
 """课程管理路由"""
 
 import uuid
+from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -11,6 +12,40 @@ from app.schemas.course import (
     CourseOut, VideoCreate, VideoOut, VideoReorder,
 )
 from app.routers.auth import get_current_user, require_admin
+from pydantic import BaseModel
+
+
+class AssignRequest(BaseModel):
+    user_ids: list[str] = []
+    department_ids: list[str] = []
+
+
+def _courses_with_videos(db: Session, courses: list[Course]) -> list[CourseOut]:
+    """批量查询视频并组装 CourseOut，避免 N+1 查询"""
+    if not courses:
+        return []
+    course_ids = [c.id for c in courses]
+    all_videos = (
+        db.query(Video)
+        .filter(Video.course_id.in_(course_ids))
+        .order_by(Video.sort_order)
+        .all()
+    )
+    videos_by_course: dict[str, list[Video]] = defaultdict(list)
+    for v in all_videos:
+        videos_by_course[v.course_id].append(v)
+    return [
+        CourseOut(
+            id=c.id, title=c.title, description=c.description,
+            cover_image=c.cover_image, category_id=c.category_id,
+            exam_id=c.exam_id, status=c.status,
+            created_by=c.created_by, created_at=c.created_at,
+            updated_at=c.updated_at,
+            videos=[VideoOut.model_validate(v) for v in videos_by_course.get(c.id, [])],
+            video_count=len(videos_by_course.get(c.id, [])),
+        )
+        for c in courses
+    ]
 
 router = APIRouter(prefix="/api", tags=["课程管理"])
 
@@ -68,17 +103,7 @@ def list_courses(
     if search:
         q = q.filter(Course.title.contains(search))
     courses = q.order_by(Course.created_at.desc()).all()
-    result = []
-    for c in courses:
-        videos = db.query(Video).filter(Video.course_id == c.id).order_by(Video.sort_order).all()
-        result.append(CourseOut(
-            id=c.id, title=c.title, description=c.description, cover_image=c.cover_image,
-            category_id=c.category_id, exam_id=c.exam_id, status=c.status,
-            created_by=c.created_by, created_at=c.created_at, updated_at=c.updated_at,
-            videos=[VideoOut.model_validate(v) for v in videos],
-            video_count=len(videos),
-        ))
-    return result
+    return _courses_with_videos(db, courses)
 
 
 @router.post("/courses", response_model=CourseOut)
@@ -106,16 +131,7 @@ def get_course(course_id: str, db: Session = Depends(get_db), _: User = Depends(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
-    videos = db.query(Video).filter(Video.course_id == course_id).order_by(Video.sort_order).all()
-    return CourseOut(
-        id=course.id, title=course.title, description=course.description,
-        cover_image=course.cover_image, category_id=course.category_id,
-        exam_id=course.exam_id, status=course.status,
-        created_by=course.created_by, created_at=course.created_at,
-        updated_at=course.updated_at,
-        videos=[VideoOut.model_validate(v) for v in videos],
-        video_count=len(videos),
-    )
+    return _courses_with_videos(db, [course])[0]
 
 
 @router.put("/courses/{course_id}", response_model=CourseOut)
@@ -127,16 +143,7 @@ def update_course(course_id: str, data: CourseUpdate, db: Session = Depends(get_
         setattr(course, field, value)
     db.commit()
     db.refresh(course)
-    videos = db.query(Video).filter(Video.course_id == course_id).order_by(Video.sort_order).all()
-    return CourseOut(
-        id=course.id, title=course.title, description=course.description,
-        cover_image=course.cover_image, category_id=course.category_id,
-        exam_id=course.exam_id, status=course.status,
-        created_by=course.created_by, created_at=course.created_at,
-        updated_at=course.updated_at,
-        videos=[VideoOut.model_validate(v) for v in videos],
-        video_count=len(videos),
-    )
+    return _courses_with_videos(db, [course])[0]
 
 
 @router.delete("/courses/{course_id}")
@@ -213,26 +220,9 @@ def student_courses(
         .order_by(Course.created_at.desc())
         .all()
     )
-    result = []
-    for c in courses:
-        videos = db.query(Video).filter(Video.course_id == c.id).order_by(Video.sort_order).all()
-        result.append(CourseOut(
-            id=c.id, title=c.title, description=c.description, cover_image=c.cover_image,
-            category_id=c.category_id, exam_id=c.exam_id, status=c.status,
-            created_by=c.created_by, created_at=c.created_at, updated_at=c.updated_at,
-            videos=[VideoOut.model_validate(v) for v in videos],
-            video_count=len(videos),
-        ))
-    return result
+    return _courses_with_videos(db, courses)
 
 # ========== 课程分配 ==========
-
-from pydantic import BaseModel
-
-
-class AssignRequest(BaseModel):
-    user_ids: list[str] = []
-    department_ids: list[str] = []
 
 
 @router.get("/courses/{course_id}/assignments")

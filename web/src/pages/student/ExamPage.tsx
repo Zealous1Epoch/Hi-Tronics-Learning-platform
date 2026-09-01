@@ -31,6 +31,7 @@ export default function ExamPage() {
   const [submitting, setSubmitting] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handleSubmitRef = useRef<() => void>(() => {});
 
   // 答案状态
   const [answers, setAnswers] = useState<Record<string, string | string[] | boolean>>({});
@@ -49,14 +50,18 @@ export default function ExamPage() {
       });
   }, [id]);
 
-  // 倒计时
+  // 倒计时（使用 ref 避免闭包陷阱）
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit;
+  });
+
   useEffect(() => {
     if (!examData || submitted) return;
     timerRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timerRef.current!);
-          handleSubmit();
+          handleSubmitRef.current();
           return 0;
         }
         return prev - 1;

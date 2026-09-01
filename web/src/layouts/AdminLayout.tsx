@@ -38,13 +38,13 @@ export default function AdminLayout() {
         <h2 className="text-lg font-bold mb-6">学习管理后台</h2>
         <nav className="flex flex-col gap-1 text-sm">
           {menuItems.map((item) => (
-            <a
+            <Link
               key={item.path}
-              href={item.path}
+              to={item.path}
               className="px-3 py-2 rounded hover:bg-white/10 transition-colors"
             >
               {item.label}
-            </a>
+            </Link>
           ))}
         </nav>
       </aside>

@@ -1,11 +1,16 @@
 """用户管理路由"""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.schemas.user import UserOut, UserUpdateRole
 from app.routers.auth import get_current_user, require_admin
+
+
+class UserUpdateStatus(BaseModel):
+    status: str
 
 router = APIRouter(prefix="/api/users", tags=["用户管理"])
 
@@ -55,7 +60,7 @@ def update_user_role(
 @router.put("/{user_id}/status", response_model=UserOut)
 def update_user_status(
     user_id: str,
-    body: dict,
+    data: UserUpdateStatus,
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
@@ -63,10 +68,9 @@ def update_user_status(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    new_status = body.get("status")
-    if new_status not in ("active", "disabled"):
+    if data.status not in ("active", "disabled"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="状态无效")
-    user.status = new_status
+    user.status = data.status
     db.commit()
     db.refresh(user)
     return user

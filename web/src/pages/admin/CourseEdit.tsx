@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api } from "../../lib/api";
+import { api, uploadFile } from "../../lib/api";
 
 interface CategoryItem {
   id: string; name: string; children: CategoryItem[];
@@ -71,14 +71,9 @@ export default function CourseEdit() {
     fileInput.onchange = async () => {
       const file = fileInput.files?.[0];
       if (!file) return;
-      const formData = new FormData();
-      formData.append("file", file);
-      const uploadRes = await fetch("/api/videos/upload", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        body: formData,
-      });
-      const { filename, file_size } = await uploadRes.json();
+      const { filename, file_size } = await uploadFile<{ filename: string; file_size: number }>(
+        "/videos/upload", file
+      );
       await api(`/courses/${id}/videos`, {
         method: "POST",
         body: JSON.stringify({ title, obs_key: filename, file_size }),

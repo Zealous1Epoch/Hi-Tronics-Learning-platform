@@ -1,6 +1,7 @@
 """学习进度路由"""
 
 import uuid
+from collections import defaultdict
 from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -189,42 +190,67 @@ def admin_progress(
     _: User = Depends(require_admin),
 ):
     """管理员查看所有学员的学习进度"""
-    # 获取所有课程（或指定课程）
-    courses_query = db.query(Course)
+    # 一次性获取所有课程的视频数
+    courses_query = db.query(
+        Course.id,
+        Course.title,
+        func.count(Video.id).label("video_count"),
+    ).outerjoin(Video, Video.course_id == Course.id).group_by(Course.id)
     if course_id:
         courses_query = courses_query.filter(Course.id == course_id)
-    courses = courses_query.all()
+    course_rows = courses_query.all()
+    course_map = {
+        r.id: {"title": r.title, "video_count": r.video_count}
+        for r in course_rows if r.video_count > 0
+    }
 
-    # 获取所有学员
-    students = db.query(User).filter(User.role == "student").all()
+    if not course_map:
+        return []
+
+    # 一次性获取所有学员的完成数
+    progress_rows = (
+        db.query(
+            LearningProgress.user_id,
+            LearningProgress.course_id,
+            func.count(LearningProgress.id).label("completed"),
+        )
+        .filter(
+            LearningProgress.completed == True,
+            LearningProgress.course_id.in_(course_map.keys()),
+        )
+        .group_by(LearningProgress.user_id, LearningProgress.course_id)
+        .all()
+    )
+
+    # 按用户分组
+    user_progress: dict[str, dict[str, int]] = defaultdict(dict)
+    user_ids = set()
+    for row in progress_rows:
+        user_progress[row.user_id][row.course_id] = row.completed
+        user_ids.add(row.user_id)
+
+    if not user_ids:
+        return []
+
+    # 获取学员信息
+    students = (
+        db.query(User)
+        .filter(User.id.in_(user_ids), User.role == "student")
+        .all()
+    )
 
     result = []
     for student in students:
         course_progress = []
-        for course in courses:
-            # 获取该课程的视频总数
-            video_count = db.query(func.count(Video.id)).filter(
-                Video.course_id == course.id
-            ).scalar() or 0
-
-            if video_count == 0:
-                continue
-
-            # 获取该学员在该课程的完成数
-            completed_count = db.query(func.count(LearningProgress.id)).filter(
-                LearningProgress.user_id == student.id,
-                LearningProgress.course_id == course.id,
-                LearningProgress.completed == True,
-            ).scalar() or 0
-
+        for cid, cinfo in course_map.items():
+            completed = user_progress.get(student.id, {}).get(cid, 0)
             course_progress.append({
-                "course_id": course.id,
-                "course_title": course.title,
-                "completed_count": completed_count,
-                "total_count": video_count,
-                "progress_pct": round(completed_count / video_count * 100) if video_count > 0 else 0,
+                "course_id": cid,
+                "course_title": cinfo["title"],
+                "completed_count": completed,
+                "total_count": cinfo["video_count"],
+                "progress_pct": round(completed / cinfo["video_count"] * 100),
             })
-
         if course_progress:
             result.append({
                 "user_id": student.id,

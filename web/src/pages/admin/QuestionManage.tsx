@@ -86,8 +86,15 @@ export default function QuestionManage() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchQuestions(); }, [typeFilter, diffFilter, categoryFilter]);
   useEffect(() => {
+    fetchQuestions();
+  }, [typeFilter, diffFilter, categoryFilter]);
+
+  useEffect(() => {
+    if (!search) {
+      fetchQuestions();
+      return;
+    }
     const timer = setTimeout(fetchQuestions, 300);
     return () => clearTimeout(timer);
   }, [search]);

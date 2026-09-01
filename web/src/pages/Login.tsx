@@ -69,10 +69,7 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="text-xs text-text-secondary mt-4 text-center">
-          初始管理员: hitronics / Ht12345!
-        </p>
-      </div>
+              </div>
     </div>
   );
 }

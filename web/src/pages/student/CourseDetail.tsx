@@ -54,7 +54,7 @@ export default function CourseDetail() {
             <div className="bg-black rounded-lg overflow-hidden">
               <VideoPlayer
                 key={activeVideo.id}
-                src={`/api/videos/stream/${activeVideo.obs_key}`}
+                src={`/api/videos/stream/${activeVideo.obs_key}?token=${localStorage.getItem("token") || ""}`}
                 onProgress={handleProgress}
               />
             </div>

@@ -41,6 +41,7 @@ export interface UserInfo {
   username: string;
   name: string;
   role: string;
+  status: string;
   department: string | null;
   employee_id: string | null;
   avatar: string | null;

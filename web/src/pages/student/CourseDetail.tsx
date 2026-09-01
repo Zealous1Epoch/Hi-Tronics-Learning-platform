@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import VideoPlayer from "../../components/VideoPlayer";
 
@@ -9,7 +9,7 @@ interface VideoItem {
 }
 interface CourseDetail {
   id: string; title: string; description: string | null;
-  videos: VideoItem[];
+  videos: VideoItem[]; exam_id: string | null;
 }
 
 export default function CourseDetail() {
@@ -31,8 +31,17 @@ export default function CourseDetail() {
   const activeVideo = course.videos[activeVideoIdx];
 
   const handleProgress = (seconds: number) => {
-    // 上报学习进度（后续对接）
-    console.log(`Progress: ${seconds}s`);
+    if (!activeVideo) return;
+    const duration = activeVideo.duration || 0;
+    api("/student/progress", {
+      method: "POST",
+      body: JSON.stringify({
+        video_id: activeVideo.id,
+        course_id: course.id,
+        watched_seconds: seconds,
+        total_seconds: duration,
+      }),
+    }).catch(() => {}); // 静默失败，不影响播放体验
   };
 
   return (
@@ -56,6 +65,16 @@ export default function CourseDetail() {
           )}
           {course.description && (
             <p className="mt-4 text-sm text-text-secondary">{course.description}</p>
+          )}
+          {course.exam_id && (
+            <div className="mt-4">
+              <Link
+                to={`/student/exams/${course.exam_id}`}
+                className="inline-block px-6 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
+              >
+                开始考试
+              </Link>
+            </div>
           )}
         </div>
 

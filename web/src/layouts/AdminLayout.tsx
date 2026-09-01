@@ -11,11 +11,15 @@ import ExamResults from "../pages/admin/ExamResults";
 import UserProgress from "../pages/admin/UserProgress";
 import UserManage from "../pages/admin/UserManage";
 import DepartmentManage from "../pages/admin/DepartmentManage";
+import TagManage from "../pages/admin/TagManage";
+import CategoryManage from "../pages/admin/CategoryManage";
 
 const menuItems = [
   { label: "首页", path: "/admin" },
   { label: "课程管理", path: "/admin/courses" },
   { label: "题库管理", path: "/admin/questions" },
+  { label: "题库分类", path: "/admin/categories" },
+  { label: "标签管理", path: "/admin/tags" },
   { label: "考试管理", path: "/admin/exams" },
   { label: "学员进度", path: "/admin/users/progress" },
   { label: "用户管理", path: "/admin/users" },
@@ -60,6 +64,8 @@ export default function AdminLayout() {
             <Route path="courses/:id/edit" element={<CourseEdit />} />
             <Route path="courses/:id/assign" element={<CourseAssign />} />
             <Route path="questions" element={<QuestionManage />} />
+            <Route path="categories" element={<CategoryManage />} />
+            <Route path="tags" element={<TagManage />} />
             <Route path="exams" element={<ExamManage />} />
             <Route path="exams/:id/paper" element={<ExamPaper />} />
             <Route path="exams/:id/results" element={<ExamResults />} />

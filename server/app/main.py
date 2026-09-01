@@ -10,6 +10,12 @@ from app.routers.users import router as users_router
 from app.routers.departments import router as departments_router
 from app.routers.courses import router as courses_router
 from app.routers.videos import router as videos_router
+from app.routers.questions import router as questions_router
+from app.routers.exams import router as exams_router
+from app.routers.student_exam import router as student_exam_router
+from app.routers.question_tags import router as question_tags_router
+from app.routers.question_categories import router as question_categories_router
+from app.routers.learning_progress import router as learning_progress_router, admin_router as admin_progress_router
 from app.services.seed import seed_builtin_admin
 
 
@@ -44,6 +50,13 @@ app.include_router(users_router)
 app.include_router(departments_router)
 app.include_router(courses_router)
 app.include_router(videos_router)
+app.include_router(questions_router)
+app.include_router(exams_router)
+app.include_router(student_exam_router)
+app.include_router(question_tags_router)
+app.include_router(question_categories_router)
+app.include_router(learning_progress_router)
+app.include_router(admin_progress_router)
 
 
 @app.get("/api/health")

@@ -29,6 +29,12 @@ class Question(Base):
         String(10), default="medium", nullable=False, comment="easy / medium / hard"
     )
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True, comment="知识点标签")
+    section: Mapped[str | None] = mapped_column(
+        String(200), nullable=True, comment="关联章节"
+    )
+    category_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, comment="题库分类ID"
+    )
     created_by: Mapped[str | None] = mapped_column(
         String(36), nullable=True, comment="创建者"
     )

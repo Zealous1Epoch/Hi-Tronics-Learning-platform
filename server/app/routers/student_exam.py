@@ -1,0 +1,282 @@
+"""学员端考试路由"""
+
+import uuid
+import random
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from app.database import get_db
+from app.models.user import User
+from app.models.exam import Exam, ExamPaper, ExamResult
+from app.models.question import Question
+from app.routers.auth import get_current_user
+
+router = APIRouter(prefix="/api/student", tags=["学员考试"])
+
+
+class SubmitAnswer(BaseModel):
+    question_id: str
+    answer: str | list[str] | bool | None = None  # 学生的答案
+
+
+class SubmitRequest(BaseModel):
+    answers: list[SubmitAnswer]
+
+
+def grade_question(question: Question, student_answer: str | list[str] | bool | None) -> tuple[int, int]:
+    """自动打分，返回 (得分, 满分)"""
+    q_type = question.type
+    correct = question.answer
+
+    if q_type == "single_choice":
+        full_score = 10
+        if student_answer and isinstance(correct, dict):
+            return (full_score if str(student_answer) == str(correct.get("correct")) else 0, full_score)
+        return (0, full_score)
+
+    elif q_type == "multi_choice":
+        full_score = 10
+        if student_answer and isinstance(correct, dict):
+            correct_list = sorted(correct.get("correct", []))
+            student_list = sorted(student_answer) if isinstance(student_answer, list) else []
+            return (full_score if correct_list == student_list else 0, full_score)
+        return (0, full_score)
+
+    elif q_type == "true_false":
+        full_score = 10
+        if student_answer is not None and isinstance(correct, dict):
+            student_bool = student_answer if isinstance(student_answer, bool) else str(student_answer).lower() == "true"
+            return (full_score if student_bool == correct.get("correct") else 0, full_score)
+        return (0, full_score)
+
+    elif q_type == "fill_blank":
+        full_score = 10
+        if student_answer and isinstance(correct, dict):
+            return (full_score if str(student_answer).strip().lower() == str(correct.get("correct")).strip().lower() else 0, full_score)
+        return (0, full_score)
+
+    elif q_type == "essay":
+        full_score = 20
+        keywords: list[str] = question.keywords or []
+        if not keywords:
+            return (full_score, full_score)  # 无关键词则满分
+        if not student_answer:
+            return (0, full_score)
+        answer_lower = str(student_answer).lower()
+        matched = sum(1 for kw in keywords if kw.lower() in answer_lower)
+        if len(keywords) == 0:
+            return (full_score, full_score)
+        score = round(full_score * matched / len(keywords))
+        return (score, full_score)
+
+    return (0, 10)
+
+
+@router.get("/exams/{exam_id}/start")
+def start_exam(
+    exam_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """开始考试，返回试卷题目"""
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="考试不存在")
+
+    # 检查是否已参加过（达到最大次数）
+    if exam.max_attempts:
+        attempt_count = (
+            db.query(ExamResult)
+            .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+            .count()
+        )
+        if attempt_count >= exam.max_attempts:
+            raise HTTPException(status_code=400, detail="已达到最大重考次数")
+
+    paper = db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).first()
+    if not paper:
+        raise HTTPException(status_code=400, detail="试卷尚未配置")
+
+    # 获取题目
+    if exam.paper_type == "fixed" and paper.questions:
+        # 固定组卷
+        question_configs = paper.questions
+        question_ids = [q["question_id"] for q in question_configs]
+        score_map = {q["question_id"]: q["score"] for q in question_configs}
+        questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
+        # 按配置顺序排列
+        questions.sort(key=lambda q: question_ids.index(q.id))
+        result = []
+        for q in questions:
+            result.append({
+                "id": q.id,
+                "type": q.type,
+                "stem": q.stem,
+                "options": q.options,
+                "score": score_map.get(q.id, 10),
+                # 不返回正确答案
+            })
+
+    elif exam.paper_type == "random" and paper.random_rules:
+        # 随机组卷：按规则动态抽题
+        result = []
+        for rule in paper.random_rules:
+            pool = (
+                db.query(Question)
+                .filter(Question.type == rule["type"], Question.difficulty == rule["difficulty"])
+                .all()
+            )
+            selected = random.sample(pool, min(rule["count"], len(pool)))
+            for q in selected:
+                result.append({
+                    "id": q.id,
+                    "type": q.type,
+                    "stem": q.stem,
+                    "options": q.options,
+                    "score": rule["score"],
+                })
+        random.shuffle(result)
+    else:
+        raise HTTPException(status_code=400, detail="试卷配置无效")
+
+    # 创建考试记录（标记开始）
+    attempt_number = (
+        db.query(ExamResult)
+        .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+        .count()
+    ) + 1
+
+    # 暂存一个未完成的记录
+    exam_result = ExamResult(
+        id=str(uuid.uuid4()),
+        exam_id=exam_id,
+        user_id=current_user.id,
+        answers={},
+        score=0,
+        passed=False,
+        attempt_number=attempt_number,
+        started_at=datetime.now(),
+    )
+    db.add(exam_result)
+    db.commit()
+
+    return {
+        "result_id": exam_result.id,
+        "exam_title": exam.title,
+        "duration": exam.duration,
+        "total_score": exam.total_score,
+        "questions": result,
+        "attempt_number": attempt_number,
+    }
+
+
+@router.post("/exams/{exam_id}/submit")
+def submit_exam(
+    exam_id: str,
+    data: SubmitRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """交卷并自动打分"""
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="考试不存在")
+
+    # 获取所有题目
+    question_ids = [a.question_id for a in data.answers]
+    questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
+    question_map = {q.id: q for q in questions}
+
+    # 打分
+    total_score = 0
+    max_score = 0
+    grading_details = []
+
+    for ans in data.answers:
+        q = question_map.get(ans.question_id)
+        if not q:
+            continue
+        score, full = grade_question(q, ans.answer)
+        total_score += score
+        max_score += full
+        grading_details.append({
+            "question_id": ans.question_id,
+            "score": score,
+            "max_score": full,
+        })
+
+    passed = total_score >= exam.pass_score
+
+    # 更新或创建考试结果
+    paper = db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).first()
+    paper_total = 0
+    if paper and paper.questions:
+        paper_total = sum(q.get("score", 10) for q in paper.questions)
+    elif paper and paper.random_rules:
+        paper_total = sum(r["count"] * r["score"] for r in paper.random_rules)
+
+    # 使用实际组卷总分
+    final_score = round(total_score * exam.total_score / max(max_score, 1))
+
+    # 查找最近的未完成记录
+    result = (
+        db.query(ExamResult)
+        .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+        .order_by(ExamResult.started_at.desc())
+        .first()
+    )
+    if result:
+        result.answers = [a.model_dump() for a in data.answers]
+        result.score = final_score
+        result.passed = passed
+        result.submitted_at = datetime.now()
+    else:
+        result = ExamResult(
+            id=str(uuid.uuid4()),
+            exam_id=exam_id,
+            user_id=current_user.id,
+            answers=[a.model_dump() for a in data.answers],
+            score=final_score,
+            passed=passed,
+            attempt_number=1,
+            started_at=datetime.now(),
+            submitted_at=datetime.now(),
+        )
+        db.add(result)
+
+    db.commit()
+
+    return {
+        "score": final_score,
+        "total_score": exam.total_score,
+        "passed": passed,
+        "pass_score": exam.pass_score,
+        "grading_details": grading_details,
+    }
+
+
+@router.get("/exams/{exam_id}/results")
+def get_results(
+    exam_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户的考试记录"""
+    results = (
+        db.query(ExamResult)
+        .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+        .order_by(ExamResult.submitted_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "score": r.score,
+            "passed": r.passed,
+            "attempt_number": r.attempt_number,
+            "started_at": r.started_at.isoformat(),
+            "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+        }
+        for r in results
+    ]

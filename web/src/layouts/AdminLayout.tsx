@@ -6,8 +6,6 @@ import {
 } from "lucide-react";
 import AdminDashboard from "../pages/admin/Dashboard";
 import CourseManage from "../pages/admin/CourseManage";
-import CourseEdit from "../pages/admin/CourseEdit";
-import CourseAssign from "../pages/admin/CourseAssign";
 import QuestionBank from "../pages/admin/QuestionBank";
 import PaperManage from "../pages/admin/PaperManage";
 import ExamManage from "../pages/admin/ExamManage";
@@ -101,8 +99,6 @@ export default function AdminLayout() {
           <Routes>
             <Route index element={<AdminDashboard />} />
             <Route path="courses" element={<CourseManage />} />
-            <Route path="courses/:id/edit" element={<CourseEdit />} />
-            <Route path="courses/:id/assign" element={<CourseAssign />} />
             <Route path="question-bank" element={<QuestionBank />} />
             <Route path="knowledge" element={<KnowledgeManage />} />
             <Route path="papers" element={<PaperManage />} />

@@ -2,13 +2,13 @@
 
 import uuid
 from collections import defaultdict
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.models.course import CourseCategory, Course, Video
+from app.models.course import Course, Video
 from app.schemas.course import (
-    CategoryCreate, CategoryOut, CourseCreate, CourseUpdate,
+    CourseCreate, CourseUpdate,
     CourseOut, VideoCreate, VideoOut, VideoReorder,
 )
 from app.routers.auth import get_current_user, require_admin
@@ -48,41 +48,6 @@ def _courses_with_videos(db: Session, courses: list[Course]) -> list[CourseOut]:
     ]
 
 router = APIRouter(prefix="/api", tags=["课程管理"])
-
-
-# ========== 课程分类 ==========
-
-def build_category_tree(categories: list[CourseCategory], parent_id: str | None = None) -> list[CategoryOut]:
-    children = [c for c in categories if c.parent_id == parent_id]
-    return [
-        CategoryOut(id=c.id, name=c.name, parent_id=c.parent_id, sort_order=c.sort_order,
-                     children=build_category_tree(categories, c.id))
-        for c in sorted(children, key=lambda x: x.sort_order)
-    ]
-
-
-@router.get("/categories", response_model=list[CategoryOut])
-def list_categories(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    return build_category_tree(db.query(CourseCategory).all())
-
-
-@router.post("/categories", response_model=CategoryOut)
-def create_category(data: CategoryCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    cat = CourseCategory(name=data.name, parent_id=data.parent_id)
-    db.add(cat)
-    db.commit()
-    db.refresh(cat)
-    return CategoryOut(id=cat.id, name=cat.name, parent_id=cat.parent_id, sort_order=cat.sort_order, children=[])
-
-
-@router.delete("/categories/{cat_id}")
-def delete_category(cat_id: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    cat = db.query(CourseCategory).filter(CourseCategory.id == cat_id).first()
-    if not cat:
-        raise HTTPException(status_code=404, detail="分类不存在")
-    db.delete(cat)
-    db.commit()
-    return {"ok": True}
 
 
 # ========== 课程 ==========

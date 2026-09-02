@@ -136,20 +136,29 @@ def delete_category(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """删除分类（递归删除子分类）"""
+    """删除分类（递归删除子分类及关联题目）"""
     category = db.query(QuestionCategory).filter(QuestionCategory.id == category_id).first()
     if not category:
         raise HTTPException(status_code=404, detail="分类不存在")
 
-    # 递归删除子分类
-    def delete_children(parent_id: str):
+    # 递归收集所有子节点 ID（含自身），深度优先
+    def collect_descendant_ids(parent_id: str) -> list[str]:
+        ids: list[str] = []
         children = db.query(QuestionCategory).filter(QuestionCategory.parent_id == parent_id).all()
         for child in children:
-            delete_children(child.id)
-            db.delete(child)
+            ids.extend(collect_descendant_ids(child.id))
+        ids.append(parent_id)  # 父节点放在最后，确保先删子节点
+        return ids
 
-    delete_children(category_id)
-    db.delete(category)
+    all_ids = collect_descendant_ids(category_id)
+
+    # 删除关联题目
+    db.query(Question).filter(Question.category_id.in_(all_ids)).delete(synchronize_session=False)
+    db.flush()
+
+    # 从深到浅删除分类（all_ids 已经是深度优先，叶子在前）
+    for cid in all_ids:
+        db.query(QuestionCategory).filter(QuestionCategory.id == cid).delete()
     db.commit()
     return {"ok": True}
 

@@ -4,22 +4,6 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
-class CategoryCreate(BaseModel):
-    name: str
-    parent_id: str | None = None
-
-
-class CategoryOut(BaseModel):
-    id: str
-    name: str
-    parent_id: str | None = None
-    sort_order: int
-    children: list["CategoryOut"] = []
-
-    class Config:
-        from_attributes = True
-
-
 class VideoCreate(BaseModel):
     title: str
     obs_key: str = ""

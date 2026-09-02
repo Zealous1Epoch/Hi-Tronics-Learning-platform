@@ -89,3 +89,44 @@ export async function uploadFile<T = unknown>(path: string, file: File): Promise
 export async function getMe(): Promise<UserInfo> {
   return api<UserInfo>("/auth/me");
 }
+
+export async function uploadFileWithProgress<T = unknown>(
+  path: string,
+  file: File,
+  onProgress?: (progress: number) => void,
+): Promise<T> {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BASE}${path}`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        window.location.href = "/login";
+        reject(new Error("认证已过期"));
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText));
+      } else {
+        const body = JSON.parse(xhr.responseText || "{}");
+        reject(new Error(body.detail || `请求失败: ${xhr.status}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("网络错误"));
+    xhr.send(formData);
+  });
+}

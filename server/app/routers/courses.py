@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.course import Course, Video
+from app.models.question_category import QuestionCategory
 from app.schemas.course import (
     CourseCreate, CourseUpdate,
     CourseOut, VideoCreate, VideoOut, VideoReorder,
@@ -52,6 +53,15 @@ router = APIRouter(prefix="/api", tags=["课程管理"])
 
 # ========== 课程 ==========
 
+def _collect_category_ids(db: Session, category_id: str) -> list[str]:
+    """递归收集分类及其所有子分类的 ID"""
+    ids = [category_id]
+    children = db.query(QuestionCategory).filter(QuestionCategory.parent_id == category_id).all()
+    for child in children:
+        ids.extend(_collect_category_ids(db, child.id))
+    return ids
+
+
 @router.get("/courses", response_model=list[CourseOut])
 def list_courses(
     category_id: str | None = Query(None),
@@ -62,7 +72,8 @@ def list_courses(
 ):
     q = db.query(Course)
     if category_id:
-        q = q.filter(Course.category_id == category_id)
+        cat_ids = _collect_category_ids(db, category_id)
+        q = q.filter(Course.category_id.in_(cat_ids))
     if status:
         q = q.filter(Course.status == status)
     if search:

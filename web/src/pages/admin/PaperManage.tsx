@@ -170,11 +170,11 @@ export default function PaperManage() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4">试卷管理</h2>
+      <h2 className="text-xl font-bold text-primary mb-4 pb-3 border-b border-border">试卷管理</h2>
 
-      <div className="flex gap-4">
+      <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧分类树 */}
-        <div className="w-56 shrink-0">
+        <div className="w-56 shrink-0 pr-4 border-r border-border">
           <div className="relative mb-2">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
             <input

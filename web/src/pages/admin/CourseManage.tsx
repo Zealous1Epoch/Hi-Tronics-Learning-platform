@@ -67,6 +67,9 @@ export default function CourseManage() {
   const [saving, setSaving] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [categorySearch, setCategorySearch] = useState("");
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const categoryDropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 分配弹窗
@@ -117,7 +120,7 @@ export default function CourseManage() {
   };
 
   const handleDeleteCategory = async (id: string) => {
-    if (!confirm("删除此分类将同时删除其子分类及关联题目，确定？")) return;
+    if (!confirm("删除此课程将同时删除其章节，确定？")) return;
     try {
       await api(`/question-categories/${id}`, { method: "DELETE" });
       if (selectedId === id) setSelectedId(null);
@@ -182,6 +185,8 @@ export default function CourseManage() {
     setEditCategoryId(selectedId || "");
     setEditVideos([]);
     setPendingFiles([]);
+    setCategorySearch("");
+    setShowCategoryDropdown(false);
     setShowEditModal(true);
   };
 
@@ -351,6 +356,19 @@ export default function CourseManage() {
     setExpandedIds(new Set(collectIds(filteredTree)));
   }, [searchText]);
 
+  // 点击外部关闭分类下拉
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(e.target as Node)) {
+        setShowCategoryDropdown(false);
+      }
+    };
+    if (showCategoryDropdown) {
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }
+  }, [showCategoryDropdown]);
+
   const filteredUsers = allUsers.filter(u =>
     u.name.includes(userSearch) || (u.department && u.department.includes(userSearch))
   );
@@ -418,15 +436,15 @@ export default function CourseManage() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4">课程管理</h2>
+      <h2 className="text-xl font-bold text-primary mb-4 pb-3 border-b border-border">课程管理</h2>
 
-      <div className="flex gap-4">
-        {/* 左侧分类树 */}
-        <div className="w-56 shrink-0">
+      <div className="flex gap-4 min-h-[calc(100vh-180px)]">
+        {/* 左侧课程树 */}
+        <div className="w-56 shrink-0 pr-4 border-r border-border">
           <div className="relative mb-2">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
             <input
-              type="text" placeholder="搜索分类..."
+              type="text" placeholder="搜索课程..."
               value={searchText} onChange={e => setSearchText(e.target.value)}
               className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
             />
@@ -434,13 +452,13 @@ export default function CourseManage() {
           <div className="bg-bg-base rounded-lg border border-border max-h-[calc(100vh-240px)] overflow-y-auto">
             {loading ? (
               <p className="p-4 text-sm text-text-secondary">加载中...</p>
-            ) : filteredTree.length === 0 ? (
+            ) : filteredTree.length === 0 && !addingRoot ? (
               <div className="p-4 text-center text-sm text-text-secondary">
-                {searchText ? "无匹配结果" : "暂无分类，点击下方按钮添加"}
+                {searchText ? "无匹配结果" : "暂无课程，点击下方按钮添加"}
               </div>
             ) : (
               <div className="py-1">
-                {renderTree(filteredTree)}
+                {filteredTree.length > 0 && renderTree(filteredTree)}
                 {addingRoot && (
                   <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
                     <span className="w-5 shrink-0" />
@@ -451,6 +469,9 @@ export default function CourseManage() {
                       onKeyDown={e => {
                         if (e.key === "Enter") handleAddRoot();
                         if (e.key === "Escape") { setAddingRoot(false); setNewRootName(""); }
+                      }}
+                      onBlur={() => {
+                        if (!newRootName.trim()) { setAddingRoot(false); setNewRootName(""); }
                       }}
                       placeholder="输入名称..."
                       className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
@@ -465,7 +486,7 @@ export default function CourseManage() {
             onClick={() => { setAddingRoot(true); setNewRootName(""); }}
             className="mt-2 w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-primary/5"
           >
-            <Plus size={12} /> 添加根分类
+            <Plus size={12} /> 添加课程
           </button>
           {selectedId && (
             <div className="mt-1.5 space-y-1.5">
@@ -473,7 +494,7 @@ export default function CourseManage() {
                 onClick={startAddChild}
                 className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-light border border-primary"
               >
-                <Plus size={12} /> 添加子节点
+                <Plus size={12} /> 添加章节
               </button>
               <div className="flex gap-1.5">
                 <button
@@ -484,7 +505,7 @@ export default function CourseManage() {
                   }}
                   className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout"
                 >
-                  <Pencil size={12} /> 改名
+                  <Pencil size={12} /> 重命名
                 </button>
                 <button
                   onClick={() => handleDeleteCategory(selectedId)}
@@ -511,7 +532,7 @@ export default function CourseManage() {
             </button>
           </div>
 
-          {/* 改名输入框 */}
+          {/* 重命名输入框 */}
           {editingId && (
             <div className="flex items-center gap-2 bg-bg-base rounded-lg border border-border p-3 mb-3">
               <input
@@ -595,52 +616,81 @@ export default function CourseManage() {
                     className="w-full border border-border rounded-md px-3 py-2 text-sm bg-bg-layout text-text-secondary"
                   />
                 ) : (
-                  <div className="flex gap-2">
-                    {/* 一级：根节点 */}
-                    <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
-                      <div
-                        onClick={() => setEditCategoryId("")}
-                        className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout ${
-                          editCategoryId === "" ? "bg-primary/10 text-primary font-medium" : ""
-                        }`}
-                      >
-                        无分类
-                      </div>
-                      {tree.filter(n => !n.parent_id).map(root => (
-                        <div
-                          key={root.id}
-                          onClick={() => setEditCategoryId(root.id)}
-                          className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout flex items-center justify-between ${
-                            editCategoryId === root.id ? "bg-primary/10 text-primary font-medium" : ""
-                          }`}
-                        >
-                          <span className="truncate">{root.name}</span>
-                          {root.children.length > 0 && (
-                            <ChevronRight size={12} className="text-text-secondary shrink-0 ml-1" />
-                          )}
-                        </div>
-                      ))}
+                  <div ref={categoryDropdownRef} className="relative">
+                    <div
+                      onClick={() => { setShowCategoryDropdown(!showCategoryDropdown); setCategorySearch(""); }}
+                      className="w-full border border-border rounded-md px-3 py-2 text-sm cursor-pointer hover:border-primary/40 flex items-center justify-between"
+                    >
+                      <span className={editCategoryId ? "text-text-base" : "text-text-secondary"}>
+                        {editCategoryId ? getCategoryPath(editCategoryId) : "请选择课程"}
+                      </span>
+                      <ChevronDown size={14} className={`text-text-secondary transition-transform ${showCategoryDropdown ? "rotate-180" : ""}`} />
                     </div>
-                    {/* 二级：选中根节点的子节点 */}
-                    {editCategoryId && (() => {
-                      const selectedRoot = tree.find(n => n.id === editCategoryId);
-                      if (!selectedRoot || selectedRoot.children.length === 0) return null;
-                      return (
-                        <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
-                          {selectedRoot.children.map(child => (
+                    {showCategoryDropdown && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-bg-base border border-border rounded-md shadow-lg z-10 p-2 space-y-2">
+                        <input
+                          type="text"
+                          placeholder="搜索课程..."
+                          value={categorySearch}
+                          onChange={e => setCategorySearch(e.target.value)}
+                          className="w-full border border-border rounded-md px-3 py-1.5 text-sm"
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
                             <div
-                              key={child.id}
-                              onClick={() => setEditCategoryId(child.id)}
-                              className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout truncate ${
-                                editCategoryId === child.id ? "bg-primary/10 text-primary font-medium" : ""
+                              onClick={() => { setEditCategoryId(""); setShowCategoryDropdown(false); }}
+                              className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout ${
+                                editCategoryId === "" ? "bg-primary/10 text-primary font-medium" : ""
                               }`}
                             >
-                              {child.name}
+                              未分类
                             </div>
-                          ))}
+                            {tree
+                              .filter(n => !n.parent_id && (!categorySearch || n.name.toLowerCase().includes(categorySearch.toLowerCase())))
+                              .map(root => (
+                                <div
+                                  key={root.id}
+                                  onClick={() => {
+                                    setEditCategoryId(root.id);
+                                    if (root.children.length === 0) setShowCategoryDropdown(false);
+                                  }}
+                                  className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout flex items-center justify-between ${
+                                    editCategoryId === root.id ? "bg-primary/10 text-primary font-medium" : ""
+                                  }`}
+                                >
+                                  <span className="truncate">{root.name}</span>
+                                  {root.children.length > 0 && (
+                                    <ChevronRight size={12} className="text-text-secondary shrink-0 ml-1" />
+                                  )}
+                                </div>
+                              ))}
+                          </div>
+                          {editCategoryId && (() => {
+                            const selectedRoot = tree.find(n => n.id === editCategoryId);
+                            if (!selectedRoot || selectedRoot.children.length === 0) return null;
+                            const filteredChildren = categorySearch
+                              ? selectedRoot.children.filter(c => c.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                              : selectedRoot.children;
+                            return (
+                              <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
+                                {filteredChildren.map(child => (
+                                  <div
+                                    key={child.id}
+                                    onClick={() => { setEditCategoryId(child.id); setShowCategoryDropdown(false); }}
+                                    className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout truncate ${
+                                      editCategoryId === child.id ? "bg-primary/10 text-primary font-medium" : ""
+                                    }`}
+                                  >
+                                    {child.name}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
-                      );
-                    })()}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -21,3 +21,12 @@ class UserOut(BaseModel):
 
 class UserUpdateRole(BaseModel):
     role: str  # student / admin
+
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    name: str
+    employee_id: str | None = None
+    department: str | None = None
+    role: str = "student"

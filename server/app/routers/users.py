@@ -5,8 +5,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.schemas.user import UserOut, UserUpdateRole
+from app.schemas.user import UserOut, UserUpdateRole, UserCreate
 from app.routers.auth import get_current_user, require_admin
+from app.services.auth_service import hash_password
 
 
 class UserUpdateStatus(BaseModel):
@@ -36,6 +37,31 @@ def list_users(
     if status:
         q = q.filter(User.status == status)
     return q.order_by(User.created_at.desc()).all()
+
+
+@router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def create_user(
+    data: UserCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """创建用户"""
+    existing = db.query(User).filter(User.username == data.username).first()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
+    user = User(
+        username=data.username,
+        password_hash=hash_password(data.password),
+        name=data.name,
+        employee_id=data.employee_id,
+        department=data.department,
+        role=data.role,
+        status="active",
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @router.put("/{user_id}/role", response_model=UserOut)

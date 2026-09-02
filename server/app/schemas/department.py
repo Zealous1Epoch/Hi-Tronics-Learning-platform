@@ -21,3 +21,12 @@ class DepartmentOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class FlatDepartmentOut(BaseModel):
+    id: str
+    name: str
+    parent_id: str | None = None
+
+    class Config:
+        from_attributes = True

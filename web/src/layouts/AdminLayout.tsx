@@ -2,7 +2,7 @@ import { Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import {
   BookOpen, Library, Pencil, ClipboardList, ScrollText,
-  Users, Building2, BarChart3,
+  Users, BarChart3,
 } from "lucide-react";
 import AdminDashboard from "../pages/admin/Dashboard";
 import CourseManage from "../pages/admin/CourseManage";
@@ -12,8 +12,7 @@ import ExamManage from "../pages/admin/ExamManage";
 import ExamPaper from "../pages/admin/ExamPaper";
 import ExamResults from "../pages/admin/ExamResults";
 import UserProgress from "../pages/admin/UserProgress";
-import UserManage from "../pages/admin/UserManage";
-import DepartmentManage from "../pages/admin/DepartmentManage";
+import DepartmentUserManage from "../pages/admin/DepartmentUserManage";
 import KnowledgeManage from "../pages/admin/KnowledgeManage";
 
 const menuGroups = [
@@ -36,7 +35,6 @@ const menuGroups = [
     label: "人员管理",
     items: [
       { icon: Users, label: "用户管理", path: "/admin/users" },
-      { icon: Building2, label: "部门管理", path: "/admin/departments" },
       { icon: BarChart3, label: "学员进度", path: "/admin/users/progress" },
     ],
   },
@@ -56,7 +54,7 @@ export default function AdminLayout() {
 
   return (
     <div className="min-h-screen flex bg-bg-layout">
-      <aside className="w-48 bg-primary text-white min-h-screen flex-shrink-0 flex flex-col">
+      <aside className="w-36 bg-primary text-white min-h-screen flex-shrink-0 flex flex-col">
         <h2 className="text-sm font-bold px-4 py-4 border-b border-white/10">学习管理后台</h2>
         <nav className="flex-1 py-2 overflow-y-auto">
           {menuGroups.map((group) => (
@@ -106,8 +104,7 @@ export default function AdminLayout() {
             <Route path="exams/:id/paper" element={<ExamPaper />} />
             <Route path="exams/:id/results" element={<ExamResults />} />
             <Route path="users/progress" element={<UserProgress />} />
-            <Route path="users" element={<UserManage />} />
-            <Route path="departments" element={<DepartmentManage />} />
+            <Route path="users" element={<DepartmentUserManage />} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Routes>
         </main>

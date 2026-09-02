@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { api } from "../../lib/api";
 import QuestionManage from "./QuestionManage";
-import { ChevronRight, ChevronDown, Plus, Search, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronDown, Search } from "lucide-react";
 
 interface TreeNode {
   id: string; name: string; parent_id: string | null;
@@ -45,13 +45,7 @@ export default function QuestionBank() {
   const [stats, setStats] = useState<CategoryStats | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
-  const [addingRoot, setAddingRoot] = useState(false);
-  const [newRootName, setNewRootName] = useState("");
-  const [addingChildUnder, setAddingChildUnder] = useState<string | null>(null);
-  const [newChildName, setNewChildName] = useState("");
-
+  
   const fetchTree = async () => {
     const data = await api<TreeNode[]>("/question-categories/tree");
     setTree(data);
@@ -74,53 +68,7 @@ export default function QuestionBank() {
     });
   };
 
-  const handleRename = async () => {
-    if (!editingName.trim() || !editingId) return;
-    await api(`/question-categories/${editingId}`, {
-      method: "PUT",
-      body: JSON.stringify({ name: editingName.trim() }),
-    });
-    setEditingId(null);
-    setEditingName("");
-    fetchTree();
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("删除此分类将同时删除其子分类和所有题目，确定？")) return;
-    await api(`/question-categories/${id}`, { method: "DELETE" });
-    if (selectedId === id) setSelectedId(null);
-    fetchTree();
-  };
-
-  const handleAddRoot = async () => {
-    if (!newRootName.trim()) return;
-    await api("/question-categories", {
-      method: "POST",
-      body: JSON.stringify({ name: newRootName.trim() }),
-    });
-    setNewRootName("");
-    setAddingRoot(false);
-    fetchTree();
-  };
-
-  const handleAddChild = async (parentId: string) => {
-    if (!newChildName.trim()) return;
-    await api("/question-categories", {
-      method: "POST",
-      body: JSON.stringify({ name: newChildName.trim(), parent_id: parentId }),
-    });
-    setNewChildName("");
-    setAddingChildUnder(null);
-    fetchTree();
-  };
-
-  const startAddChild = () => {
-    if (!selectedId) return;
-    setNewChildName("");
-    setAddingChildUnder(selectedId);
-    setExpandedIds(prev => new Set(prev).add(selectedId));
-  };
-
+  
   // 搜索过滤树：匹配节点保留，同时保留其祖先链
   const filterTree = (nodes: TreeNode[], term: string): TreeNode[] => {
     if (!term) return nodes;
@@ -156,8 +104,6 @@ export default function QuestionBank() {
       const isExpanded = expandedIds.has(node.id);
       const isSelected = selectedId === node.id;
       const hasChildren = node.children.length > 0;
-      const isAddingChild = addingChildUnder === node.id;
-
       return (
         <div key={node.id}>
           <div
@@ -193,23 +139,6 @@ export default function QuestionBank() {
             <span className="truncate">{node.name}</span>
           </div>
           {isExpanded && hasChildren && renderTree(node.children, depth + 1)}
-          {isAddingChild && (
-            <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${8 + (depth + 1) * 16}px` }}>
-              <span className="w-5 shrink-0" />
-              <input
-                type="text"
-                value={newChildName}
-                onChange={(e) => setNewChildName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAddChild(node.id);
-                  if (e.key === "Escape") { setAddingChildUnder(null); setNewChildName(""); }
-                }}
-                placeholder="输入名称..."
-                className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                autoFocus
-              />
-            </div>
-          )}
         </div>
       );
     });
@@ -224,11 +153,11 @@ export default function QuestionBank() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4">试题管理</h2>
+      <h2 className="text-xl font-bold text-primary mb-4 pb-3 border-b border-border">试题管理</h2>
 
-      <div className="flex gap-4">
+      <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧树 */}
-        <div className="w-56 shrink-0">
+        <div className="w-56 shrink-0 pr-4 border-r border-border">
           <div className="relative mb-2">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
             <input
@@ -242,79 +171,34 @@ export default function QuestionBank() {
               <p className="p-4 text-sm text-text-secondary">加载中...</p>
             ) : filteredTree.length === 0 ? (
               <div className="p-4 text-center text-sm text-text-secondary">
-                {searchText ? "无匹配结果" : "暂无分类，点击下方按钮添加"}
+                {searchText ? "无匹配结果" : "暂无题库"}
               </div>
             ) : (
               <div className="py-1">
                 {renderTree(filteredTree)}
-                {addingRoot && (
-                  <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
-                    <span className="w-5 shrink-0" />
-                    <input
-                      type="text"
-                      value={newRootName}
-                      onChange={(e) => setNewRootName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleAddRoot();
-                        if (e.key === "Escape") { setAddingRoot(false); setNewRootName(""); }
-                      }}
-                      placeholder="输入名称..."
-                      className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                      autoFocus
-                    />
-                  </div>
-                )}
               </div>
             )}
           </div>
-          <button
-            onClick={() => { setAddingRoot(true); setNewRootName(""); }}
-            className="mt-2 w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-primary/5"
-          >
-            <Plus size={12} /> 添加根分类
-          </button>
-          {selectedId && (
-            <div className="mt-1.5 space-y-1.5">
-              <button
-                onClick={startAddChild}
-                className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-light"
-              >
-                <Plus size={12} /> 添加子节点
-              </button>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => { setEditingId(selectedId); setEditingName(stats?.name || ""); }}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout"
-                >
-                  <Pencil size={12} /> 改名
-                </button>
-                <button
-                  onClick={() => handleDelete(selectedId)}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-red-200 text-red-500 rounded-md hover:bg-red-50"
-                >
-                  <Trash2 size={12} /> 删除
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+                  </div>
 
         {/* 右侧面板 */}
         <div className="flex-1 min-w-0">
-          <div className="flex gap-3 mb-4">
-            {tabs.map(t => (
-              <button
-                key={t.key}
-                onClick={() => setActiveTab(t.key)}
-                className={`px-4 py-2 rounded-md text-sm ${
-                  activeTab === t.key
-                    ? "bg-primary text-white"
-                    : "border border-border text-text-secondary"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div className="mb-4 pb-3 border-b border-border w-fit">
+            <div className="flex gap-3">
+              {tabs.map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setActiveTab(t.key)}
+                  className={`px-4 py-2 rounded-md text-sm ${
+                    activeTab === t.key
+                      ? "bg-primary text-white"
+                      : "border border-border text-text-secondary"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Tab 1: 题库管理 */}
@@ -351,21 +235,7 @@ export default function QuestionBank() {
                     </p>
                   </div>
 
-                  {/* 改名输入框 */}
-                  {editingId && (
-                    <div className="flex items-center gap-2 bg-bg-base rounded-lg border border-border p-3">
-                      <input
-                        type="text" value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleRename()}
-                        className="flex-1 border border-border rounded-md px-3 py-1.5 text-sm"
-                        autoFocus
-                      />
-                      <button onClick={handleRename} className="px-3 py-1.5 text-xs bg-primary text-white rounded-md">保存</button>
-                      <button onClick={() => setEditingId(null)} className="px-3 py-1.5 text-xs border border-border rounded-md">取消</button>
-                    </div>
-                  )}
-                </div>
+                                  </div>
               ) : (
                 <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
                   加载中...

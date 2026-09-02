@@ -25,6 +25,7 @@ class PaperCreate(BaseModel):
     paper_type: str = "fixed"
     mandatory_questions: list[MandatoryQuestion] | None = None
     random_rules: list[RandomRule] | None = None
+    source_banks: list[str] | None = None
     total_score: int = 0
 
 
@@ -34,6 +35,7 @@ class PaperUpdate(BaseModel):
     paper_type: str | None = None
     mandatory_questions: list[MandatoryQuestion] | None = None
     random_rules: list[RandomRule] | None = None
+    source_banks: list[str] | None = None
     total_score: int | None = None
     status: str | None = None
 
@@ -45,6 +47,7 @@ class PaperOut(BaseModel):
     paper_type: str
     mandatory_questions: list | None = None
     random_rules: list | None = None
+    source_banks: list | None = None
     total_score: int
     status: str
     created_by: str | None = None

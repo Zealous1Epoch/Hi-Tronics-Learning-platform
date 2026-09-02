@@ -25,7 +25,10 @@ class Paper(Base):
         JSON, nullable=True, comment="必考题 [{question_id, score}]"
     )
     random_rules: Mapped[list | None] = mapped_column(
-        JSON, nullable=True, comment="随机策略 [{type, difficulty, count, score, category_id}]"
+        JSON, nullable=True, comment="随机策略 [{type, difficulty, count, score}]"
+    )
+    source_banks: Mapped[list | None] = mapped_column(
+        JSON, nullable=True, comment="随机试卷选题库范围 [category_id]"
     )
     total_score: Mapped[int] = mapped_column(Integer, default=0, comment="总分")
     status: Mapped[str] = mapped_column(

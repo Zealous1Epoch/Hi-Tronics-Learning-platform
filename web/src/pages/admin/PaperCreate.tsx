@@ -50,6 +50,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+  const [selectedBankIds, setSelectedBankIds] = useState<Set<string>>(new Set());
   const [bankQuestions, setBankQuestions] = useState<QuestionItem[]>([]);
   const [selectedQuestions, setSelectedQuestions] = useState<Map<string, number>>(new Map());
   const [questionOrder, setQuestionOrder] = useState<string[]>([]);
@@ -181,7 +182,9 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
   const renderTree = (nodes: TreeNode[], depth: number = 0) => {
     return nodes.map(node => {
       const isExpanded = expandedIds.has(node.id);
-      const isSelected = selectedBankId === node.id;
+      const isSelected = paperType === "random"
+        ? selectedBankIds.has(node.id)
+        : selectedBankId === node.id;
       const hasChildren = node.children.length > 0;
 
       return (
@@ -192,7 +195,15 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
             }`}
             style={{ paddingLeft: `${8 + depth * 16}px` }}
             onClick={() => {
-              setSelectedBankId(node.id);
+              if (paperType === "random") {
+                setSelectedBankIds(prev => {
+                  const next = new Set(prev);
+                  next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+                  return next;
+                });
+              } else {
+                setSelectedBankId(node.id);
+              }
               if (hasChildren) {
                 setExpandedIds(prev => {
                   const next = new Set(prev);
@@ -263,16 +274,16 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
 
   const canNext = () => {
     if (step === 0) return title.trim() !== "";
-    if (step === 1) return selectedQuestions.size > 0;
+    if (step === 1) return paperType === "fixed" ? selectedQuestions.size > 0 : selectedBankIds.size > 0;
     if (step === 2) return Object.values(rules).some(r => r.enabled);
     return true;
   };
 
   const handleNext = () => {
-    if (step === 0 && paperType === "random") {
-      setStep(2); // 跳过步骤 2
-    } else if (step === 0 && paperType === "fixed") {
+    if (step === 0) {
       setStep(1);
+    } else if (step === 1 && paperType === "random") {
+      setStep(2);
     } else if (step === 1 || step === 2) {
       generatePreview();
       setStep(3);
@@ -282,9 +293,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
   };
 
   const handlePrev = () => {
-    if (step === 2 && paperType === "random") {
-      setStep(0);
-    } else if (step === 3 && paperType === "random") {
+    if (step === 3 && paperType === "random") {
       setStep(2);
     } else {
       setStep(step - 1);
@@ -312,6 +321,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
       body.random_rules = Object.entries(rules)
         .filter(([, r]) => r.enabled)
         .map(([type, r]) => ({ type, difficulty: r.difficulty, count: r.count, score: r.score }));
+      body.source_banks = [...selectedBankIds];
     }
 
     if (isEdit) {
@@ -400,8 +410,8 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
             </div>
           )}
 
-          {/* 步骤 2: 选择题目（固定试卷） */}
-          {step === 1 && (
+          {/* 步骤 2: 选择题目 */}
+          {step === 1 && paperType === "fixed" && (
             <div className="flex gap-4 h-full">
               {/* 左侧题库树 */}
               <div className="w-48 shrink-0">
@@ -481,6 +491,55 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* 步骤 2: 选题库（随机试卷） */}
+          {step === 1 && paperType === "random" && (
+            <div className="flex gap-4 h-full">
+              {/* 左侧题库树 */}
+              <div className="w-48 shrink-0">
+                <div className="relative mb-2">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+                  <input
+                    type="text" placeholder="搜索题库..."
+                    value={searchText} onChange={e => setSearchText(e.target.value)}
+                    className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
+                  />
+                </div>
+                <div className="bg-bg-base rounded-lg border border-border max-h-[50vh] overflow-y-auto">
+                  <div className="py-1">{renderTree(filteredTree)}</div>
+                </div>
+              </div>
+
+              {/* 右侧已选题库 */}
+              <div className="flex-1 min-w-0">
+                <div className="bg-bg-base rounded-lg border border-border p-4">
+                  <h4 className="text-sm font-bold mb-3">已选题库范围</h4>
+                  {selectedBankIds.size === 0 ? (
+                    <p className="text-sm text-text-secondary">请在左侧点击题库进行选择</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {[...selectedBankIds].map(id => (
+                        <div key={id} className="flex items-center gap-2 py-1.5 px-3 bg-bg-layout rounded text-sm">
+                          <span className="flex-1">{getCategoryPath(id)}</span>
+                          <button
+                            onClick={() => setSelectedBankIds(prev => {
+                              const next = new Set(prev);
+                              next.delete(id);
+                              return next;
+                            })}
+                            className="text-red-400 hover:text-red-600 text-xs"
+                          >&times;</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-text-secondary mt-3">
+                    策略将仅从以上题库中随机抽取题目
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 

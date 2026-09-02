@@ -44,6 +44,7 @@ def create_paper(
         paper_type=data.paper_type,
         mandatory_questions=[mq.model_dump() for mq in data.mandatory_questions] if data.mandatory_questions else None,
         random_rules=[rr.model_dump() for rr in data.random_rules] if data.random_rules else None,
+        source_banks=data.source_banks,
         total_score=data.total_score,
         created_by=current_user.id,
     )
@@ -81,6 +82,8 @@ def update_paper(
         update_data["mandatory_questions"] = [mq.model_dump() for mq in data.mandatory_questions]
     if "random_rules" in update_data and update_data["random_rules"] is not None:
         update_data["random_rules"] = [rr.model_dump() for rr in data.random_rules]
+    if "source_banks" in update_data:
+        update_data["source_banks"] = data.source_banks
 
     for field, value in update_data.items():
         setattr(paper, field, value)

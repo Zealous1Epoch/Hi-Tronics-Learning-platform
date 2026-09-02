@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { api } from "../../lib/api";
 import PaperCreate from "./PaperCreate";
+import { ChevronRight, ChevronDown, Plus, Search, Pencil, Trash2 } from "lucide-react";
 
-interface CategoryNode {
+interface TreeNode {
   id: string; name: string; parent_id: string | null;
-  children: CategoryNode[];
+  children: TreeNode[];
 }
 interface PaperItem {
   id: string; title: string; category_id: string | null;
@@ -13,52 +14,41 @@ interface PaperItem {
   random_rules: { type: string; difficulty: string; count: number; score: number }[] | null;
   created_at: string;
 }
+interface FlatCategory {
+  id: string; name: string; parent_id: string | null;
+}
 
 export default function PaperManage() {
-  const [categories, setCategories] = useState<CategoryNode[]>([]);
+  const [tree, setTree] = useState<TreeNode[]>([]);
   const [papers, setPapers] = useState<PaperItem[]>([]);
+  const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [newCatName, setNewCatName] = useState("");
-  const [catParentId, setCatParentId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [searchText, setSearchText] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [editingPaper, setEditingPaper] = useState<PaperItem | null>(null);
 
   const fetchData = async () => {
-    const [cats, papersData] = await Promise.all([
-      api<CategoryNode[]>("/paper-categories/tree"),
+    const [treeData, papersData, flatData] = await Promise.all([
+      api<TreeNode[]>("/question-categories/tree"),
       api<PaperItem[]>("/papers"),
+      api<FlatCategory[]>("/question-categories/flat"),
     ]);
-    setCategories(cats);
+    setTree(treeData);
     setPapers(papersData);
+    setFlatCategories(flatData);
     setLoading(false);
   };
 
   useEffect(() => { fetchData(); }, []);
 
   const toggleExpand = (id: string) => {
-    const next = new Set(expanded);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setExpanded(next);
-  };
-
-  const handleCreateCat = async () => {
-    if (!newCatName.trim()) return;
-    await api("/paper-categories", {
-      method: "POST",
-      body: JSON.stringify({ name: newCatName.trim(), parent_id: catParentId }),
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
     });
-    setNewCatName("");
-    setCatParentId(null);
-    fetchData();
-  };
-
-  const handleDeleteCat = async (id: string) => {
-    if (!confirm("删除此分类将同时删除子分类，确定？")) return;
-    await api(`/paper-categories/${id}`, { method: "DELETE" });
-    if (selectedCategory === id) setSelectedCategory(null);
-    fetchData();
   };
 
   const handleDeletePaper = async (id: string) => {
@@ -78,62 +68,102 @@ export default function PaperManage() {
     setShowCreate(true);
   };
 
-  const filteredPapers = selectedCategory
-    ? papers.filter((p) => p.category_id === selectedCategory)
+  const openCreate = () => {
+    setEditingPaper(null);
+    setShowCreate(true);
+  };
+
+  const filteredPapers = selectedId
+    ? papers.filter(p => p.category_id === selectedId)
     : papers;
 
   const getQuestionCount = (p: PaperItem) => {
     if (p.paper_type === "fixed") {
       return p.mandatory_questions?.length || 0;
     }
-    const mandatory = p.mandatory_questions?.length || 0;
     const random = p.random_rules?.reduce((sum, r) => sum + r.count, 0) || 0;
-    return mandatory + random;
+    return random;
   };
 
-  const renderTree = (nodes: CategoryNode[], depth: number = 0) => {
-    return nodes.map((node) => (
-      <div key={node.id}>
-        <div
-          className={`flex items-center gap-1 py-1.5 px-2 rounded text-sm cursor-pointer group hover:bg-bg-layout ${
-            selectedCategory === node.id ? "bg-primary/10 text-primary font-medium" : "text-text-secondary"
-          }`}
-          style={{ paddingLeft: `${depth * 16 + 8}px` }}
-          onClick={() => {
-            setSelectedCategory(node.id);
-            setExpanded((prev) => {
-              const next = new Set(prev);
-              next.has(node.id) ? next.delete(node.id) : next.add(node.id);
-              return next;
-            });
-          }}
-        >
-          {node.children.length > 0 && (
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleExpand(node.id); }}
-              className="text-text-secondary text-xs w-4 flex-shrink-0"
-            >
-              {expanded.has(node.id) ? "v" : ">"}
-            </button>
-          )}
-          {node.children.length === 0 && <span className="w-4 flex-shrink-0" />}
-          <span className="flex-1 truncate">{node.name}</span>
-          <button
-            onClick={(e) => { e.stopPropagation(); setCatParentId(node.id); }}
-            className="text-xs text-primary hover:underline opacity-0 group-hover:opacity-100 flex-shrink-0"
+  const getCategoryPath = (catId: string | null): string => {
+    if (!catId) return "-";
+    const parts: string[] = [];
+    let current = flatCategories.find(c => c.id === catId);
+    while (current) {
+      parts.unshift(current.name);
+      current = current.parent_id ? flatCategories.find(c => c.id === current.parent_id) : undefined;
+    }
+    return parts.join(" - ");
+  };
+
+  const filterTree = (nodes: TreeNode[], term: string): TreeNode[] => {
+    if (!term) return nodes;
+    const lower = term.toLowerCase();
+    const result: TreeNode[] = [];
+    for (const node of nodes) {
+      const filteredChildren = filterTree(node.children, term);
+      if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
+        result.push({ ...node, children: filteredChildren });
+      }
+    }
+    return result;
+  };
+
+  const filteredTree = searchText ? filterTree(tree, searchText) : tree;
+
+  useEffect(() => {
+    if (!searchText) return;
+    const collectIds = (nodes: TreeNode[]): string[] => {
+      const ids: string[] = [];
+      for (const node of nodes) {
+        ids.push(node.id);
+        ids.push(...collectIds(node.children));
+      }
+      return ids;
+    };
+    setExpandedIds(new Set(collectIds(filteredTree)));
+  }, [searchText]);
+
+  const renderTree = (nodes: TreeNode[], depth: number = 0) => {
+    return nodes.map(node => {
+      const isExpanded = expandedIds.has(node.id);
+      const isSelected = selectedId === node.id;
+      const hasChildren = node.children.length > 0;
+
+      return (
+        <div key={node.id}>
+          <div
+            className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer hover:bg-bg-layout rounded text-sm ${
+              isSelected ? "bg-primary/10 text-primary font-medium" : ""
+            }`}
+            style={{ paddingLeft: `${8 + depth * 16}px` }}
+            onClick={() => {
+              setSelectedId(node.id);
+              if (hasChildren) {
+                setExpandedIds(prev => {
+                  const next = new Set(prev);
+                  next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+                  return next;
+                });
+              }
+            }}
           >
-            +
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleDeleteCat(node.id); }}
-            className="text-xs text-red-500 hover:underline opacity-0 group-hover:opacity-100 flex-shrink-0"
-          >
-            x
-          </button>
+            {hasChildren ? (
+              <button
+                onClick={e => { e.stopPropagation(); toggleExpand(node.id); }}
+                className="p-0.5 shrink-0 text-text-secondary"
+              >
+                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
+            ) : (
+              <span className="w-5 shrink-0" />
+            )}
+            <span className="truncate">{node.name}</span>
+          </div>
+          {isExpanded && hasChildren && renderTree(node.children, depth + 1)}
         </div>
-        {expanded.has(node.id) && renderTree(node.children, depth + 1)}
-      </div>
-    ));
+      );
+    });
   };
 
   if (loading) return <p className="text-text-secondary">加载中...</p>;
@@ -144,122 +174,98 @@ export default function PaperManage() {
 
       <div className="flex gap-4">
         {/* 左侧分类树 */}
-        <div className="w-52 flex-shrink-0">
-          <div className="bg-bg-base rounded-lg border border-border">
-            <div className="px-3 py-2 border-b border-border font-bold text-sm">试卷分类</div>
-            <div className="py-1 max-h-[60vh] overflow-y-auto">
-              {categories.length === 0 ? (
-                <p className="p-4 text-center text-text-secondary text-xs">暂无分类</p>
-              ) : (
-                renderTree(categories)
-              )}
-            </div>
-            <div className="px-2 py-2 border-t border-border">
-              <div className="flex gap-1">
-                <input
-                  type="text" value={newCatName}
-                  onChange={(e) => setNewCatName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCreateCat()}
-                  placeholder={catParentId ? "子分类名称..." : "新分类名称..."}
-                  className="flex-1 border border-border rounded-md px-2 py-1 text-xs"
-                />
-                <button
-                  onClick={handleCreateCat}
-                  className="px-2 py-1 bg-primary text-white rounded-md text-xs flex-shrink-0"
-                >
-                  添加
-                </button>
-              </div>
-              {catParentId && (
-                <p className="text-xs text-text-secondary mt-1">
-                  将添加为子分类
-                  <button onClick={() => setCatParentId(null)} className="text-primary ml-1 hover:underline">取消</button>
-                </p>
-              )}
-            </div>
+        <div className="w-56 shrink-0">
+          <div className="relative mb-2">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+            <input
+              type="text" placeholder="搜索分类..."
+              value={searchText} onChange={e => setSearchText(e.target.value)}
+              className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
+            />
+          </div>
+          <div className="bg-bg-base rounded-lg border border-border max-h-[calc(100vh-200px)] overflow-y-auto">
+            {filteredTree.length === 0 ? (
+              <div className="p-4 text-center text-sm text-text-secondary">暂无分类</div>
+            ) : (
+              <div className="py-1">{renderTree(filteredTree)}</div>
+            )}
           </div>
         </div>
 
         {/* 右侧试卷列表 */}
         <div className="flex-1 min-w-0">
-          <div className="bg-bg-base rounded-lg border border-border">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-              <span className="font-bold text-sm">
-                {selectedCategory
-                  ? `${findCatName(categories, selectedCategory)} - 试卷列表`
-                  : "全部试卷"}
-              </span>
-              <button
-                onClick={() => { setEditingPaper(null); setShowCreate(true); }}
-                className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
-              >
-                新增试卷
-              </button>
-            </div>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-text-secondary">
+              {selectedId ? getCategoryPath(selectedId) : "全部试卷"}
+            </span>
+            <button
+              onClick={openCreate}
+              className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
+            >
+              <Plus size={14} className="inline mr-1" />新增试卷
+            </button>
+          </div>
 
-            {filteredPapers.length === 0 ? (
-              <div className="p-12 text-center text-text-secondary text-sm">
-                暂无试卷，点击右上角新增
-              </div>
-            ) : (
-              <table className="w-full text-sm">
+          {filteredPapers.length === 0 ? (
+            <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
+              暂无试卷
+            </div>
+          ) : (
+            <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
+              <table className="w-full text-sm table-fixed">
                 <thead className="bg-bg-layout border-b border-border">
                   <tr>
-                    <th className="text-left px-4 py-3 text-text-secondary font-normal">试卷名称</th>
-                    <th className="text-left px-4 py-3 text-text-secondary font-normal w-20">类型</th>
-                    <th className="text-left px-4 py-3 text-text-secondary font-normal w-16">题目数</th>
-                    <th className="text-left px-4 py-3 text-text-secondary font-normal w-16">总分</th>
-                    <th className="text-left px-4 py-3 text-text-secondary font-normal w-16">状态</th>
-                    <th className="text-right px-4 py-3 text-text-secondary font-normal w-24">操作</th>
+                    <th className="text-left px-4 py-3 font-medium text-text-secondary">试卷名称</th>
+                    <th className="text-center px-2 py-3 font-medium text-text-secondary w-16">类型</th>
+                    <th className="text-center px-2 py-3 font-medium text-text-secondary w-32">类别</th>
+                    <th className="text-center px-2 py-3 font-medium text-text-secondary w-16">题目数</th>
+                    <th className="text-center px-2 py-3 font-medium text-text-secondary w-14">总分</th>
+                    <th className="text-center px-2 py-3 font-medium text-text-secondary w-16">状态</th>
+                    <th className="text-right px-3 py-3 font-medium text-text-secondary w-24">操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredPapers.map((p) => (
+                  {filteredPapers.map(p => (
                     <tr key={p.id} className="border-b border-border last:border-0 hover:bg-bg-layout/50">
-                      <td className="px-4 py-3 font-medium">{p.title}</td>
-                      <td className="px-4 py-3 text-text-secondary">
+                      <td className="px-4 py-3 truncate font-medium">{p.title}</td>
+                      <td className="px-2 py-3 text-center text-text-secondary whitespace-nowrap">
                         {p.paper_type === "fixed" ? "固定" : "随机"}
                       </td>
-                      <td className="px-4 py-3 text-text-secondary">{getQuestionCount(p)}</td>
-                      <td className="px-4 py-3 text-text-secondary">{p.total_score}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-2 py-3 text-center">
+                        <span className="text-xs text-text-secondary truncate block">
+                          {getCategoryPath(p.category_id)}
+                        </span>
+                      </td>
+                      <td className="px-2 py-3 text-center text-text-secondary">{getQuestionCount(p)}</td>
+                      <td className="px-2 py-3 text-center text-text-secondary">{p.total_score}</td>
+                      <td className="px-2 py-3 text-center">
                         <span className={`text-xs px-2 py-0.5 rounded ${
-                          p.status === "published" ? "bg-green-50 text-green-700" : "bg-border text-text-secondary"
+                          p.status === "published" ? "bg-emerald-50 text-emerald-700" : "bg-bg-layout text-text-secondary"
                         }`}>
                           {p.status === "published" ? "已发布" : "草稿"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <button onClick={() => openEdit(p)} className="text-xs text-primary hover:underline mr-3">编辑</button>
+                      <td className="px-3 py-3 text-right whitespace-nowrap">
+                        <button onClick={() => openEdit(p)} className="text-xs text-primary hover:underline mr-2">编辑</button>
                         <button onClick={() => handleDeletePaper(p.id)} className="text-xs text-red-500 hover:underline">删除</button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* 创建/编辑向导 */}
       {showCreate && (
         <PaperCreate
           paper={editingPaper}
-          categories={categories}
+          defaultCategoryId={selectedId}
           onDone={handleCreateDone}
           onClose={() => { setShowCreate(false); setEditingPaper(null); }}
         />
       )}
     </div>
   );
-}
-
-function findCatName(tree: CategoryNode[], id: string): string {
-  for (const c of tree) {
-    if (c.id === id) return c.name;
-    const found = findCatName(c.children, id);
-    if (found) return found;
-  }
-  return "未知分类";
 }

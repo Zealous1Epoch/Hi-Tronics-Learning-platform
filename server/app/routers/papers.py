@@ -5,80 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.models.paper import PaperCategory, Paper
+from app.models.paper import Paper
 from app.schemas.paper import (
-    PaperCategoryCreate, PaperCategoryUpdate, PaperCategoryOut,
     PaperCreate, PaperUpdate, PaperOut,
 )
 from app.routers.auth import require_admin
 
 router = APIRouter(prefix="/api", tags=["试卷管理"])
-
-
-# ========== 试卷分类 ==========
-
-def build_category_tree(categories: list[PaperCategory], parent_id: str | None = None) -> list[PaperCategoryOut]:
-    children = [c for c in categories if c.parent_id == parent_id]
-    return [
-        PaperCategoryOut(
-            id=c.id, name=c.name, parent_id=c.parent_id, sort_order=c.sort_order,
-            children=build_category_tree(categories, c.id),
-        )
-        for c in sorted(children, key=lambda x: x.sort_order)
-    ]
-
-
-@router.get("/paper-categories/tree", response_model=list[PaperCategoryOut])
-def list_paper_categories(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    return build_category_tree(db.query(PaperCategory).all())
-
-
-@router.post("/paper-categories", response_model=PaperCategoryOut)
-def create_paper_category(
-    data: PaperCategoryCreate,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
-):
-    cat = PaperCategory(name=data.name, parent_id=data.parent_id)
-    db.add(cat)
-    db.commit()
-    db.refresh(cat)
-    return PaperCategoryOut(id=cat.id, name=cat.name, parent_id=cat.parent_id, sort_order=cat.sort_order, children=[])
-
-
-@router.put("/paper-categories/{cat_id}", response_model=PaperCategoryOut)
-def update_paper_category(
-    cat_id: str,
-    data: PaperCategoryUpdate,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
-):
-    cat = db.query(PaperCategory).filter(PaperCategory.id == cat_id).first()
-    if not cat:
-        raise HTTPException(status_code=404, detail="分类不存在")
-    if data.name is not None:
-        cat.name = data.name
-    if data.parent_id is not None:
-        cat.parent_id = data.parent_id
-    db.commit()
-    db.refresh(cat)
-    return PaperCategoryOut(id=cat.id, name=cat.name, parent_id=cat.parent_id, sort_order=cat.sort_order, children=[])
-
-
-@router.delete("/paper-categories/{cat_id}")
-def delete_paper_category(
-    cat_id: str,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
-):
-    cat = db.query(PaperCategory).filter(PaperCategory.id == cat_id).first()
-    if not cat:
-        raise HTTPException(status_code=404, detail="分类不存在")
-    # 删除子分类
-    db.query(PaperCategory).filter(PaperCategory.parent_id == cat_id).delete()
-    db.delete(cat)
-    db.commit()
-    return {"ok": True}
 
 
 # ========== 试卷 CRUD ==========
@@ -144,7 +77,6 @@ def update_paper(
         raise HTTPException(status_code=404, detail="试卷不存在")
 
     update_data = data.model_dump(exclude_unset=True)
-    # 处理 JSON 字段
     if "mandatory_questions" in update_data and update_data["mandatory_questions"] is not None:
         update_data["mandatory_questions"] = [mq.model_dump() for mq in data.mandatory_questions]
     if "random_rules" in update_data and update_data["random_rules"] is not None:

@@ -264,6 +264,17 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
     input.click();
   };
 
+  const getCategoryPath = (catId: string | null): string => {
+    if (!catId) return "-";
+    const parts: string[] = [];
+    let current = flatCategories.find(c => c.id === catId);
+    while (current) {
+      parts.unshift(current.name);
+      current = current.parent_id ? flatCategories.find(c => c.id === current.parent_id) : undefined;
+    }
+    return parts.join(" - ");
+  };
+
   const toggleMulti = (opt: string) => {
     setCorrectMulti((prev) =>
       prev.includes(opt) ? prev.filter((o) => o !== opt) : [...prev, opt]
@@ -336,10 +347,10 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
                   <input type="checkbox" checked={selectedIds.size === questions.length && questions.length > 0}
                     onChange={toggleSelectAll} />
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-text-secondary">题干</th>
-                <th className="text-left px-2 py-3 font-medium text-text-secondary w-14">题型</th>
-                <th className="text-left px-2 py-3 font-medium text-text-secondary w-14">难度</th>
-                <th className="text-left px-2 py-3 font-medium text-text-secondary w-24">类别</th>
+                <th className="text-center px-4 py-3 font-medium text-text-secondary">题干</th>
+                <th className="text-center px-2 py-3 font-medium text-text-secondary w-14">题型</th>
+                <th className="text-center px-2 py-3 font-medium text-text-secondary w-14">难度</th>
+                <th className="text-center px-2 py-3 font-medium text-text-secondary w-24">题库分类</th>
                 <th className="text-right px-3 py-3 font-medium text-text-secondary w-20">操作</th>
               </tr>
             </thead>
@@ -349,16 +360,16 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
                   <td className="px-4 py-3">
                     <input type="checkbox" checked={selectedIds.has(q.id)} onChange={() => toggleSelect(q.id)} />
                   </td>
-                  <td className="px-4 py-3 truncate">{q.stem}</td>
-                  <td className="px-2 py-3 whitespace-nowrap">
+                  <td className="px-4 py-3 truncate text-center">{q.stem}</td>
+                  <td className="px-2 py-3 whitespace-nowrap text-center">
                     <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded">{TYPE_LABELS[q.type]}</span>
                   </td>
-                  <td className="px-2 py-3 whitespace-nowrap">
+                  <td className="px-2 py-3 whitespace-nowrap text-center">
                     <span className={`text-xs px-1.5 py-0.5 rounded ${DIFF_COLORS[q.difficulty]}`}>{DIFF_LABELS[q.difficulty]}</span>
                   </td>
-                  <td className="px-2 py-3">
+                  <td className="px-2 py-3 text-center">
                     <span className="text-xs text-text-secondary truncate block">
-                      {flatCategories.find((c) => c.id === (q as any).category_id)?.name || "-"}
+                      {getCategoryPath((q as any).category_id)}
                     </span>
                   </td>
                   <td className="px-3 py-3 text-right whitespace-nowrap">

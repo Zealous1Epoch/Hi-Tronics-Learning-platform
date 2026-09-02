@@ -4,28 +4,6 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
-# ========== 试卷分类 ==========
-
-class PaperCategoryCreate(BaseModel):
-    name: str
-    parent_id: str | None = None
-
-
-class PaperCategoryUpdate(BaseModel):
-    name: str | None = None
-    parent_id: str | None = None
-
-
-class PaperCategoryOut(BaseModel):
-    id: str
-    name: str
-    parent_id: str | None = None
-    sort_order: int = 0
-    children: list["PaperCategoryOut"] = []
-
-    model_config = {"from_attributes": True}
-
-
 # ========== 试卷 ==========
 
 class MandatoryQuestion(BaseModel):

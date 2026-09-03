@@ -21,6 +21,7 @@ export default function CourseDetail() {
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [examStatus, setExamStatus] = useState<string | null>(null);
+  const [playUrl, setPlayUrl] = useState<string>("");
 
   useEffect(() => {
     api<CourseDetail>(`/courses/${id}`).then(async (data) => {
@@ -37,6 +38,17 @@ export default function CourseDetail() {
       setLoading(false);
     });
   }, [id]);
+
+  // 切换视频时获取短期播放 token
+  useEffect(() => {
+    if (!course || course.videos.length === 0) return;
+    const activeVideo = course.videos[activeVideoIdx];
+    if (!activeVideo) return;
+
+    api<{ url: string }>(`/videos/play-url/${activeVideo.obs_key}`)
+      .then((res) => setPlayUrl(res.url))
+      .catch(() => setPlayUrl(""));
+  }, [course, activeVideoIdx]);
 
   if (loading) return <p className="text-text-secondary">加载中...</p>;
   if (!course) return <p className="text-text-secondary">课程不存在</p>;
@@ -67,7 +79,7 @@ export default function CourseDetail() {
             <div className="bg-black rounded-lg overflow-hidden">
               <VideoPlayer
                 key={activeVideo.id}
-                src={`/api/videos/stream/${activeVideo.obs_key}?token=${localStorage.getItem("token") || ""}`}
+                src={playUrl}
                 onProgress={handleProgress}
               />
             </div>

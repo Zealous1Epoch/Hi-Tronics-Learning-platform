@@ -5,6 +5,7 @@ import random
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func as sa_func, String as SAString, cast as sa_cast
 from pydantic import BaseModel
 from app.database import get_db
 from app.models.user import User
@@ -65,8 +66,6 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
             return (0, full_score)
         answer_lower = str(student_answer).lower()
         matched = sum(1 for kw in keywords if kw.lower() in answer_lower)
-        if len(keywords) == 0:
-            return (full_score, full_score)
         score = round(full_score * matched / len(keywords))
         return (score, full_score)
 
@@ -153,26 +152,42 @@ def start_exam(
     else:
         raise HTTPException(status_code=400, detail="试卷配置无效")
 
-    # 创建考试记录（标记开始）
-    attempt_number = (
+    # 检查是否有未提交的考试记录（刷新/断网恢复场景），有则复用
+    existing_incomplete = (
         db.query(ExamResult)
-        .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
-        .count()
-    ) + 1
-
-    # 暂存一个未完成的记录
-    exam_result = ExamResult(
-        id=str(uuid.uuid4()),
-        exam_id=exam_id,
-        user_id=current_user.id,
-        answers={},
-        score=0,
-        passed=False,
-        attempt_number=attempt_number,
-        started_at=datetime.now(),
+        .filter(
+            ExamResult.exam_id == exam_id,
+            ExamResult.user_id == current_user.id,
+            sa_cast(ExamResult.answers, SAString) == '{}',
+        )
+        .first()
     )
-    db.add(exam_result)
-    db.commit()
+
+    if existing_incomplete:
+        # 复用未完成的记录，刷新开始时间
+        existing_incomplete.started_at = datetime.now()
+        db.commit()
+        exam_result = existing_incomplete
+    else:
+        # 新建考试记录
+        attempt_number = (
+            db.query(ExamResult)
+            .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+            .count()
+        ) + 1
+
+        exam_result = ExamResult(
+            id=str(uuid.uuid4()),
+            exam_id=exam_id,
+            user_id=current_user.id,
+            answers={},
+            score=0,
+            passed=False,
+            attempt_number=attempt_number,
+            started_at=datetime.now(),
+        )
+        db.add(exam_result)
+        db.commit()
 
     return {
         "result_id": exam_result.id,
@@ -180,7 +195,7 @@ def start_exam(
         "duration": exam.duration,
         "total_score": exam.total_score,
         "questions": result,
-        "attempt_number": attempt_number,
+        "attempt_number": exam_result.attempt_number,
     }
 
 
@@ -236,23 +251,18 @@ def submit_exam(
             "max_score": full,
         })
 
-    passed = total_score >= exam.pass_score
-
-    # 更新或创建考试结果
-    paper = db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).first()
-    paper_total = 0
-    if paper and paper.questions:
-        paper_total = sum(q.get("score", 10) for q in paper.questions)
-    elif paper and paper.random_rules:
-        paper_total = sum(r["count"] * r["score"] for r in paper.random_rules)
-
-    # 使用实际组卷总分
+    # 按比例换算到考试总分
     final_score = round(total_score * exam.total_score / max(max_score, 1))
+    passed = final_score >= exam.pass_score
 
-    # 查找最近的未完成记录
+    # 查找未提交的考试记录（answers 为空即未提交）
     result = (
         db.query(ExamResult)
-        .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+        .filter(
+            ExamResult.exam_id == exam_id,
+            ExamResult.user_id == current_user.id,
+            sa_cast(ExamResult.answers, SAString) == '{}',
+        )
         .order_by(ExamResult.started_at.desc())
         .first()
     )

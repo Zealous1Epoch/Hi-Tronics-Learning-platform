@@ -17,11 +17,11 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(
         String(255), nullable=True, comment="密码哈希（企微用户为空）"
     )
-    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="姓名")
-    employee_id: Mapped[str | None] = mapped_column(String(50), nullable=True, comment="工号")
-    department: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="部门")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, index=True, comment="姓名")
+    employee_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True, comment="工号")
+    department: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True, comment="部门")
     role: Mapped[str] = mapped_column(
-        String(20), default="student", nullable=False, comment="student / admin"
+        String(20), default="student", nullable=False, index=True, comment="student / admin"
     )
     wechat_user_id: Mapped[str | None] = mapped_column(
         String(100), unique=True, nullable=True, comment="企业微信 userid"
@@ -30,7 +30,7 @@ class User(Base):
         String(500), nullable=True, comment="企微头像 URL"
     )
     status: Mapped[str] = mapped_column(
-        String(20), default="active", nullable=False, comment="active / disabled"
+        String(20), default="active", nullable=False, index=True, comment="active / disabled"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), comment="创建时间"

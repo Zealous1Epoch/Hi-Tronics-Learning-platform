@@ -3,10 +3,12 @@
 import uuid
 from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.course import Course, Video
+from app.models.department import Department
 from app.models.question_category import QuestionCategory
 from app.schemas.course import (
     CourseCreate, CourseUpdate,
@@ -185,13 +187,22 @@ def student_courses(
 ):
     """获取分配给当前学员的课程"""
     from app.models.course import CourseAssignment
+
+    # 查找用户所属部门的 ID（user.department 存的是名称，需转换为 ID）
+    dept_id = None
+    if current_user.department:
+        dept = db.query(Department).filter(Department.name == current_user.department).first()
+        if dept:
+            dept_id = dept.id
+
     # 获取分配给该用户或其部门的课程
+    conditions = [CourseAssignment.user_id == current_user.id]
+    if dept_id:
+        conditions.append(CourseAssignment.department_id == dept_id)
+
     assignments = (
         db.query(CourseAssignment)
-        .filter(
-            (CourseAssignment.user_id == current_user.id)
-            | (CourseAssignment.department_id == current_user.department)
-        )
+        .filter(or_(*conditions))
         .all()
     )
     course_ids = list(set(a.course_id for a in assignments))

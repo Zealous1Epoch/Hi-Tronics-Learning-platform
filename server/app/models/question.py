@@ -17,6 +17,7 @@ class Question(Base):
     type: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
+        index=True,
         comment="single_choice / multi_choice / true_false / fill_blank / essay",
     )
     stem: Mapped[str] = mapped_column(Text, nullable=False, comment="题干")
@@ -26,14 +27,14 @@ class Question(Base):
         JSON, nullable=True, comment="关键词（问答题用）"
     )
     difficulty: Mapped[str] = mapped_column(
-        String(10), default="medium", nullable=False, comment="easy / medium / hard"
+        String(10), default="medium", nullable=False, index=True, comment="easy / medium / hard"
     )
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True, comment="知识点标签")
     section: Mapped[str | None] = mapped_column(
         String(200), nullable=True, comment="关联章节"
     )
     category_id: Mapped[str | None] = mapped_column(
-        String(36), nullable=True, comment="题库分类ID"
+        String(36), nullable=True, index=True, comment="题库分类ID"
     )
     created_by: Mapped[str | None] = mapped_column(
         String(36), nullable=True, comment="创建者"

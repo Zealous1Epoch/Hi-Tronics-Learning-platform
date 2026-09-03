@@ -15,7 +15,7 @@ class Exam(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     course_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("courses.id"), nullable=False, comment="关联课程"
+        String(36), ForeignKey("courses.id"), nullable=False, index=True, comment="关联课程"
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False, comment="考试名称")
     paper_type: Mapped[str] = mapped_column(
@@ -57,7 +57,7 @@ class ExamPaper(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     exam_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("exams.id"), nullable=False, comment="关联考试"
+        String(36), ForeignKey("exams.id"), nullable=False, index=True, comment="关联考试"
     )
     questions: Mapped[list | None] = mapped_column(
         JSON, nullable=True, comment="固定组卷: [{question_id, score}]"
@@ -74,10 +74,10 @@ class ExamResult(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     exam_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("exams.id"), nullable=False, comment="关联考试"
+        String(36), ForeignKey("exams.id"), nullable=False, index=True, comment="关联考试"
     )
     user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False, comment="考生"
+        String(36), ForeignKey("users.id"), nullable=False, index=True, comment="考生"
     )
     answers: Mapped[dict] = mapped_column(JSON, nullable=False, comment="作答记录")
     score: Mapped[int] = mapped_column(Integer, nullable=False, comment="得分")

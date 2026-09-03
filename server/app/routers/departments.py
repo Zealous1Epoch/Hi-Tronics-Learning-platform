@@ -76,15 +76,25 @@ def delete_department(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """删除部门（如有子部门一并删除）"""
+    """删除部门（含所有后代子部门）"""
     dept = db.query(Department).filter(Department.id == dept_id).first()
     if not dept:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
-    # 递归删除子部门
-    children = db.query(Department).filter(Department.parent_id == dept_id).all()
-    for child in children:
-        db.delete(child)
-    db.delete(dept)
+
+    # 深度优先收集所有后代节点 ID（含自身），叶子在前
+    def collect_descendant_ids(parent_id: str) -> list[str]:
+        ids: list[str] = []
+        children = db.query(Department).filter(Department.parent_id == parent_id).all()
+        for child in children:
+            ids.extend(collect_descendant_ids(child.id))
+        ids.append(parent_id)
+        return ids
+
+    all_ids = collect_descendant_ids(dept_id)
+
+    # 从深到浅删除，避免外键约束问题
+    for did in all_ids:
+        db.query(Department).filter(Department.id == did).delete()
     db.commit()
     return {"ok": True}
 

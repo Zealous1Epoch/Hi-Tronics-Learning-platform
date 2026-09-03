@@ -14,6 +14,6 @@ class QuestionTag(Base):
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False, comment="标签名称")
     parent_id: Mapped[str | None] = mapped_column(
-        String(36), nullable=True, comment="父标签 ID"
+        String(36), nullable=True, index=True, comment="父标签 ID"
     )
     sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序")

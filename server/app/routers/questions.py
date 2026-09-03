@@ -22,6 +22,8 @@ def list_questions(
     difficulty: str | None = Query(None, description="难度筛选"),
     category_id: str | None = Query(None, description="分类筛选"),
     search: str | None = Query(None, description="搜索题干"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(50, ge=1, le=200, description="每页数量"),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
@@ -34,7 +36,7 @@ def list_questions(
         q = q.filter(Question.category_id == category_id)
     if search:
         q = q.filter(Question.stem.contains(search))
-    return q.order_by(Question.created_at.desc()).all()
+    return q.order_by(Question.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
 
 @router.post("/questions", response_model=QuestionOut, status_code=201)

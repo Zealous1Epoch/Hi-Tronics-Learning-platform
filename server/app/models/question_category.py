@@ -17,7 +17,7 @@ class QuestionCategory(Base):
         String(100), nullable=False, comment="分类名称"
     )
     parent_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("question_categories.id"), nullable=True, comment="父分类"
+        String(36), ForeignKey("question_categories.id"), nullable=True, index=True, comment="父分类"
     )
     sort_order: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False, comment="排序"

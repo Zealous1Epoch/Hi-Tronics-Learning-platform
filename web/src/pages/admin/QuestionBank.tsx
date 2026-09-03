@@ -190,7 +190,7 @@ export default function QuestionBank() {
               </div>
             )}
           </div>
-                  </div>
+        </div>
 
         {/* 右侧面板 */}
         <div className="flex-1 min-w-0">
@@ -242,7 +242,7 @@ export default function QuestionBank() {
                     </p>
                   </div>
 
-                                  </div>
+            </div>
               ) : (
                 <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
                   加载中...

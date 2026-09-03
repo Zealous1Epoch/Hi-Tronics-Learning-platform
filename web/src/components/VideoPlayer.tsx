@@ -10,6 +10,12 @@ interface VideoPlayerProps {
 export default function VideoPlayer({ src, onProgress, startTime = 0 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<ReturnType<typeof videojs> | null>(null);
+  const onProgressRef = useRef(onProgress);
+  const startTimeRef = useRef(startTime);
+
+  // 保持 ref 最新，避免 effect 依赖变化导致播放器重建
+  onProgressRef.current = onProgress;
+  startTimeRef.current = startTime;
 
   useEffect(() => {
     if (!videoRef.current) return;
@@ -24,22 +30,17 @@ export default function VideoPlayer({ src, onProgress, startTime = 0 }: VideoPla
     playerRef.current = player;
 
     player.ready(() => {
-      if (startTime > 0) {
-        player.currentTime(startTime);
+      if (startTimeRef.current > 0) {
+        player.currentTime(startTimeRef.current);
       }
     });
 
-    if (onProgress) {
-      const interval = setInterval(() => {
-        onProgress(Math.floor(player.currentTime() || 0));
-      }, 10000);
-      return () => {
-        clearInterval(interval);
-        player.dispose();
-      };
-    }
+    const progressInterval = setInterval(() => {
+      onProgressRef.current?.(Math.floor(player.currentTime() || 0));
+    }, 10000);
 
     return () => {
+      clearInterval(progressInterval);
       player.dispose();
     };
   }, [src]);

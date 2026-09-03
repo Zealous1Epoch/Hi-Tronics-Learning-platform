@@ -9,10 +9,12 @@ from app.database import get_db
 from app.models.user import User
 from app.models.course import Video
 from app.routers.auth import get_current_user, require_admin
-from app.services.auth_service import decode_access_token
+from app.services.auth_service import create_video_token, decode_video_token
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads", "videos")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 500MB
 
 router = APIRouter(prefix="/api", tags=["视频"])
 
@@ -36,6 +38,10 @@ async def upload_video(
         while chunk := await file.read(1024 * 1024):  # 1MB chunks
             f.write(chunk)
             file_size += len(chunk)
+            if file_size > MAX_VIDEO_SIZE:
+                f.close()
+                os.remove(filepath)
+                raise HTTPException(status_code=400, detail=f"视频文件过大，最大支持 {MAX_VIDEO_SIZE // 1024 // 1024}MB")
 
     return {
         "filename": filename,
@@ -45,6 +51,19 @@ async def upload_video(
     }
 
 
+@router.get("/videos/play-url/{obs_key}")
+def get_play_url(
+    obs_key: str,
+    current_user: User = Depends(get_current_user),
+):
+    """获取视频播放 URL（含短期专用 token，避免主 token 暴露在 URL 中）"""
+    filepath = os.path.join(UPLOAD_DIR, obs_key)
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="视频不存在")
+    video_token = create_video_token(current_user.id, obs_key)
+    return {"url": f"/api/videos/stream/{obs_key}?token={video_token}"}
+
+
 @router.get("/videos/stream/{filename}")
 async def stream_video(
     filename: str,
@@ -52,8 +71,8 @@ async def stream_video(
     token: str = Query(..., description="认证 token"),
 ):
     """流式播放视频（支持 Range 请求，通过 query 参数 token 认证）"""
-    # 浏览器 <video> 标签不支持自定义请求头，通过 URL query 参数传递 token
-    payload = decode_access_token(token)
+    # 浏览器 <video> 标签不支持自定义请求头，通过 URL query 参数传递短期专用 token
+    payload = decode_video_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="token 无效或已过期")
 

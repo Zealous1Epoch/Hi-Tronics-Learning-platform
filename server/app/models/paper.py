@@ -32,7 +32,7 @@ class Paper(Base):
     )
     total_score: Mapped[int] = mapped_column(Integer, default=0, comment="总分")
     status: Mapped[str] = mapped_column(
-        String(20), default="draft", nullable=False, comment="draft / published"
+        String(20), default="draft", nullable=False, index=True, comment="draft / published"
     )
     created_by: Mapped[str | None] = mapped_column(
         String(36), nullable=True, comment="创建者"

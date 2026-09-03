@@ -2,7 +2,7 @@ import { Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import {
   BookOpen, Library, Pencil, ClipboardList, ScrollText,
-  Users, BarChart3, LayoutDashboard,
+  Users, BarChart3, LayoutDashboard, FileText,
 } from "lucide-react";
 import AdminDashboard from "../pages/admin/Dashboard";
 import CourseManage from "../pages/admin/CourseManage";
@@ -14,6 +14,7 @@ import ExamResults from "../pages/admin/ExamResults";
 import UserProgress from "../pages/admin/UserProgress";
 import DepartmentUserManage from "../pages/admin/DepartmentUserManage";
 import KnowledgeManage from "../pages/admin/KnowledgeManage";
+import LogViewer from "../pages/admin/LogViewer";
 
 const menuGroups = [
   {
@@ -42,6 +43,12 @@ const menuGroups = [
     items: [
       { icon: Users, label: "用户管理", path: "/admin/users" },
       { icon: BarChart3, label: "学员进度", path: "/admin/users/progress" },
+    ],
+  },
+  {
+    label: "系统",
+    items: [
+      { icon: FileText, label: "系统日志", path: "/admin/logs" },
     ],
   },
 ];
@@ -113,6 +120,7 @@ export default function AdminLayout() {
             <Route path="exams/:id/results" element={<ExamResults />} />
             <Route path="users/progress" element={<UserProgress />} />
             <Route path="users" element={<DepartmentUserManage />} />
+            <Route path="logs" element={<LogViewer />} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Routes>
         </main>

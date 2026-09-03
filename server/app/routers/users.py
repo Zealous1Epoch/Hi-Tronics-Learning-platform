@@ -24,6 +24,8 @@ def list_users(
     search: str | None = Query(None, description="搜索姓名/用户名/工号"),
     role: str | None = Query(None, description="筛选角色"),
     status: str | None = Query(None, description="筛选状态"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(50, ge=1, le=200, description="每页数量"),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
@@ -39,7 +41,7 @@ def list_users(
         q = q.filter(User.role == role)
     if status:
         q = q.filter(User.status == status)
-    return q.order_by(User.created_at.desc()).all()
+    return q.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)

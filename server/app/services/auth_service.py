@@ -29,3 +29,26 @@ def decode_access_token(token: str) -> dict | None:
         return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
     except JWTError:
         return None
+
+
+def create_video_token(user_id: str, filename: str) -> str:
+    """生成视频播放专用短期 token（2 小时有效），通过 URL query 传递"""
+    expire = datetime.now(timezone.utc) + timedelta(hours=2)
+    payload = {
+        "sub": user_id,
+        "filename": filename,
+        "purpose": "video",
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_video_token(token: str) -> dict | None:
+    """验证视频播放 token，非 video 用途的 token 拒绝"""
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        if payload.get("purpose") != "video":
+            return None
+        return payload
+    except JWTError:
+        return None

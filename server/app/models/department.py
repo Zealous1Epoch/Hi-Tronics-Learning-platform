@@ -12,9 +12,9 @@ class Department(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="部门名称")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, comment="部门名称")
     parent_id: Mapped[str | None] = mapped_column(
-        String(36), nullable=True, comment="父部门 ID"
+        String(36), nullable=True, index=True, comment="父部门 ID"
     )
     wechat_department_id: Mapped[int | None] = mapped_column(
         Integer, nullable=True, comment="企业微信部门 ID"

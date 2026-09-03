@@ -94,6 +94,7 @@ export default function CourseManage() {
   const [editUserSearch, setEditUserSearch] = useState("");
   const [editDeptSearch, setEditDeptSearch] = useState("");
   const [editActiveDeptId, setEditActiveDeptId] = useState<string | null>(null);
+  const editExistingAssignments = useRef<{ user_ids: string[]; department_ids: string[] }>({ user_ids: [], department_ids: [] });
 
   const fetchData = async () => {
     const [treeData, flatData, coursesData] = await Promise.all([
@@ -201,6 +202,7 @@ export default function CourseManage() {
       api<UserItem[]>("/users"),
       api<DeptItem[]>("/departments?flat=true"),
     ]);
+    editExistingAssignments.current = { user_ids: [], department_ids: [] };
     setEditAssignUsers(users);
     setEditAssignDepts(flattenDepts(depts));
     setEditSelectedUsers(new Set());
@@ -225,8 +227,12 @@ export default function CourseManage() {
     setPendingFiles([]);
     setEditAssignUsers(users);
     setEditAssignDepts(flattenDepts(depts));
+    editExistingAssignments.current = {
+      user_ids: assignments.users.map(u => u.id),
+      department_ids: assignments.departments.map(d => d.id),
+    };
     setEditSelectedUsers(new Set(assignments.users.map(u => u.id)));
-    setEditSelectedDepts(new Set());
+    setEditSelectedDepts(new Set(assignments.departments.map(d => d.id)));
     setEditUserSearch("");
     setEditDeptSearch("");
     setEditActiveDeptId(null);
@@ -249,12 +255,23 @@ export default function CourseManage() {
       const course = await api<CourseDetail>("/courses", { method: "POST", body: JSON.stringify(body) });
       courseId = course.id;
     }
-    // 保存分配
-    if (courseId && editSelectedUsers.size > 0) {
-      await api(`/courses/${courseId}/assignments`, {
-        method: "POST",
-        body: JSON.stringify({ user_ids: [...editSelectedUsers], department_ids: [...editSelectedDepts] }),
-      });
+    // 保存分配：编辑时先清旧分配再追加，新增时直接追加
+    if (courseId) {
+      if (editingCourse) {
+        const prev = editExistingAssignments.current;
+        if (prev.user_ids.length > 0 || prev.department_ids.length > 0) {
+          await api(`/courses/${courseId}/assignments`, {
+            method: "DELETE",
+            body: JSON.stringify({ user_ids: prev.user_ids, department_ids: prev.department_ids }),
+          });
+        }
+      }
+      if (editSelectedUsers.size > 0 || editSelectedDepts.size > 0) {
+        await api(`/courses/${courseId}/assignments`, {
+          method: "POST",
+          body: JSON.stringify({ user_ids: [...editSelectedUsers], department_ids: [...editSelectedDepts] }),
+        });
+      }
     }
     // 上传待上传的视频文件
     if (courseId && pendingFiles.length > 0) {
@@ -353,13 +370,20 @@ export default function CourseManage() {
 
   const handleRemoveAssignment = async (type: "user" | "dept", targetId: string) => {
     if (!assigningCourseId) return;
+    const body: { user_ids: string[]; department_ids: string[] } = { user_ids: [], department_ids: [] };
+    if (type === "user") {
+      body.user_ids = [targetId];
+    } else {
+      body.department_ids = [targetId];
+      // 移除部门时，同时清理该部门下的用户分配（避免孤儿记录）
+      const deptName = allDepts.find(d => d.id === targetId)?.name;
+      if (deptName) {
+        body.user_ids = assignedUsers.filter(u => u.department === deptName).map(u => u.id);
+      }
+    }
     await api(`/courses/${assigningCourseId}/assignments`, {
       method: "DELETE",
-      body: JSON.stringify(
-        type === "user"
-          ? { user_ids: [targetId], department_ids: [] }
-          : { user_ids: [], department_ids: [targetId] },
-      ),
+      body: JSON.stringify(body),
     });
     const assignments = await api<{ users: UserItem[]; departments: DeptItem[] }>(
       `/courses/${assigningCourseId}/assignments`
@@ -776,19 +800,13 @@ export default function CourseManage() {
                               type="checkbox"
                               checked={editSelectedDepts.has(d.id)}
                               onChange={() => {
-                                const deptName = d.name;
-                                const deptUsers = editAssignUsers.filter(u => u.department === deptName);
                                 const nextDepts = new Set(editSelectedDepts);
-                                const nextUsers = new Set(editSelectedUsers);
                                 if (nextDepts.has(d.id)) {
                                   nextDepts.delete(d.id);
-                                  deptUsers.forEach(u => nextUsers.delete(u.id));
                                 } else {
                                   nextDepts.add(d.id);
-                                  deptUsers.forEach(u => nextUsers.add(u.id));
                                 }
                                 setEditSelectedDepts(nextDepts);
-                                setEditSelectedUsers(nextUsers);
                               }}
                             />
                             <span
@@ -1043,18 +1061,13 @@ export default function CourseManage() {
                             type="checkbox"
                             checked={selectedDepts.has(d.id)}
                             onChange={() => {
-                              const deptUsers = allUsers.filter(u => u.department === d.name);
                               const nextDepts = new Set(selectedDepts);
-                              const nextUsers = new Set(selectedUsers);
                               if (nextDepts.has(d.id)) {
                                 nextDepts.delete(d.id);
-                                deptUsers.forEach(u => nextUsers.delete(u.id));
                               } else {
                                 nextDepts.add(d.id);
-                                deptUsers.forEach(u => nextUsers.add(u.id));
                               }
                               setSelectedDepts(nextDepts);
-                              setSelectedUsers(nextUsers);
                             }}
                           />
                           <span

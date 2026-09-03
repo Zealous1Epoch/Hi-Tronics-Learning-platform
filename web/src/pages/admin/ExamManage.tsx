@@ -132,12 +132,14 @@ export default function ExamManage() {
   }, [modalCategoryId, papers, categoryDescendants, paperSearch]);
 
   // 弹窗：根据选中的分类找到对应的课程
-  const matchedCourse = useMemo(() => {
-    if (!modalCategoryId) return null;
+  const matchedCourses = useMemo(() => {
+    if (!modalCategoryId) return [];
     const descendantIds = categoryDescendants.get(modalCategoryId);
-    if (!descendantIds) return null;
-    return courses.find((c) => c.category_id && descendantIds.has(c.category_id)) || null;
+    if (!descendantIds) return [];
+    return courses.filter((c) => c.category_id && descendantIds.has(c.category_id));
   }, [modalCategoryId, courses, categoryDescendants]);
+
+  const [selectedCourseId, setSelectedCourseId] = useState("");
 
   const selectedPaper = useMemo(() => {
     return papers.find((p) => p.id === selectedPaperId) || null;
@@ -146,6 +148,7 @@ export default function ExamManage() {
   const resetModalForm = () => {
     setModalCategoryId(null);
     setSelectedPaperId("");
+    setSelectedCourseId("");
     setPaperSearch("");
     setDuration(60);
     setPassScore(60);
@@ -201,7 +204,8 @@ export default function ExamManage() {
   };
 
   const handleCreate = async () => {
-    if (!modalCategoryId || !selectedPaperId || !matchedCourse) return;
+    const courseId = selectedCourseId || (matchedCourses.length === 1 ? matchedCourses[0].id : "");
+    if (!modalCategoryId || !selectedPaperId || !courseId) return;
     const paper = selectedPaper;
     if (!paper) return;
 
@@ -211,7 +215,7 @@ export default function ExamManage() {
         method: "POST",
         body: JSON.stringify({
           title: paper.title,
-          course_id: matchedCourse.id,
+          course_id: courseId,
           paper_type: paper.paper_type,
           paper_id: paper.id,
           duration,
@@ -231,8 +235,12 @@ export default function ExamManage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("确定删除此考试？")) return;
-    await api(`/exams/${id}`, { method: "DELETE" });
-    fetchData();
+    try {
+      await api(`/exams/${id}`, { method: "DELETE" });
+      fetchData();
+    } catch (e: any) {
+      alert(e.message || "删除失败");
+    }
   };
 
   // 树操作
@@ -252,8 +260,16 @@ export default function ExamManage() {
   const handleModalSelectCategory = (nodeId: string, hasChildren: boolean) => {
     setModalCategoryId(nodeId);
     setSelectedPaperId("");
+    setSelectedCourseId("");  // 单课程时由 useEffect 自动设置
     if (hasChildren) toggleExpand(nodeId);
   };
+
+  // 匹配到唯一课程时自动选中
+  useEffect(() => {
+    if (matchedCourses.length === 1) {
+      setSelectedCourseId(matchedCourses[0].id);
+    }
+  }, [matchedCourses]);
 
   const filterTree = (nodes: TreeNode[], term: string): TreeNode[] => {
     if (!term) return nodes;
@@ -447,6 +463,18 @@ export default function ExamManage() {
               <div className="flex-1 flex flex-col min-w-0">
                 <div className="px-4 pt-3 pb-2 space-y-2">
                   {modalCategoryId && <p className="text-xs text-text-secondary">{getCategoryPath(modalCategoryId)}</p>}
+                  {modalCategoryId && matchedCourses.length === 1 && (
+                    <p className="text-xs text-text-secondary">关联课程: {matchedCourses[0].title}</p>
+                  )}
+                  {modalCategoryId && matchedCourses.length > 1 && (
+                    <select value={selectedCourseId} onChange={(e) => setSelectedCourseId(e.target.value)}
+                      className="w-full border border-border rounded-md px-2 py-1 text-xs">
+                      <option value="">选择课程</option>
+                      {matchedCourses.map((c) => (
+                        <option key={c.id} value={c.id}>{c.title}</option>
+                      ))}
+                    </select>
+                  )}
                   <div className="relative">
                     <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
                     <input type="text" placeholder="搜索试卷..." value={paperSearch} onChange={(e) => setPaperSearch(e.target.value)}

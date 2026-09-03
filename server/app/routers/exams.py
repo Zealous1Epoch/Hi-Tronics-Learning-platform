@@ -131,6 +131,10 @@ def delete_exam(
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
+
+    # 清理课程关联
+    db.query(Course).filter(Course.exam_id == exam_id).update({"exam_id": None})
+
     db.query(ExamResult).filter(ExamResult.exam_id == exam_id).delete()
     db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).delete()
     db.delete(exam)

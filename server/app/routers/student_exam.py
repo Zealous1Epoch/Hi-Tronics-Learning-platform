@@ -61,7 +61,7 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
         full_score = 20
         keywords: list[str] = question.keywords or []
         if not keywords:
-            return (full_score, full_score)  # 无关键词则满分
+            return (0, full_score)  # 无关键词无法自动评分，需人工批阅
         if not student_answer:
             return (0, full_score)
         answer_lower = str(student_answer).lower()
@@ -131,14 +131,36 @@ def start_exam(
             })
 
     elif exam.paper_type == "random" and paper.random_rules:
-        # 随机组卷：按规则动态抽题
+        # 随机组卷：按规则动态抽题，限定题库范围
         result = []
+        # 获取试卷的题库范围（从 Paper 或 ExamPaper 的 source_banks）
+        source_banks = None
+        if paper.random_rules and hasattr(paper, 'source_banks'):
+            source_banks = getattr(paper, 'source_banks', None)
+        if not source_banks:
+            # 尝试从 Paper 表获取
+            from app.models.paper import Paper as PaperModel
+            src_paper = db.query(PaperModel).filter(PaperModel.id == exam.paper_id).first()
+            if src_paper and src_paper.source_banks:
+                source_banks = src_paper.source_banks
+
         for rule in paper.random_rules:
-            pool = (
-                db.query(Question)
-                .filter(Question.type == rule["type"], Question.difficulty == rule["difficulty"])
-                .all()
+            pool_query = db.query(Question).filter(
+                Question.type == rule["type"],
+                Question.difficulty == rule["difficulty"],
             )
+            # 限定题库范围
+            if source_banks:
+                from app.models.question_category import QuestionCategory
+                bank_ids: set[str] = set()
+                for bank_id in source_banks:
+                    bank_ids.add(bank_id)
+                    # 递归收集子分类
+                    children = db.query(QuestionCategory).filter(QuestionCategory.parent_id == bank_id).all()
+                    for child in children:
+                        bank_ids.add(child.id)
+                pool_query = pool_query.filter(Question.category_id.in_(bank_ids))
+            pool = pool_query.all()
             selected = random.sample(pool, min(rule["count"], len(pool)))
             for q in selected:
                 result.append({
@@ -217,12 +239,23 @@ def submit_exam(
     if paper and paper.questions:
         valid_question_ids = {q["question_id"] for q in paper.questions}
     elif paper and paper.random_rules:
-        # 随机组卷：获取所有可能被抽到的题目
+        # 随机组卷：只允许题库范围内符合规则的题目
+        source_banks = getattr(paper, 'source_banks', None) or []
+        from app.models.question_category import QuestionCategory
+        bank_ids: set[str] = set()
+        for bank_id in source_banks:
+            bank_ids.add(bank_id)
+            children = db.query(QuestionCategory).filter(QuestionCategory.parent_id == bank_id).all()
+            for child in children:
+                bank_ids.add(child.id)
         for rule in paper.random_rules:
-            pool = db.query(Question).filter(
+            q = db.query(Question).filter(
                 Question.type == rule["type"],
                 Question.difficulty == rule["difficulty"],
-            ).all()
+            )
+            if bank_ids:
+                q = q.filter(Question.category_id.in_(bank_ids))
+            pool = q.all()
             valid_question_ids.update(q.id for q in pool)
 
     # 过滤掉非法题目

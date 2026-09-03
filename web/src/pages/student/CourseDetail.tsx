@@ -15,66 +15,17 @@ interface ExamInfo {
   status: string;
 }
 
-// 进度上报失败时的本地缓存 key
-const PROGRESS_BACKLOG_KEY = "progress_backlog";
-
-interface BacklogItem {
-  video_id: string;
-  course_id: string;
-  watched_seconds: number;
-  total_seconds: number;
-}
-
-function getBacklog(): BacklogItem[] {
-  try {
-    return JSON.parse(localStorage.getItem(PROGRESS_BACKLOG_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function addToBacklog(item: BacklogItem) {
-  const backlog = getBacklog();
-  // 去重：同一视频只保留最新的
-  const filtered = backlog.filter((b) => b.video_id !== item.video_id);
-  filtered.push(item);
-  localStorage.setItem(PROGRESS_BACKLOG_KEY, JSON.stringify(filtered));
-}
-
-function clearBacklog() {
-  localStorage.removeItem(PROGRESS_BACKLOG_KEY);
-}
-
-async function flushBacklog() {
-  const backlog = getBacklog();
-  if (backlog.length === 0) return;
-  for (const item of backlog) {
-    try {
-      await api("/student/progress", {
-        method: "POST",
-        body: JSON.stringify(item),
-      });
-    } catch {
-      return; // 网络不通就停止，保留剩余数据
-    }
-  }
-  clearBacklog();
-}
-
 export default function CourseDetail() {
   const { id } = useParams();
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [examStatus, setExamStatus] = useState<string | null>(null);
-  const [playUrl, setPlayUrl] = useState<string>("");
+  const [playUrl, setPlayUrl] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
-    // 尝试刷新之前失败的进度上报
-    flushBacklog();
-
     api<CourseDetail>(`/courses/${id}`).then(async (data) => {
       if (!mountedRef.current) return;
       setCourse(data);
@@ -105,7 +56,7 @@ export default function CourseDetail() {
         if (!cancelled) setPlayUrl(res.url);
       })
       .catch(() => {
-        if (!cancelled) setPlayUrl("");
+        if (!cancelled) setPlayUrl(null);
       });
 
     return () => { cancelled = true; };
@@ -116,26 +67,18 @@ export default function CourseDetail() {
 
   const activeVideo = course.videos[activeVideoIdx];
 
-  const handleProgress = async (seconds: number) => {
+  const handleProgress = (seconds: number) => {
     if (!activeVideo) return;
     const duration = activeVideo.duration || 0;
-    const payload = {
-      video_id: activeVideo.id,
-      course_id: course.id,
-      watched_seconds: seconds,
-      total_seconds: duration,
-    };
-    try {
-      await api("/student/progress", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      // 上报成功后尝试刷新积压数据
-      flushBacklog();
-    } catch {
-      // 上报失败时缓存到本地，下次恢复
-      addToBacklog(payload);
-    }
+    api("/student/progress", {
+      method: "POST",
+      body: JSON.stringify({
+        video_id: activeVideo.id,
+        course_id: course.id,
+        watched_seconds: seconds,
+        total_seconds: duration,
+      }),
+    }).catch(() => {}); // 静默失败，不影响播放体验
   };
 
   return (
@@ -144,13 +87,17 @@ export default function CourseDetail() {
       <div className="flex gap-4">
         {/* 播放器 */}
         <div className="flex-1 min-w-0">
-          {activeVideo ? (
+          {activeVideo && playUrl ? (
             <div className="bg-black rounded-lg overflow-hidden">
               <VideoPlayer
                 key={activeVideo.id}
                 src={playUrl}
                 onProgress={handleProgress}
               />
+            </div>
+          ) : activeVideo ? (
+            <div className="bg-black rounded-lg overflow-hidden flex items-center justify-center h-48 text-text-secondary">
+              加载视频中...
             </div>
           ) : (
             <div className="bg-bg-base rounded-lg p-12 text-center text-text-secondary border border-border">

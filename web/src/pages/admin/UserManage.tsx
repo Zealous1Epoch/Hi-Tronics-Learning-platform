@@ -102,14 +102,14 @@ export default function UserManage() {
                   <td className="px-4 py-3 text-text-secondary">{u.username}</td>
                   <td className="px-4 py-3 text-text-secondary">{u.employee_id || "-"}</td>
                   <td className="px-4 py-3 text-text-secondary">{u.department || "-"}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 whitespace-nowrap">
                     <span className={`inline-block px-2 py-0.5 rounded text-xs ${
                       u.role === "admin" ? "bg-primary/10 text-primary" : "bg-border text-text-secondary"
                     }`}>
                       {u.role === "admin" ? "管理员" : "学员"}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 whitespace-nowrap">
                     <span className={`inline-block px-2 py-0.5 rounded text-xs ${
                       u.status === "active" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
                     }`}>

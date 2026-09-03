@@ -17,6 +17,7 @@ export default function VideoPlayer({ src, onProgress, startTime = 0 }: VideoPla
   onProgressRef.current = onProgress;
   startTimeRef.current = startTime;
 
+  // 只初始化播放器一次（组件挂载/卸载）
   useEffect(() => {
     if (!videoRef.current) return;
 
@@ -42,7 +43,16 @@ export default function VideoPlayer({ src, onProgress, startTime = 0 }: VideoPla
     return () => {
       clearInterval(progressInterval);
       player.dispose();
+      playerRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // src 变化时只更新源地址，不重建播放器
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    player.src({ src, type: "video/mp4" });
   }, [src]);
 
   return (

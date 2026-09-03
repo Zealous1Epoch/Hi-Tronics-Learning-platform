@@ -463,7 +463,7 @@ export default function DepartmentUserManage() {
                       <th className="text-center px-3 py-3 font-medium text-text-secondary">工号</th>
                       <th className="text-center px-3 py-3 font-medium text-text-secondary">部门</th>
                       <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">角色</th>
-                      <th className="text-center px-3 py-3 font-medium text-text-secondary w-16">状态</th>
+                      <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">状态</th>
                       <th className="text-center px-3 py-3 font-medium text-text-secondary w-64">操作</th>
                     </tr>
                   </thead>

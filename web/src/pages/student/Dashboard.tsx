@@ -1,55 +1,43 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 
-interface CourseItem {
+interface CourseWithProgress {
   id: string; title: string; description: string | null;
   cover_image: string | null; video_count: number; status: string;
-}
-
-interface CourseProgress {
-  video_progress: Record<string, { watched_seconds: number; total_seconds: number; completed: boolean }>;
-  completed_count: number;
-  total_count: number;
-  exam_passed: boolean;
+  completed_count: number; total_count: number; exam_passed: boolean;
 }
 
 export default function StudentDashboard() {
-  const [courses, setCourses] = useState<CourseItem[]>([]);
-  const [progressMap, setProgressMap] = useState<Record<string, CourseProgress>>({});
+  const [courses, setCourses] = useState<CourseWithProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"all" | "in_progress" | "done">("all");
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    api<CourseItem[]>("/student/courses").then(async (data) => {
-      setCourses(data);
-      // 获取每门课的进度
-      const progressResults: Record<string, CourseProgress> = {};
-      await Promise.all(
-        data.map(async (c) => {
-          try {
-            progressResults[c.id] = await api<CourseProgress>(`/student/progress/${c.id}`);
-          } catch {
-            progressResults[c.id] = { video_progress: {}, completed_count: 0, total_count: c.video_count, exam_passed: false };
-          }
-        })
-      );
-      setProgressMap(progressResults);
-      setLoading(false);
-    });
+    mountedRef.current = true;
+    api<CourseWithProgress[]>("/student/courses-with-progress")
+      .then((data) => {
+        if (mountedRef.current) {
+          setCourses(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) setLoading(false);
+      });
+
+    return () => { mountedRef.current = false; };
   }, []);
 
   const filteredCourses = courses.filter((c) => {
-    const progress = progressMap[c.id];
     if (tab === "in_progress") {
-      // 有进度但未完成（视频未看完且考试未通过）
-      const hasProgress = progress && (progress.completed_count > 0 || progress.exam_passed);
-      const isComplete = progress && (progress.total_count > 0 && progress.completed_count >= progress.total_count) || progress?.exam_passed;
+      const hasProgress = c.completed_count > 0 || c.exam_passed;
+      const isComplete = (c.total_count > 0 && c.completed_count >= c.total_count) || c.exam_passed;
       return hasProgress && !isComplete;
     }
     if (tab === "done") {
-      // 视频全部看完 或 考试通过
-      return progress && ((progress.total_count > 0 && progress.completed_count >= progress.total_count) || progress.exam_passed);
+      return (c.total_count > 0 && c.completed_count >= c.total_count) || c.exam_passed;
     }
     return true;
   });
@@ -86,10 +74,9 @@ export default function StudentDashboard() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredCourses.map((c) => {
-            const progress = progressMap[c.id];
-            const isDone = progress && ((progress.total_count > 0 && progress.completed_count >= progress.total_count) || progress.exam_passed);
-            const pct = isDone ? 100 : (progress && progress.total_count > 0
-              ? Math.round((progress.completed_count / progress.total_count) * 100)
+            const isDone = (c.total_count > 0 && c.completed_count >= c.total_count) || c.exam_passed;
+            const pct = isDone ? 100 : (c.total_count > 0
+              ? Math.round((c.completed_count / c.total_count) * 100)
               : 0);
 
             return (
@@ -105,14 +92,12 @@ export default function StudentDashboard() {
                 {/* 进度条 */}
                 <div className="mb-3">
                   <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
-                    <span>{c.video_count} 个视频</span>
-                    {progress && (
-                      <span className="text-primary">
-                        {progress.exam_passed && progress.total_count === 0
-                          ? "考试已通过"
-                          : `${progress.completed_count}/${progress.total_count} 完成`}
-                      </span>
-                    )}
+                    <span>{c.total_count} 个视频</span>
+                    <span className="text-primary">
+                      {c.exam_passed && c.total_count === 0
+                        ? "考试已通过"
+                        : `${c.completed_count}/${c.total_count} 完成`}
+                    </span>
                   </div>
                   <div className="w-full bg-bg-layout rounded-full h-1.5">
                     <div

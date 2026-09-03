@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import VideoPlayer from "../../components/VideoPlayer";
@@ -15,6 +15,52 @@ interface ExamInfo {
   status: string;
 }
 
+// 进度上报失败时的本地缓存 key
+const PROGRESS_BACKLOG_KEY = "progress_backlog";
+
+interface BacklogItem {
+  video_id: string;
+  course_id: string;
+  watched_seconds: number;
+  total_seconds: number;
+}
+
+function getBacklog(): BacklogItem[] {
+  try {
+    return JSON.parse(localStorage.getItem(PROGRESS_BACKLOG_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function addToBacklog(item: BacklogItem) {
+  const backlog = getBacklog();
+  // 去重：同一视频只保留最新的
+  const filtered = backlog.filter((b) => b.video_id !== item.video_id);
+  filtered.push(item);
+  localStorage.setItem(PROGRESS_BACKLOG_KEY, JSON.stringify(filtered));
+}
+
+function clearBacklog() {
+  localStorage.removeItem(PROGRESS_BACKLOG_KEY);
+}
+
+async function flushBacklog() {
+  const backlog = getBacklog();
+  if (backlog.length === 0) return;
+  for (const item of backlog) {
+    try {
+      await api("/student/progress", {
+        method: "POST",
+        body: JSON.stringify(item),
+      });
+    } catch {
+      return; // 网络不通就停止，保留剩余数据
+    }
+  }
+  clearBacklog();
+}
+
 export default function CourseDetail() {
   const { id } = useParams();
   const [course, setCourse] = useState<CourseDetail | null>(null);
@@ -22,21 +68,29 @@ export default function CourseDetail() {
   const [loading, setLoading] = useState(true);
   const [examStatus, setExamStatus] = useState<string | null>(null);
   const [playUrl, setPlayUrl] = useState<string>("");
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
+    // 尝试刷新之前失败的进度上报
+    flushBacklog();
+
     api<CourseDetail>(`/courses/${id}`).then(async (data) => {
+      if (!mountedRef.current) return;
       setCourse(data);
       // 检查考试状态
       if (data.exam_id) {
         try {
           const exam = await api<ExamInfo>(`/student/exams/${data.exam_id}/status`);
-          setExamStatus(exam.status);
+          if (mountedRef.current) setExamStatus(exam.status);
         } catch {
-          setExamStatus(null);
+          if (mountedRef.current) setExamStatus(null);
         }
       }
       setLoading(false);
     });
+
+    return () => { mountedRef.current = false; };
   }, [id]);
 
   // 切换视频时获取短期播放 token
@@ -45,9 +99,16 @@ export default function CourseDetail() {
     const activeVideo = course.videos[activeVideoIdx];
     if (!activeVideo) return;
 
+    let cancelled = false;
     api<{ url: string }>(`/videos/play-url/${activeVideo.obs_key}`)
-      .then((res) => setPlayUrl(res.url))
-      .catch(() => setPlayUrl(""));
+      .then((res) => {
+        if (!cancelled) setPlayUrl(res.url);
+      })
+      .catch(() => {
+        if (!cancelled) setPlayUrl("");
+      });
+
+    return () => { cancelled = true; };
   }, [course, activeVideoIdx]);
 
   if (loading) return <p className="text-text-secondary">加载中...</p>;
@@ -55,18 +116,26 @@ export default function CourseDetail() {
 
   const activeVideo = course.videos[activeVideoIdx];
 
-  const handleProgress = (seconds: number) => {
+  const handleProgress = async (seconds: number) => {
     if (!activeVideo) return;
     const duration = activeVideo.duration || 0;
-    api("/student/progress", {
-      method: "POST",
-      body: JSON.stringify({
-        video_id: activeVideo.id,
-        course_id: course.id,
-        watched_seconds: seconds,
-        total_seconds: duration,
-      }),
-    }).catch(() => {}); // 静默失败，不影响播放体验
+    const payload = {
+      video_id: activeVideo.id,
+      course_id: course.id,
+      watched_seconds: seconds,
+      total_seconds: duration,
+    };
+    try {
+      await api("/student/progress", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      // 上报成功后尝试刷新积压数据
+      flushBacklog();
+    } catch {
+      // 上报失败时缓存到本地，下次恢复
+      addToBacklog(payload);
+    }
   };
 
   return (

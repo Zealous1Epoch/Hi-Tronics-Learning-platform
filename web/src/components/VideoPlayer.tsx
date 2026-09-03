@@ -37,7 +37,7 @@ export default function VideoPlayer({ src, onProgress, startTime = 0 }: VideoPla
 
     const progressInterval = setInterval(() => {
       onProgressRef.current?.(Math.floor(player.currentTime() || 0));
-    }, 10000);
+    }, 30000);
 
     return () => {
       clearInterval(progressInterval);

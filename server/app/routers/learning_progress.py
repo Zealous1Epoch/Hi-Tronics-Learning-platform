@@ -4,9 +4,9 @@ import uuid
 from collections import defaultdict
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import func, Integer
+from sqlalchemy import func, Integer, or_
 from app.database import get_db
 from app.models.user import User
 from app.models.course import Course, CourseAssignment, Video
@@ -22,8 +22,34 @@ admin_router = APIRouter(prefix="/api/admin", tags=["管理后台进度"])
 class ProgressReport(BaseModel):
     video_id: str
     course_id: str
-    watched_seconds: int
-    total_seconds: int = 0
+    watched_seconds: int = Field(ge=0)
+    total_seconds: int = Field(ge=0, default=0)
+
+
+def _is_completed(watched: int, total: int) -> bool:
+    """判断视频是否已看完（>= 90%）"""
+    return total > 0 and watched >= total * 0.9
+
+
+def _get_user_dept_id(user: User, db: Session) -> str | None:
+    """根据用户 department 名称查找部门 ID"""
+    if not user.department:
+        return None
+    dept = db.query(Department).filter(Department.name == user.department).first()
+    return dept.id if dept else None
+
+
+def _check_course_assignment(user_id: str, course_id: str, dept_id: str | None, db: Session) -> bool:
+    """检查用户是否被分配了指定课程"""
+    conditions = [CourseAssignment.user_id == user_id]
+    if dept_id:
+        conditions.append(CourseAssignment.department_id == dept_id)
+    assignment = (
+        db.query(CourseAssignment)
+        .filter(CourseAssignment.course_id == course_id, or_(*conditions))
+        .first()
+    )
+    return assignment is not None
 
 
 @router.post("/progress")
@@ -33,23 +59,35 @@ def report_progress(
     current_user: User = Depends(get_current_user),
 ):
     """上报视频观看进度（upsert：每个用户+视频只保留一条记录）"""
+    # 校验视频属于指定课程
+    video = db.query(Video).filter(Video.id == data.video_id, Video.course_id == data.course_id).first()
+    if not video:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="视频不属于该课程")
+
+    # 校验学员已分配该课程
+    dept_id = _get_user_dept_id(current_user, db)
+    if not _check_course_assignment(current_user.id, data.course_id, dept_id, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="未分配该课程")
+
     existing = (
         db.query(LearningProgress)
         .filter(
             LearningProgress.user_id == current_user.id,
             LearningProgress.video_id == data.video_id,
+            LearningProgress.course_id == data.course_id,
         )
         .first()
     )
 
     if existing:
+        if data.total_seconds > 0:
+            existing.total_seconds = data.total_seconds
         existing.watched_seconds = data.watched_seconds
-        existing.total_seconds = data.total_seconds or existing.total_seconds
-        existing.completed = (
-            data.total_seconds > 0
-            and data.watched_seconds >= data.total_seconds * 0.9
-        )
+        existing.completed = _is_completed(data.watched_seconds, existing.total_seconds)
         existing.last_accessed = datetime.now()
+        # 同步 course_id（防止视频被移动到其他课程）
+        if existing.course_id != data.course_id:
+            existing.course_id = data.course_id
     else:
         progress = LearningProgress(
             id=str(uuid.uuid4()),
@@ -58,10 +96,7 @@ def report_progress(
             video_id=data.video_id,
             watched_seconds=data.watched_seconds,
             total_seconds=data.total_seconds,
-            completed=(
-                data.total_seconds > 0
-                and data.watched_seconds >= data.total_seconds * 0.9
-            ),
+            completed=_is_completed(data.watched_seconds, data.total_seconds),
         )
         db.add(progress)
 
@@ -76,6 +111,18 @@ def get_course_progress(
     current_user: User = Depends(get_current_user),
 ):
     """获取某课程的所有视频进度（含考试状态）"""
+    # 校验学员已分配该课程
+    dept_id = _get_user_dept_id(current_user, db)
+    if not _check_course_assignment(current_user.id, course_id, dept_id, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="未分配该课程")
+
+    # 获取课程实际视频数
+    total_video_count = (
+        db.query(func.count(Video.id))
+        .filter(Video.course_id == course_id)
+        .scalar()
+    ) or 0
+
     records = (
         db.query(LearningProgress)
         .filter(
@@ -108,9 +155,100 @@ def get_course_progress(
             for r in records
         },
         "completed_count": sum(1 for r in records if r.completed),
-        "total_count": len(records),
+        "total_count": total_video_count,  # 使用课程实际视频数
         "exam_passed": exam_passed,
     }
+
+
+@router.get("/courses-with-progress")
+def get_courses_with_progress(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取已分配课程及每门课的进度（聚合接口，避免客户端 N+1）"""
+    from app.models.course import CourseAssignment
+
+    dept_id = _get_user_dept_id(current_user, db)
+    conditions = [CourseAssignment.user_id == current_user.id]
+    if dept_id:
+        conditions.append(CourseAssignment.department_id == dept_id)
+
+    assignments = (
+        db.query(CourseAssignment)
+        .filter(or_(*conditions))
+        .all()
+    )
+    course_ids = list(set(a.course_id for a in assignments))
+    if not course_ids:
+        return []
+
+    courses = (
+        db.query(Course)
+        .filter(Course.id.in_(course_ids), Course.status == "published")
+        .order_by(Course.created_at.desc())
+        .all()
+    )
+
+    # 批量获取视频数
+    video_counts = dict(
+        db.query(Video.course_id, func.count(Video.id))
+        .filter(Video.course_id.in_(course_ids))
+        .group_by(Video.course_id)
+        .all()
+    )
+
+    # 批量获取进度
+    progress_records = (
+        db.query(LearningProgress)
+        .filter(
+            LearningProgress.user_id == current_user.id,
+            LearningProgress.course_id.in_(course_ids),
+        )
+        .all()
+    )
+    progress_by_course: dict[str, list[LearningProgress]] = defaultdict(list)
+    for pr in progress_records:
+        progress_by_course[pr.course_id].append(pr)
+
+    # 批量获取考试状态
+    course_exam_map: dict[str, str] = {}
+    for c in courses:
+        if c.exam_id:
+            course_exam_map[c.exam_id] = c.id
+    exam_passed_map: dict[str, bool] = {}
+    if course_exam_map:
+        passed_exams = (
+            db.query(ExamResult)
+            .filter(
+                ExamResult.user_id == current_user.id,
+                ExamResult.exam_id.in_(course_exam_map.keys()),
+                ExamResult.passed == True,
+            )
+            .all()
+        )
+        for pe in passed_exams:
+            cid = course_exam_map.get(pe.exam_id)
+            if cid:
+                exam_passed_map[cid] = True
+
+    result = []
+    for c in courses:
+        progress_list = progress_by_course.get(c.id, [])
+        completed_count = sum(1 for p in progress_list if p.completed)
+        total_videos = video_counts.get(c.id, 0)
+        exam_passed = exam_passed_map.get(c.id, False)
+        result.append({
+            "id": c.id,
+            "title": c.title,
+            "description": c.description,
+            "cover_image": c.cover_image,
+            "video_count": total_videos,
+            "status": c.status,
+            "completed_count": completed_count,
+            "total_count": total_videos,
+            "exam_passed": exam_passed,
+        })
+    return result
 
 
 @router.get("/profile")
@@ -146,19 +284,30 @@ def get_student_profile(
         .scalar()
     ) or 0
 
-    # 已完成课程数（所有视频都完成的课程）
+    # 已完成课程数：需要对比每门课程的实际视频数
     completed_courses = 0
     course_progress = (
         db.query(
             LearningProgress.course_id,
-            func.count(LearningProgress.id).label("total"),
             func.sum(LearningProgress.completed.cast(Integer)).label("done"),
         )
         .filter(LearningProgress.user_id == current_user.id)
         .group_by(LearningProgress.course_id)
         .all()
     )
-    completed_courses = sum(1 for cp in course_progress if cp.total == cp.done and cp.total > 0)
+    if course_progress:
+        course_ids = [cp.course_id for cp in course_progress]
+        # 批量查询课程实际视频数
+        video_counts = dict(
+            db.query(Video.course_id, func.count(Video.id))
+            .filter(Video.course_id.in_(course_ids))
+            .group_by(Video.course_id)
+            .all()
+        )
+        completed_courses = sum(
+            1 for cp in course_progress
+            if cp.done >= video_counts.get(cp.course_id, 0) and video_counts.get(cp.course_id, 0) > 0
+        )
 
     # 考试记录
     exam_results = (
@@ -173,7 +322,6 @@ def get_student_profile(
     exam_ids = list(set(r.exam_id for r in exam_results))
     exams_map = {}
     if exam_ids:
-        from app.models.exam import Exam
         exam_records = db.query(Exam).filter(Exam.id.in_(exam_ids)).all()
         exams_map = {e.id: e.title for e in exam_records}
 
@@ -287,21 +435,27 @@ def admin_progress_overview(
     _: User = Depends(require_admin),
 ):
     """管理员查看所有学员的课程进度概览（含考试状态）"""
-    # 部门过滤：递归收集子部门名称
+    # 部门过滤：一次性加载所有部门，在内存中收集子部门名称
     dept_names = None
     if department_id:
         dept = db.query(Department).filter(Department.id == department_id).first()
         if not dept:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
 
-        def collect_names(d: Department) -> list[str]:
-            names = [d.name]
-            children = db.query(Department).filter(Department.parent_id == d.id).all()
-            for child in children:
-                names.extend(collect_names(child))
+        all_depts = db.query(Department).all()
+        dept_map: dict[str, Department] = {d.id: d for d in all_depts}
+        children_map: dict[str, list[Department]] = defaultdict(list)
+        for d in all_depts:
+            if d.parent_id:
+                children_map[d.parent_id].append(d)
+
+        def collect_names_in_memory(dept_id: str) -> list[str]:
+            names: list[str] = [dept_map[dept_id].name]
+            for child in children_map.get(dept_id, []):
+                names.extend(collect_names_in_memory(child.id))
             return names
 
-        dept_names = collect_names(dept)
+        dept_names = [dept.name] + collect_names_in_memory(department_id)
 
     # 课程过滤
     courses_query = db.query(Course).filter(Course.status == "published")
@@ -309,15 +463,19 @@ def admin_progress_overview(
         courses_query = courses_query.filter(Course.id == course_id)
     courses = courses_query.all()
 
-    # 获取每个课程的视频数
-    course_video_counts: dict[str, int] = {}
-    for c in courses:
-        count = db.query(func.count(Video.id)).filter(Video.course_id == c.id).scalar() or 0
-        if count > 0:
-            course_video_counts[c.id] = count
+    # 批量获取每个课程的视频数（避免 N+1）
+    course_ids = [c.id for c in courses]
+    video_counts_raw = (
+        db.query(Video.course_id, func.count(Video.id))
+        .filter(Video.course_id.in_(course_ids))
+        .group_by(Video.course_id)
+        .all()
+    )
+    course_video_counts: dict[str, int] = {
+        cid: count for cid, count in video_counts_raw if count > 0
+    }
 
-    course_ids = list(course_video_counts.keys())
-    if not course_ids:
+    if not course_video_counts:
         return []
 
     # 获取学员
@@ -341,7 +499,7 @@ def admin_progress_overview(
         .filter(
             LearningProgress.completed == True,
             LearningProgress.user_id.in_(student_ids),
-            LearningProgress.course_id.in_(course_ids),
+            LearningProgress.course_id.in_(course_video_counts.keys()),
         )
         .group_by(LearningProgress.user_id, LearningProgress.course_id)
         .all()
@@ -370,11 +528,16 @@ def admin_progress_overview(
         if not cid:
             continue
         existing = user_exam_info[r.user_id].get(cid)
-        if not existing or r.score > existing.get("best_score", 0):
+        if existing:
+            existing["attempts"] += 1
+            if r.score > existing["best_score"]:
+                existing["best_score"] = r.score
+                existing["passed"] = r.passed
+        else:
             user_exam_info[r.user_id][cid] = {
                 "passed": r.passed,
                 "best_score": r.score,
-                "attempts": (existing.get("attempts", 0) if existing else 0) + 1,
+                "attempts": 1,
             }
 
     # 组装结果
@@ -416,6 +579,11 @@ def admin_progress_detail(
     _: User = Depends(require_admin),
 ):
     """管理员查看某用户在某课程下的详细进度"""
+    # 校验用户存在
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     # 视频详情
     videos = (
         db.query(Video)

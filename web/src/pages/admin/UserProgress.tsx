@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { api } from "../../lib/api";
 import { Search, ChevronRight, ChevronDown } from "lucide-react";
 
@@ -79,6 +79,7 @@ export default function UserProgress() {
   const [courseFilter, setCourseFilter] = useState("");
   const [studentSearch, setStudentSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   // 用户课程展开
   const [expandedUserIds, setExpandedUserIds] = useState<Set<string>>(new Set());
@@ -88,8 +89,9 @@ export default function UserProgress() {
   const [detailData, setDetailData] = useState<ProgressDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // 初始加载
-  useEffect(() => {
+  const fetchData = () => {
+    setLoading(true);
+    setError("");
     Promise.all([
       api<DeptNode[]>("/departments"),
       api<FlatDept[]>("/departments/flat"),
@@ -101,8 +103,15 @@ export default function UserProgress() {
       setOverviewData(overview);
       setCourses(coursesData);
       setLoading(false);
+    }).catch((err) => {
+      console.error("加载学员进度失败", err);
+      setError("加载失败，请刷新重试");
+      setLoading(false);
     });
-  }, []);
+  };
+
+  // 初始加载
+  useEffect(() => { fetchData(); }, []);
 
   // 收集部门及其子部门的所有名称
   const deptNameMap = useMemo(() => {
@@ -182,7 +191,7 @@ export default function UserProgress() {
   };
 
   // 部门树搜索过滤
-  const filterTree = (nodes: DeptNode[], term: string): DeptNode[] => {
+  const filterTree = useCallback((nodes: DeptNode[], term: string): DeptNode[] => {
     if (!term) return nodes;
     const lower = term.toLowerCase();
     const result: DeptNode[] = [];
@@ -193,13 +202,19 @@ export default function UserProgress() {
       }
     }
     return result;
-  };
+  }, []);
 
-  const filteredTree = deptSearch ? filterTree(deptTree, deptSearch) : deptTree;
+  const filteredTree = useMemo(
+    () => (deptSearch ? filterTree(deptTree, deptSearch) : deptTree),
+    [deptTree, deptSearch, filterTree]
+  );
 
-  // 搜索时自动展开
+  // 搜索时自动展开，搜索清空时重置展开状态
   useEffect(() => {
-    if (!deptSearch) return;
+    if (!deptSearch) {
+      setExpandedDeptIds(new Set());
+      return;
+    }
     const collectIds = (nodes: DeptNode[]): string[] => {
       const ids: string[] = [];
       for (const node of nodes) {
@@ -209,7 +224,7 @@ export default function UserProgress() {
       return ids;
     };
     setExpandedDeptIds(new Set(collectIds(filteredTree)));
-  }, [deptSearch]);
+  }, [deptSearch, filteredTree]);
 
   const toggleExpand = (id: string) => {
     setExpandedDeptIds((prev) => {
@@ -266,6 +281,13 @@ export default function UserProgress() {
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">学员进度</h2>
+
+      {error && (
+        <div className="mb-3 bg-red-50 border border-red-200 text-red-700 rounded-md px-4 py-2 text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => { setError(""); fetchData(); }} className="text-primary hover:underline text-xs">重试</button>
+        </div>
+      )}
 
       <div className="flex gap-4">
         {/* 左侧部门树 */}

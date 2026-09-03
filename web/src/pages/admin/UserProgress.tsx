@@ -415,18 +415,18 @@ export default function UserProgress() {
                           const pct = c.video_total > 0
                             ? Math.round((c.video_completed / c.video_total) * 100)
                             : c.exam_passed ? 100 : 0;
-                          const isDone = (c.video_total > 0 && c.video_completed >= c.video_total) || c.exam_passed;
+                          const isDone = (c.video_total > 0 && c.video_completed >= c.video_total) && c.exam_passed;
 
                           let statusLabel = "";
                           let statusClass = "";
-                          if (c.exam_passed && c.video_total === 0) {
-                            statusLabel = "考试已通过";
-                            statusClass = "text-primary";
-                          } else if (isDone && c.exam_passed) {
+                          if (isDone && c.exam_passed) {
                             statusLabel = "已完成";
                             statusClass = "text-primary";
-                          } else if (isDone) {
+                          } else if (c.video_completed >= c.video_total) {
                             statusLabel = "视频已完成";
+                            statusClass = "text-primary";
+                          } else if (c.exam_passed) {
+                            statusLabel = "考试已通过";
                             statusClass = "text-primary";
                           } else if (c.video_completed > 0) {
                             statusLabel = "进行中";
@@ -451,7 +451,7 @@ export default function UserProgress() {
                                 </div>
                                 <span className={`text-xs shrink-0 w-20 text-right ${statusClass}`}>
                                   {statusLabel}
-                                  {c.exam_passed && c.video_total > 0 && (
+                                  {c.exam_passed && statusLabel !== "已完成" && statusLabel !== "考试已通过" && (
                                     <span className="text-primary ml-1">+ 考试</span>
                                   )}
                                 </span>
@@ -480,9 +480,9 @@ export default function UserProgress() {
                                                   {formatSeconds(v.watched_seconds)} / {formatSeconds(v.total_seconds)}
                                                 </span>
                                                 <span className={`shrink-0 w-14 text-right ${
-                                                  v.completed ? "text-primary" : "text-text-secondary"
+                                                  v.completed ? "text-primary" : v.watched_seconds > 0 ? "text-text-secondary" : "text-text-secondary"
                                                 }`}>
-                                                  {v.completed ? "已看完" : v.watched_seconds > 0 ? "观看中" : "未观看"}
+                                                  {v.completed ? "100%" : v.total_seconds > 0 ? `${Math.round(v.watched_seconds / v.total_seconds * 100)}%` : "0%"}
                                                 </span>
                                               </div>
                                             ))}

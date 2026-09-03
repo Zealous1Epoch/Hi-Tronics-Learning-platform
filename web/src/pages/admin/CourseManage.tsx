@@ -35,6 +35,25 @@ interface PendingFile {
   title: string;
   uploading: boolean;
   progress: number;
+  duration: number | null;
+}
+
+// 用浏览器 <video> 探测视频时长（秒），失败返回 null
+function probeVideoDuration(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const el = document.createElement("video");
+    el.preload = "metadata";
+    el.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(Number.isFinite(el.duration) ? Math.round(el.duration) : null);
+    };
+    el.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    el.src = url;
+  });
 }
 
 export default function CourseManage() {
@@ -285,7 +304,7 @@ export default function CourseManage() {
         setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false, progress: 100 } : p));
         await api(`/courses/${courseId}/videos`, {
           method: "POST",
-          body: JSON.stringify({ title: pf.title, obs_key: filename, file_size }),
+          body: JSON.stringify({ title: pf.title, obs_key: filename, file_size, duration: pf.duration }),
         });
       }
     }
@@ -299,9 +318,14 @@ export default function CourseManage() {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith("video/")) continue;
       const name = file.name.replace(/\.[^.]+$/, "");
-      newFiles.push({ file, title: name, uploading: false, progress: 0 });
+      newFiles.push({ file, title: name, uploading: false, progress: 0, duration: null });
     }
     setPendingFiles(prev => [...prev, ...newFiles]);
+    // 异步探测每个文件的时长
+    newFiles.forEach(async (nf) => {
+      const duration = await probeVideoDuration(nf.file);
+      setPendingFiles(prev => prev.map(p => p.file === nf.file ? { ...p, duration } : p));
+    });
   };
 
   const handleDrop = (e: React.DragEvent) => {

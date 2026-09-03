@@ -408,7 +408,7 @@ export default function ExamManage() {
                 <thead className="bg-bg-layout border-b border-border">
                   <tr>
                     <th className="text-center px-4 py-3 font-medium text-text-secondary">考试名称</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-16">组卷</th>
+                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">组卷</th>
                     <th className="text-center px-3 py-3 font-medium text-text-secondary w-28">时长/分数</th>
                     <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">状态</th>
                     <th className="text-center px-3 py-3 font-medium text-text-secondary w-64">操作</th>

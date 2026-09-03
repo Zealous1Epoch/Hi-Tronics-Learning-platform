@@ -170,7 +170,7 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
       body.options = options;
     }
     if (qType === "essay") {
-      body.keywords = keywords ? keywords.split(",").map((k) => k.trim()).filter(Boolean) : null;
+      body.keywords = keywords ? keywords.split(/[,，]/).map((k) => k.trim()).filter(Boolean) : null;
     }
 
     if (editingId) {
@@ -372,11 +372,11 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
                   <input type="checkbox" checked={selectedIds.size === questions.length && questions.length > 0}
                     onChange={toggleSelectAll} />
                 </th>
-                <th className="text-center px-4 py-3 font-medium text-text-secondary">题干</th>
-                <th className="text-center px-2 py-3 font-medium text-text-secondary w-14">题型</th>
-                <th className="text-center px-2 py-3 font-medium text-text-secondary w-14">难度</th>
+                <th className="text-center px-4 py-3 font-medium text-text-secondary w-[26%]">题干</th>
+                <th className="text-center px-2 py-3 font-medium text-text-secondary w-16">题型</th>
+                <th className="text-center px-2 py-3 font-medium text-text-secondary w-16">难度</th>
                 <th className="text-center px-2 py-3 font-medium text-text-secondary w-24">题库分类</th>
-                <th className="text-right px-3 py-3 font-medium text-text-secondary w-20">操作</th>
+                <th className="text-right px-3 py-3 font-medium text-text-secondary w-40">操作</th>
               </tr>
             </thead>
             <tbody>

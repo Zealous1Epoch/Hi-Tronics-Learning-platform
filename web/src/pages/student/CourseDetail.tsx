@@ -67,16 +67,17 @@ export default function CourseDetail() {
 
   const activeVideo = course.videos[activeVideoIdx];
 
-  const handleProgress = (seconds: number) => {
+  const handleProgress = (seconds: number, duration: number) => {
     if (!activeVideo) return;
-    const duration = activeVideo.duration || 0;
+    // 优先用播放器实测时长，videos 表的 duration 可能为空
+    const total = duration > 0 ? duration : (activeVideo.duration || 0);
     api("/student/progress", {
       method: "POST",
       body: JSON.stringify({
         video_id: activeVideo.id,
         course_id: course.id,
         watched_seconds: seconds,
-        total_seconds: duration,
+        total_seconds: total,
       }),
     }).catch(() => {}); // 静默失败，不影响播放体验
   };

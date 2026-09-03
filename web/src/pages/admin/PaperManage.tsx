@@ -230,8 +230,8 @@ export default function PaperManage() {
                     <th className="text-center px-4 py-3 font-medium text-text-secondary">试卷名称</th>
                     <th className="text-center px-3 py-3 font-medium text-text-secondary w-16">类型</th>
                     <th className="text-center px-3 py-3 font-medium text-text-secondary w-40">类别</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-16">题目数</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-16">总分</th>
+                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">题目数</th>
+                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">总分</th>
                     <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">状态</th>
                     <th className="text-center px-3 py-3 font-medium text-text-secondary w-32">操作</th>
                   </tr>

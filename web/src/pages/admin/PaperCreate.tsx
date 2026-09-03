@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../../lib/api";
 import { ChevronRight, ChevronDown, Search } from "lucide-react";
 
@@ -15,6 +15,7 @@ interface PaperItem {
   paper_type: string; total_score: number; status: string;
   mandatory_questions: { question_id: string; score: number }[] | null;
   random_rules: { type: string; difficulty: string; count: number; score: number }[] | null;
+  source_banks?: string[] | null;
 }
 interface FlatCategory {
   id: string; name: string; parent_id: string | null;
@@ -45,6 +46,11 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
   const [title, setTitle] = useState(paper?.title || "");
   const [paperType, setPaperType] = useState(paper?.paper_type || "fixed");
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
+  // 试卷类别下拉（新增且未从节点进入时可选）
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [categorySearch, setCategorySearch] = useState("");
+  const [editCategoryId, setEditCategoryId] = useState<string | null>(null);
+  const categoryDropdownRef = useRef<HTMLDivElement>(null);
 
   // 步骤 2: 选题
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -119,6 +125,17 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
       setTree(treeData);
       setFlatCategories(flatData);
     });
+  }, []);
+
+  // 点击外部关闭分类下拉
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(e.target as Node)) {
+        setShowCategoryDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
   // 选中题库时加载题目
@@ -371,7 +388,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
     try {
       const body: Record<string, unknown> = {
         title,
-        category_id: defaultCategoryId,
+        category_id: defaultCategoryId ?? editCategoryId,
         paper_type: paperType,
         total_score: totalScore,
         status,
@@ -469,11 +486,82 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
               </div>
               <div>
                 <label className="block text-sm text-text-secondary mb-1">试卷类别</label>
-                <input
-                  type="text" value={getCategoryPath(defaultCategoryId)}
-                  readOnly
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm bg-bg-layout text-text-secondary"
-                />
+                {isEdit || defaultCategoryId ? (
+                  <input
+                    type="text" value={getCategoryPath(isEdit ? (paper?.category_id ?? null) : defaultCategoryId)}
+                    readOnly
+                    className="w-full border border-border rounded-md px-3 py-2 text-sm bg-bg-layout text-text-secondary"
+                  />
+                ) : (
+                  <div ref={categoryDropdownRef} className="relative">
+                    <div
+                      onClick={() => { setShowCategoryDropdown(!showCategoryDropdown); setCategorySearch(""); }}
+                      className="w-full border border-border rounded-md px-3 py-2 text-sm cursor-pointer hover:border-primary/40 flex items-center justify-between"
+                    >
+                      <span className={editCategoryId ? "text-text-base" : "text-text-secondary"}>
+                        {editCategoryId ? getCategoryPath(editCategoryId) : "请选择试卷类别"}
+                      </span>
+                      <ChevronDown size={14} className={`text-text-secondary transition-transform ${showCategoryDropdown ? "rotate-180" : ""}`} />
+                    </div>
+                    {showCategoryDropdown && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-bg-base border border-border rounded-md shadow-lg z-10 p-2 space-y-2">
+                        <input
+                          type="text"
+                          placeholder="搜索题库..."
+                          value={categorySearch}
+                          onChange={e => setCategorySearch(e.target.value)}
+                          className="w-full border border-border rounded-md px-3 py-1.5 text-sm"
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
+                            {tree
+                              .filter(n => !n.parent_id && (!categorySearch || n.name.toLowerCase().includes(categorySearch.toLowerCase())))
+                              .map(root => (
+                                <div
+                                  key={root.id}
+                                  onClick={() => {
+                                    setEditCategoryId(root.id);
+                                    if (root.children.length === 0) setShowCategoryDropdown(false);
+                                  }}
+                                  className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout flex items-center justify-between ${
+                                    editCategoryId === root.id ? "bg-primary/10 text-primary font-medium" : ""
+                                  }`}
+                                >
+                                  <span className="truncate">{root.name}</span>
+                                  {root.children.length > 0 && (
+                                    <ChevronRight size={12} className="text-text-secondary shrink-0 ml-1" />
+                                  )}
+                                </div>
+                              ))}
+                          </div>
+                          {editCategoryId && (() => {
+                            const selectedRoot = tree.find(n => n.id === editCategoryId);
+                            if (!selectedRoot || selectedRoot.children.length === 0) return null;
+                            const filteredChildren = categorySearch
+                              ? selectedRoot.children.filter(c => c.name.toLowerCase().includes(categorySearch.toLowerCase()))
+                              : selectedRoot.children;
+                            return (
+                              <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
+                                {filteredChildren.map(child => (
+                                  <div
+                                    key={child.id}
+                                    onClick={() => { setEditCategoryId(child.id); setShowCategoryDropdown(false); }}
+                                    className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout truncate ${
+                                      editCategoryId === child.id ? "bg-primary/10 text-primary font-medium" : ""
+                                    }`}
+                                  >
+                                    {child.name}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-sm text-text-secondary mb-1">试卷类型</label>
@@ -520,13 +608,13 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                   </div>
                 ) : (
                   <div className="max-h-[50vh] overflow-y-auto border border-border rounded-lg">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm table-fixed">
                       <thead className="bg-bg-layout sticky top-0">
                         <tr>
                           <th className="px-3 py-2 w-8"></th>
                           <th className="text-left px-3 py-2 text-text-secondary font-normal">题干</th>
-                          <th className="text-center px-3 py-2 text-text-secondary font-normal w-14">题型</th>
-                          <th className="text-center px-3 py-2 text-text-secondary font-normal w-14">难度</th>
+                          <th className="text-center px-3 py-2 text-text-secondary font-normal w-16">题型</th>
+                          <th className="text-center px-3 py-2 text-text-secondary font-normal w-16">难度</th>
                           <th className="text-center px-3 py-2 text-text-secondary font-normal w-20">分值</th>
                         </tr>
                       </thead>
@@ -537,8 +625,8 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                               <input type="checkbox" checked={selectedQuestions.has(q.id)} onChange={() => toggleQuestion(q.id)} />
                             </td>
                             <td className="px-3 py-2 truncate max-w-xs">{q.stem}</td>
-                            <td className="px-3 py-2 text-center text-text-secondary text-xs">{TYPE_LABELS[q.type]}</td>
-                            <td className="px-3 py-2 text-center text-text-secondary text-xs">{DIFF_LABELS[q.difficulty]}</td>
+                            <td className="px-3 py-2 text-center text-text-secondary text-xs whitespace-nowrap">{TYPE_LABELS[q.type]}</td>
+                            <td className="px-3 py-2 text-center text-text-secondary text-xs whitespace-nowrap">{DIFF_LABELS[q.difficulty]}</td>
                             <td className="px-3 py-2 text-center">
                               {selectedQuestions.has(q.id) && (
                                 <input type="number" value={selectedQuestions.get(q.id) || 10}

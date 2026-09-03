@@ -33,11 +33,11 @@ export default function StudentDashboard() {
   const filteredCourses = courses.filter((c) => {
     if (tab === "in_progress") {
       const hasProgress = c.completed_count > 0 || c.exam_passed;
-      const isComplete = (c.total_count > 0 && c.completed_count >= c.total_count) || c.exam_passed;
+      const isComplete = (c.total_count > 0 && c.completed_count >= c.total_count) && c.exam_passed;
       return hasProgress && !isComplete;
     }
     if (tab === "done") {
-      return (c.total_count > 0 && c.completed_count >= c.total_count) || c.exam_passed;
+      return (c.total_count > 0 && c.completed_count >= c.total_count) && c.exam_passed;
     }
     return true;
   });
@@ -74,7 +74,7 @@ export default function StudentDashboard() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredCourses.map((c) => {
-            const isDone = (c.total_count > 0 && c.completed_count >= c.total_count) || c.exam_passed;
+            const isDone = (c.total_count > 0 && c.completed_count >= c.total_count) && c.exam_passed;
             const pct = isDone ? 100 : (c.total_count > 0
               ? Math.round((c.completed_count / c.total_count) * 100)
               : 0);

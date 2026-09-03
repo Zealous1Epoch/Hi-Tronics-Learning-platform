@@ -27,8 +27,8 @@ class ProgressReport(BaseModel):
 
 
 def _is_completed(watched: int, total: int) -> bool:
-    """判断视频是否已看完（>= 90%）"""
-    return total > 0 and watched >= total * 0.9
+    """判断视频是否已看完（100% 才算完成）"""
+    return total > 0 and watched >= total
 
 
 def _get_user_dept_id(user: User, db: Session) -> str | None:
@@ -80,7 +80,8 @@ def report_progress(
     )
 
     if existing:
-        if data.total_seconds > 0:
+        # 播放器实测时长比库里的更准确（旧数据 total 可能为 0 或 NULL）
+        if data.total_seconds > existing.total_seconds:
             existing.total_seconds = data.total_seconds
         existing.watched_seconds = data.watched_seconds
         existing.completed = _is_completed(data.watched_seconds, existing.total_seconds)

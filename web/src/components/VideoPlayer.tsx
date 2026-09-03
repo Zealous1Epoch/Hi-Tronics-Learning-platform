@@ -3,7 +3,7 @@ import videojs from "video.js";
 
 interface VideoPlayerProps {
   src: string;
-  onProgress?: (seconds: number) => void;
+  onProgress?: (seconds: number, duration: number) => void;
   startTime?: number;
 }
 
@@ -36,12 +36,27 @@ export default function VideoPlayer({ src, onProgress, startTime = 0 }: VideoPla
       }
     });
 
-    const progressInterval = setInterval(() => {
-      onProgressRef.current?.(Math.floor(player.currentTime() || 0));
-    }, 30000);
+    const report = () => {
+      const duration = player.duration();
+      if (duration !== undefined && Number.isFinite(duration) && duration > 0) {
+        onProgressRef.current?.(Math.floor(player.currentTime() || 0), Math.round(duration));
+      }
+    };
+
+    // 定时上报进度
+    const progressInterval = setInterval(report, 10000);
+    // 播放结束立即上报（确保收到 100% 进度）
+    player.on("ended", report);
+    // 关闭页面前最后上报一次
+    const beforeUnload = () => report();
+    window.addEventListener("beforeunload", beforeUnload);
 
     return () => {
       clearInterval(progressInterval);
+      player.off("ended", report);
+      window.removeEventListener("beforeunload", beforeUnload);
+      // 卸载前上报最后一次进度（组件切换视频时）
+      report();
       player.dispose();
       playerRef.current = null;
     };

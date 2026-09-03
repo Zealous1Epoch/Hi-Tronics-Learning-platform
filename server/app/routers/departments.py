@@ -61,7 +61,14 @@ def update_department(
     dept = db.query(Department).filter(Department.id == dept_id).first()
     if not dept:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
-    if data.name is not None:
+    if data.name is not None and data.name != dept.name:
+        old_name = dept.name
+        dept.name = data.name
+        # 同步更新关联用户的 department 字段
+        db.query(User).filter(User.department == old_name).update(
+            {User.department: data.name}, synchronize_session=False
+        )
+    elif data.name is not None:
         dept.name = data.name
     if data.parent_id is not None:
         dept.parent_id = data.parent_id
@@ -92,6 +99,18 @@ def delete_department(
 
     all_ids = collect_descendant_ids(dept_id)
 
+    # 收集被删除部门的所有名称，清理关联用户的 department 字段
+    dept_names = (
+        db.query(Department.name)
+        .filter(Department.id.in_(all_ids))
+        .all()
+    )
+    names_to_clear = [name for (name,) in dept_names]
+    if names_to_clear:
+        db.query(User).filter(User.department.in_(names_to_clear)).update(
+            {User.department: None}, synchronize_session=False
+        )
+
     # 从深到浅删除，避免外键约束问题
     for did in all_ids:
         db.query(Department).filter(Department.id == did).delete()
@@ -120,15 +139,22 @@ def get_department_users(
     if not dept:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
 
-    # 递归收集所有子部门名称
-    def collect_names(d: Department) -> list[str]:
-        names = [d.name]
-        children = db.query(Department).filter(Department.parent_id == d.id).all()
+    # 一次性加载所有部门，在内存中收集子部门名称
+    all_depts = db.query(Department).all()
+    dept_map: dict[str, list[Department]] = {}
+    for d in all_depts:
+        parent_key = d.parent_id or ""
+        dept_map.setdefault(parent_key, []).append(d)
+
+    def collect_names_in_memory(parent_id: str) -> list[str]:
+        names: list[str] = []
+        children = dept_map.get(parent_id, [])
         for child in children:
-            names.extend(collect_names(child))
+            names.append(child.name)
+            names.extend(collect_names_in_memory(child.id))
         return names
 
-    dept_names = collect_names(dept)
+    dept_names = [dept.name] + collect_names_in_memory(dept_id)
 
     q = db.query(User).filter(User.department.in_(dept_names))
     if search:

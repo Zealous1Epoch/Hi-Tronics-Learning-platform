@@ -39,3 +39,7 @@ class UserUpdate(BaseModel):
     department: str | None = None
     role: str | None = None
     password: str | None = None
+
+
+class UserUpdateStatus(BaseModel):
+    status: str  # active / disabled

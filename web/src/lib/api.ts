@@ -1,4 +1,18 @@
-/** API 客户端，自动附加 Authorization header */
+/** API 客户端，自动附加 Authorization header
+ *
+ * 安全说明：JWT 存储在 localStorage 中，存在 XSS 攻击风险。
+ * 如果攻击者能注入脚本，即可读取 token 并冒充用户。
+ *
+ * 当前缓解措施：
+ * - React 的 JSX 自动转义防止大多数反射型 XSS
+ * - 后端对所有用户输入进行校验和转义
+ * - JWT 有效期 24 小时，过期自动失效
+ *
+ * 后续改进方向：
+ * - 将 token 存储改为 httpOnly Secure SameSite Cookie
+ * - 添加 CSP (Content-Security-Policy) 响应头
+ * - 实现 refresh token 机制，缩短 access token 有效期
+ */
 
 const BASE = "/api";
 
@@ -6,7 +20,7 @@ function getToken(): string | null {
   return localStorage.getItem("token");
 }
 
-export async function api<T = unknown>(
+export async function api<T extends object = Record<string, unknown>>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
@@ -60,7 +74,7 @@ export async function login(username: string, password: string): Promise<LoginRe
   });
 }
 
-export async function uploadFile<T = unknown>(path: string, file: File): Promise<T> {
+export async function uploadFile<T extends object = Record<string, unknown>>(path: string, file: File): Promise<T> {
   const token = getToken();
   const formData = new FormData();
   formData.append("file", file);
@@ -90,7 +104,7 @@ export async function getMe(): Promise<UserInfo> {
   return api<UserInfo>("/auth/me");
 }
 
-export async function uploadFileWithProgress<T = unknown>(
+export async function uploadFileWithProgress<T extends object = Record<string, unknown>>(
   path: string,
   file: File,
   onProgress?: (progress: number) => void,

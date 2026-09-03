@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "../../lib/api";
 import type { UserInfo } from "../../lib/api";
 import { ChevronRight, ChevronDown, Plus, Search, Pencil, Trash2 } from "lucide-react";
@@ -217,7 +217,10 @@ export default function DepartmentUserManage() {
     return result;
   };
 
-  const filteredTree = searchText ? filterTree(tree, searchText) : tree;
+  const filteredTree = useMemo(
+    () => (searchText ? filterTree(tree, searchText) : tree),
+    [tree, searchText]
+  );
 
   useEffect(() => {
     if (!searchText) return;

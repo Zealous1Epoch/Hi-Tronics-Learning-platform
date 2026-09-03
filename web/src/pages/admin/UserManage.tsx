@@ -9,6 +9,7 @@ export default function UserManage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -23,18 +24,34 @@ export default function UserManage() {
   useEffect(() => { fetchUsers(); }, []);
 
   const handleRoleChange = async (userId: string, role: string) => {
-    await api(`/users/${userId}/role`, { method: "PUT", body: JSON.stringify({ role }) });
-    fetchUsers();
+    try {
+      await api(`/users/${userId}/role`, { method: "PUT", body: JSON.stringify({ role }) });
+      setErrorMsg("");
+      fetchUsers();
+    } catch (e: any) {
+      setErrorMsg(e.message || "操作失败");
+    }
   };
 
   const handleStatusChange = async (userId: string, status: string) => {
-    await api(`/users/${userId}/status`, { method: "PUT", body: JSON.stringify({ status }) });
-    fetchUsers();
+    try {
+      await api(`/users/${userId}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+      setErrorMsg("");
+      fetchUsers();
+    } catch (e: any) {
+      setErrorMsg(e.message || "操作失败");
+    }
   };
 
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">用户管理</h2>
+      {errorMsg && (
+        <div className="mb-3 bg-red-50 border border-red-200 text-red-700 rounded-md px-4 py-2 text-sm flex items-center justify-between">
+          <span>{errorMsg}</span>
+          <button onClick={() => setErrorMsg("")} className="text-red-400 hover:text-red-600 ml-2">&times;</button>
+        </div>
+      )}
       <div className="bg-bg-base rounded-lg border border-border">
         <div className="p-4 border-b border-border flex gap-3">
           <input

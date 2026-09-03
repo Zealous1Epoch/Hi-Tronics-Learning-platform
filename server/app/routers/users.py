@@ -2,19 +2,14 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.schemas.user import UserOut, UserUpdateRole, UserCreate, UserUpdate
-from app.routers.auth import get_current_user, require_admin
+from app.schemas.user import UserOut, UserUpdateRole, UserCreate, UserUpdate, UserUpdateStatus
+from app.routers.auth import get_current_user, require_admin, invalidate_user_cache
 from app.services.auth_service import hash_password
 import io
 import openpyxl
-
-
-class UserUpdateStatus(BaseModel):
-    status: str
 
 router = APIRouter(prefix="/api/users", tags=["用户管理"])
 
@@ -54,6 +49,8 @@ def create_user(
     existing = db.query(User).filter(User.username == data.username).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
+    if data.role not in ("student", "admin"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色无效")
     user = User(
         username=data.username,
         password_hash=hash_password(data.password),
@@ -99,6 +96,7 @@ def update_user(
         user.password_hash = hash_password(data.password)
     db.commit()
     db.refresh(user)
+    invalidate_user_cache(user_id)
     return user
 
 
@@ -107,9 +105,11 @@ def update_user_role(
     user_id: str,
     data: UserUpdateRole,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """提升/撤销管理员角色"""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能修改自己的角色")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
@@ -118,6 +118,7 @@ def update_user_role(
     user.role = data.role
     db.commit()
     db.refresh(user)
+    invalidate_user_cache(user_id)
     return user
 
 
@@ -126,9 +127,11 @@ def update_user_status(
     user_id: str,
     data: UserUpdateStatus,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """启用/禁用用户"""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能修改自己的状态")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
@@ -137,6 +140,7 @@ def update_user_status(
     user.status = data.status
     db.commit()
     db.refresh(user)
+    invalidate_user_cache(user_id)
     return user
 
 
@@ -144,12 +148,15 @@ def update_user_status(
 def delete_user(
     user_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """删除用户"""
+    if user_id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能删除自己")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    invalidate_user_cache(user_id)
     db.delete(user)
     db.commit()
     return {"ok": True}
@@ -212,6 +219,15 @@ async def batch_import_users(
         if "部门" in col_map and row[col_map["部门"]]:
             department = str(row[col_map["部门"]]).strip()
 
+        # 校验部门名称是否存在
+        if department:
+            from app.models.department import Department as DeptModel
+            dept_exists = db.query(DeptModel).filter(DeptModel.name == department).first()
+            if not dept_exists:
+                errors.append(f"第 {row_idx} 行：部门「{department}」不存在")
+                skip_count += 1
+                continue
+
         # 角色
         role = "student"
         if "角色" in col_map and row[col_map["角色"]]:
@@ -226,17 +242,23 @@ async def batch_import_users(
             skip_count += 1
             continue
 
-        user = User(
-            name=str(name).strip(),
-            username=str(username).strip(),
-            password_hash=hash_password(str(password).strip()),
-            employee_id=employee_id,
-            department=department,
-            role=role,
-            status="active",
-        )
-        db.add(user)
-        success_count += 1
+        try:
+            user = User(
+                name=str(name).strip(),
+                username=str(username).strip(),
+                password_hash=hash_password(str(password).strip()),
+                employee_id=employee_id,
+                department=department,
+                role=role,
+                status="active",
+            )
+            db.add(user)
+            db.flush()  # 逐行 flush，单行失败不影响其他行
+            success_count += 1
+        except Exception as e:
+            db.rollback()
+            errors.append(f"第 {row_idx} 行：写入失败 - {e}")
+            skip_count += 1
 
     db.commit()
 

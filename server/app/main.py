@@ -53,14 +53,20 @@ async def lifespan(app: FastAPI):
     """启动时校验配置、创建表并初始化种子数据"""
     logger.info("正在启动 %s v%s", settings.APP_NAME, settings.APP_VERSION)
 
+    # 安全校验：JWT_SECRET 不允许为空（所有环境）
+    if not settings.JWT_SECRET:
+        logger.critical("JWT_SECRET 未设置，请通过环境变量 JWT_SECRET 配置")
+        sys.exit(1)
     # 生产环境安全校验
     if not settings.DEBUG:
-        if not settings.JWT_SECRET or settings.JWT_SECRET == "change-me-in-production":
-            logger.critical("生产环境必须设置 JWT_SECRET 环境变量")
+        if settings.JWT_SECRET == "change-me-in-production":
+            logger.critical("生产环境必须将 JWT_SECRET 改为实际密钥")
             sys.exit(1)
         if not settings.BUILTIN_ADMIN_PASSWORD:
             logger.critical("生产环境必须设置 ADMIN_PASSWORD 环境变量")
             sys.exit(1)
+    elif settings.JWT_SECRET == "change-me-in-production":
+        logger.warning("JWT_SECRET 使用默认值，仅限开发环境使用")
 
     logger.info("创建数据库表...")
     Base.metadata.create_all(bind=engine)

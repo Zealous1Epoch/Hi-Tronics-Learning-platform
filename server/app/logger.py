@@ -31,7 +31,8 @@ def setup_logging(debug: bool = False) -> logging.Logger:
     root.addHandler(console)
 
     # 文件 handler（持久化，轮转保留最近 5 个文件，每个最大 10MB）
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
+    # 日志目录放在项目根目录（server/ 的上级），避免 uvicorn --reload 监控到日志文件变化引发重载死循环
+    log_dir = os.path.join(os.path.dirname(__file__), "..", "..", "logs")
     os.makedirs(log_dir, exist_ok=True)
     LOG_FILE = os.path.join(log_dir, "app.log")
     file_handler = RotatingFileHandler(

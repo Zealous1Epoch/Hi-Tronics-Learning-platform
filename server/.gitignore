@@ -10,7 +10,6 @@ dist/
 server/.env
 
 # 运行时数据
-logs/
 uploads/
 
 # IDE

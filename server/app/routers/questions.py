@@ -10,13 +10,15 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.models.user import User
 from app.models.question import Question
-from app.schemas.question import QuestionCreate, QuestionUpdate, QuestionOut
+from app.models.paper import Paper
+from app.models.exam import ExamPaper
+from app.schemas.question import QuestionCreate, QuestionUpdate, QuestionOut, PaginatedResponse
 from app.routers.auth import require_admin
 
 router = APIRouter(prefix="/api", tags=["题库管理"])
 
 
-@router.get("/questions", response_model=list[QuestionOut])
+@router.get("/questions", response_model=PaginatedResponse[QuestionOut])
 def list_questions(
     type: str | None = Query(None, description="题型筛选"),
     difficulty: str | None = Query(None, description="难度筛选"),
@@ -36,7 +38,9 @@ def list_questions(
         q = q.filter(Question.category_id == category_id)
     if search:
         q = q.filter(Question.stem.contains(search))
-    return q.order_by(Question.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    total = q.count()
+    items = q.order_by(Question.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/questions", response_model=QuestionOut, status_code=201)
@@ -102,8 +106,18 @@ def batch_operation(
             q.tags = list(existing)
 
     elif data.action == "delete":
+        refs = _check_references(db, data.ids)
+        ref_ids = {r["question_id"] for r in refs}
+        deleted = 0
+        skipped = 0
         for q in questions:
+            if q.id in ref_ids:
+                skipped += 1
+                continue
             db.delete(q)
+            deleted += 1
+        db.commit()
+        return {"ok": True, "deleted": deleted, "skipped": skipped, "refs": refs}
 
     else:
         raise HTTPException(status_code=400, detail=f"未知操作: {data.action}")
@@ -140,7 +154,7 @@ def export_questions(
     ws.title = "题库"
 
     # 表头
-    headers = ["题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "关键词", "难度"]
+    headers = ["题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "关键词", "标签", "难度"]
     ws.append(headers)
 
     for q in questions:
@@ -155,6 +169,7 @@ def export_questions(
             options.get("D", ""),
             _format_answer(q.type, answer),
             ",".join(q.keywords) if q.keywords else "",
+            ",".join(q.tags) if q.tags else "",
             q.difficulty,
         ]
         ws.append(row)
@@ -176,14 +191,14 @@ def download_template():
     wb = Workbook()
     ws = wb.active
     ws.title = "导入模板"
-    headers = ["题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "关键词", "难度"]
+    headers = ["题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "关键词", "标签", "难度"]
     ws.append(headers)
     # 示例行：每种题型一行
-    ws.append(["单选题", "Python 中列表和元组的区别是什么？", "可变", "不可变", "有序", "无序", "A", "", "easy"])
-    ws.append(["多选题", "以下哪些是 Python 不可变类型？", "字符串", "列表", "元组", "字典", "A,C", "", "medium"])
-    ws.append(["判断题", "Python 是解释型语言", "", "", "", "", "true", "", "easy"])
-    ws.append(["填空题", "Python 中定义函数使用___关键字", "", "", "", "", "def", "", "easy"])
-    ws.append(["问答题", "简述面向对象编程的三大特性", "", "", "", "", "", "封装,继承,多态", "hard"])
+    ws.append(["单选题", "Python 中列表和元组的区别是什么？", "可变", "不可变", "有序", "无序", "A", "", "Python,基础", "easy"])
+    ws.append(["多选题", "以下哪些是 Python 不可变类型？", "字符串", "列表", "元组", "字典", "A,C", "", "Python,数据类型", "medium"])
+    ws.append(["判断题", "Python 是解释型语言", "", "", "", "", "true", "", "Python", "easy"])
+    ws.append(["填空题", "Python 中定义函数使用___关键字", "", "", "", "", "def", "", "Python,函数", "easy"])
+    ws.append(["问答题", "简述面向对象编程的三大特性", "", "", "", "", "", "封装,继承,多态", "OOP", "hard"])
 
     output = io.BytesIO()
     wb.save(output)
@@ -267,8 +282,13 @@ async def import_questions(
             if row[7] and str(row[7]).strip():
                 keywords = [k.strip() for k in str(row[7]).split(",") if k.strip()]
 
+            # 标签
+            tags = None
+            if row[8] and str(row[8]).strip():
+                tags = [t.strip() for t in str(row[8]).split(",") if t.strip()]
+
             # 难度
-            difficulty = str(row[8]).strip() if row[8] else "medium"
+            difficulty = str(row[9]).strip() if row[9] else "medium"
             if difficulty not in ("easy", "medium", "hard"):
                 difficulty = "medium"
 
@@ -279,6 +299,7 @@ async def import_questions(
                 options=options,
                 answer=answer,
                 keywords=keywords,
+                tags=tags,
                 difficulty=difficulty,
                 category_id=category_id,
                 created_by=current_user.id,
@@ -325,6 +346,35 @@ def update_question(
     return question
 
 
+@router.post("/questions/{question_id}/clone", response_model=QuestionOut, status_code=201)
+def clone_question(
+    question_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """复制试题"""
+    original = db.query(Question).filter(Question.id == question_id).first()
+    if not original:
+        raise HTTPException(status_code=404, detail="试题不存在")
+    question = Question(
+        id=str(uuid.uuid4()),
+        type=original.type,
+        stem=original.stem,
+        options=original.options,
+        answer=original.answer,
+        keywords=original.keywords,
+        difficulty=original.difficulty,
+        tags=original.tags,
+        section=original.section,
+        category_id=original.category_id,
+        created_by=current_user.id,
+    )
+    db.add(question)
+    db.commit()
+    db.refresh(question)
+    return question
+
+
 @router.delete("/questions/{question_id}")
 def delete_question(
     question_id: str,
@@ -334,9 +384,51 @@ def delete_question(
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
         raise HTTPException(status_code=404, detail="试题不存在")
+
+    refs = _check_references(db, [question_id])
+    if refs:
+        ref_names = [f"{r['source_type']}: {r['source_name']}" for r in refs]
+        raise HTTPException(
+            status_code=409,
+            detail=f"试题被以下资源引用，无法删除: {', '.join(ref_names)}",
+        )
+
     db.delete(question)
     db.commit()
     return {"ok": True}
+
+
+def _check_references(db: Session, question_ids: list[str]) -> list[dict]:
+    """检查试题是否被试卷引用，返回引用信息列表"""
+    refs: list[dict] = []
+
+    # 检查固定试卷 (Paper.mandatory_questions)
+    papers = db.query(Paper).all()
+    for paper in papers:
+        if paper.mandatory_questions:
+            for mq in paper.mandatory_questions:
+                if mq.get("question_id") in question_ids:
+                    refs.append({
+                        "question_id": mq["question_id"],
+                        "source_type": "paper",
+                        "source_id": paper.id,
+                        "source_name": paper.title,
+                    })
+
+    # 检查考试实例 (ExamPaper.questions)
+    exam_papers = db.query(ExamPaper).all()
+    for ep in exam_papers:
+        if ep.questions:
+            for q in ep.questions:
+                if q.get("question_id") in question_ids:
+                    refs.append({
+                        "question_id": q["question_id"],
+                        "source_type": "exam",
+                        "source_id": ep.exam_id,
+                        "source_name": ep.exam_id,
+                    })
+
+    return refs
 
 
 def _parse_answer(q_type: str, answer_str: str) -> dict:

@@ -45,9 +45,13 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [previewQuestion, setPreviewQuestion] = useState<QuestionItem | null>(null);
   const [saving, setSaving] = useState(false);
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
 
   // 表单状态
   const [qType, setQType] = useState("single_choice");
@@ -69,19 +73,26 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
     const effectiveCategoryId = propCategoryId ?? categoryFilter;
     if (effectiveCategoryId) params.set("category_id", effectiveCategoryId);
     if (search) params.set("search", search);
+    params.set("page", String(page));
+    params.set("page_size", String(pageSize));
     const qs = params.toString();
     const [data, catsData] = await Promise.all([
-      api<QuestionItem[]>(`/questions${qs ? `?${qs}` : ""}`),
+      api<{ items: QuestionItem[]; total: number; page: number; page_size: number }>(`/questions${qs ? `?${qs}` : ""}`),
       api<FlatCategory[]>("/question-categories/flat"),
     ]);
-    setQuestions(data);
+    setQuestions(data.items);
+    setTotal(data.total);
     setFlatCategories(catsData);
     setLoading(false);
   };
 
   useEffect(() => {
+    setPage(1);
+  }, [typeFilter, diffFilter, categoryFilter, propCategoryId, search]);
+
+  useEffect(() => {
     fetchQuestions();
-  }, [typeFilter, diffFilter, categoryFilter, propCategoryId]);
+  }, [typeFilter, diffFilter, categoryFilter, propCategoryId, page]);
 
   useEffect(() => {
     if (!search) {
@@ -174,7 +185,18 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
 
   const handleDelete = async (id: string) => {
     if (!confirm("确定删除这道试题？")) return;
-    await api(`/questions/${id}`, { method: "DELETE" });
+    try {
+      await api(`/questions/${id}`, { method: "DELETE" });
+      fetchQuestions();
+    } catch (e: any) {
+      // 409 表示试题被引用，显示具体引用信息
+      alert(e.message || "删除失败");
+    }
+  };
+
+  const handleClone = async (id: string) => {
+    if (!confirm("确定复制这道试题？")) return;
+    await api(`/questions/${id}/clone`, { method: "POST" });
     fetchQuestions();
   };
 
@@ -199,10 +221,13 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
     if (ids.length === 0) return;
     if (action === "delete" && !confirm(`确定删除选中的 ${ids.length} 道试题？`)) return;
 
-    await api("/questions/batch", {
+    const result = await api<{ ok: boolean; deleted?: number; skipped?: number; refs?: Array<{ question_id: string; source_type: string; source_name: string }> }>("/questions/batch", {
       method: "POST",
       body: JSON.stringify({ ids, action, value }),
     });
+    if (action === "delete" && result.skipped && result.skipped > 0) {
+      alert(`已删除 ${result.deleted} 题，${result.skipped} 题因被试卷引用而跳过`);
+    }
     setSelectedIds(new Set());
     fetchQuestions();
   };
@@ -373,13 +398,127 @@ export default function QuestionManage({ categoryId: propCategoryId }: { categor
                     </span>
                   </td>
                   <td className="px-3 py-3 text-right whitespace-nowrap">
+                    <button onClick={() => setPreviewQuestion(q)} className="text-xs text-text-secondary hover:underline mr-2">预览</button>
                     <button onClick={() => openEdit(q)} className="text-xs text-primary hover:underline mr-2">编辑</button>
+                    <button onClick={() => handleClone(q.id)} className="text-xs text-primary hover:underline mr-2">复制</button>
                     <button onClick={() => handleDelete(q.id)} className="text-xs text-red-500 hover:underline">删除</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* 分页 */}
+      {total > 0 && (
+        <div className="flex items-center justify-between mt-4 text-sm text-text-secondary">
+          <span>共 {total} 题</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="px-3 py-1 border border-border rounded-md hover:bg-bg-layout disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              上一页
+            </button>
+            <span className="px-2">
+              {page} / {Math.ceil(total / pageSize)}
+            </span>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= Math.ceil(total / pageSize)}
+              className="px-3 py-1 border border-border rounded-md hover:bg-bg-layout disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 预览弹窗 */}
+      {previewQuestion && (
+        <div className="fixed inset-0 bg-black/30 flex items-start justify-center pt-20 z-50" onClick={() => setPreviewQuestion(null)}>
+          <div className="bg-bg-base rounded-lg shadow-xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-lg">试题预览</h3>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-2 py-0.5 rounded ${DIFF_COLORS[previewQuestion.difficulty]}`}>{DIFF_LABELS[previewQuestion.difficulty]}</span>
+                <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded">{TYPE_LABELS[previewQuestion.type]}</span>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* 题干 */}
+              <div>
+                <label className="block text-xs text-text-secondary mb-1">题干</label>
+                <p className="text-sm">{previewQuestion.stem}</p>
+              </div>
+
+              {/* 选项 */}
+              {previewQuestion.options && Object.keys(previewQuestion.options).length > 0 && (
+                <div>
+                  <label className="block text-xs text-text-secondary mb-1">选项</label>
+                  <div className="space-y-1">
+                    {Object.entries(previewQuestion.options).map(([key, val]) => (
+                      <div key={key} className="flex items-center gap-2 text-sm">
+                        <span className="font-medium w-6">{key}.</span>
+                        <span>{val}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 正确答案 */}
+              <div>
+                <label className="block text-xs text-text-secondary mb-1">正确答案</label>
+                <div className="text-sm text-green-700 font-medium">
+                  {previewQuestion.type === "single_choice" && (previewQuestion.answer as Record<string, string>).correct}
+                  {previewQuestion.type === "multi_choice" && (previewQuestion.answer as Record<string, string[]>).correct?.join(", ")}
+                  {previewQuestion.type === "true_false" && ((previewQuestion.answer as Record<string, boolean>).correct ? "正确" : "错误")}
+                  {previewQuestion.type === "fill_blank" && (previewQuestion.answer as Record<string, string>).correct}
+                  {previewQuestion.type === "essay" && ((previewQuestion.answer as Record<string, string>).reference || "（无参考答案）")}
+                </div>
+              </div>
+
+              {/* 关键词 */}
+              {previewQuestion.keywords && previewQuestion.keywords.length > 0 && (
+                <div>
+                  <label className="block text-xs text-text-secondary mb-1">关键词</label>
+                  <div className="flex flex-wrap gap-1">
+                    {previewQuestion.keywords.map((k) => (
+                      <span key={k} className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded">{k}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 标签 */}
+              {((previewQuestion as any).tags as string[])?.length > 0 && (
+                <div>
+                  <label className="block text-xs text-text-secondary mb-1">标签</label>
+                  <div className="flex flex-wrap gap-1">
+                    {((previewQuestion as any).tags as string[]).map((t: string) => (
+                      <span key={t} className="text-xs px-1.5 py-0.5 bg-bg-layout border border-border rounded">{t}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 分类 */}
+              <div>
+                <label className="block text-xs text-text-secondary mb-1">题库分类</label>
+                <p className="text-sm text-text-secondary">{getCategoryPath((previewQuestion as any).category_id)}</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button onClick={() => setPreviewQuestion(null)} className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">
+                关闭
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

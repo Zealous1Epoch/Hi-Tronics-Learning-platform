@@ -30,3 +30,12 @@ class UserCreate(BaseModel):
     employee_id: str | None = None
     department: str | None = None
     role: str = "student"
+
+
+class UserUpdate(BaseModel):
+    name: str | None = None
+    username: str | None = None
+    employee_id: str | None = None
+    department: str | None = None
+    role: str | None = None
+    password: str | None = None

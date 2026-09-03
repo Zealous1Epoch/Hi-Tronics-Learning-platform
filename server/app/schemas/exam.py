@@ -8,6 +8,7 @@ class ExamCreate(BaseModel):
     course_id: str = Field(..., description="关联课程 ID")
     title: str = Field(..., description="考试名称")
     paper_type: str = Field("fixed", description="fixed / random")
+    paper_id: str | None = Field(None, description="关联试卷 ID（papers 表）")
     duration: int = Field(..., description="考试时长(分钟)")
     total_score: int = Field(..., description="总分")
     pass_score: int = Field(..., description="及格分")
@@ -19,6 +20,7 @@ class ExamCreate(BaseModel):
 class ExamUpdate(BaseModel):
     title: str | None = None
     paper_type: str | None = None
+    paper_id: str | None = None
     duration: int | None = None
     total_score: int | None = None
     pass_score: int | None = None
@@ -33,6 +35,7 @@ class ExamOut(BaseModel):
     course_id: str
     title: str
     paper_type: str
+    paper_id: str | None = None
     duration: int
     total_score: int
     pass_score: int

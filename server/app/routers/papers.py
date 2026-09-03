@@ -31,6 +31,20 @@ def list_papers(
     return q.order_by(Paper.created_at.desc()).all()
 
 
+@router.get("/papers/published", response_model=list[PaperOut])
+def list_published_papers(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """返回所有已发布的试卷，供考试管理选择"""
+    return (
+        db.query(Paper)
+        .filter(Paper.status == "published")
+        .order_by(Paper.created_at.desc())
+        .all()
+    )
+
+
 @router.post("/papers", response_model=PaperOut, status_code=201)
 def create_paper(
     data: PaperCreate,
@@ -46,6 +60,7 @@ def create_paper(
         random_rules=[rr.model_dump() for rr in data.random_rules] if data.random_rules else None,
         source_banks=data.source_banks,
         total_score=data.total_score,
+        status=data.status or "draft",
         created_by=current_user.id,
     )
     db.add(paper)

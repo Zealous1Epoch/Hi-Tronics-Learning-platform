@@ -56,8 +56,11 @@ export default function QuestionBank() {
 
   // 选中节点变化时加载统计
   useEffect(() => {
-    if (!selectedId) { setStats(null); return; }
-    api<CategoryStats>(`/question-categories/${selectedId}/stats`).then(setStats);
+    if (selectedId === null) {
+      api<CategoryStats>("/question-categories/stats").then(setStats);
+    } else {
+      api<CategoryStats>(`/question-categories/${selectedId}/stats`).then(setStats);
+    }
   }, [selectedId]);
 
   const toggleExpand = (id: string) => {
@@ -158,6 +161,14 @@ export default function QuestionBank() {
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧树 */}
         <div className="w-56 shrink-0 pr-4 border-r border-border">
+          <div
+            onClick={() => setSelectedId(null)}
+            className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
+              selectedId === null ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-bg-layout"
+            }`}
+          >
+            全部试题
+          </div>
           <div className="relative mb-2">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
             <input
@@ -204,18 +215,14 @@ export default function QuestionBank() {
           {/* Tab 1: 题库管理 */}
           {activeTab === "manage" && (
             <div>
-              {!selectedId ? (
-                <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
-                  请在左侧选择一个题库
-                </div>
-              ) : stats ? (
+              {stats ? (
                 <div className="space-y-4">
                   {/* 统计面板 */}
                   <div className="bg-bg-base rounded-lg border border-border p-4">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-bold text-sm">{stats.name}</h3>
                       <span className="text-xs text-text-secondary">
-                        {stats.is_leaf ? "叶子题库" : `容器节点 / ${stats.child_count} 个子节点`}
+                        {stats.is_leaf ? "叶子题库" : stats.child_count > 0 ? `容器节点 / ${stats.child_count} 个子节点` : "全部题库"}
                       </span>
                     </div>
                     <div className="grid grid-cols-3 gap-2 mb-3">
@@ -247,11 +254,7 @@ export default function QuestionBank() {
           {/* Tab 2: 试题 */}
           {activeTab === "questions" && (
             <div>
-              {!selectedId ? (
-                <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
-                  请在左侧选择一个题库
-                </div>
-              ) : stats && !stats.is_leaf ? (
+              {selectedId && stats && !stats.is_leaf ? (
                 <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
                   请选择子题库查看试题
                 </div>

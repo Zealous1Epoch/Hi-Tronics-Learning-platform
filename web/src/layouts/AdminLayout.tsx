@@ -2,7 +2,7 @@ import { Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import {
   BookOpen, Library, Pencil, ClipboardList, ScrollText,
-  Users, BarChart3,
+  Users, BarChart3, LayoutDashboard,
 } from "lucide-react";
 import AdminDashboard from "../pages/admin/Dashboard";
 import CourseManage from "../pages/admin/CourseManage";
@@ -16,6 +16,12 @@ import DepartmentUserManage from "../pages/admin/DepartmentUserManage";
 import KnowledgeManage from "../pages/admin/KnowledgeManage";
 
 const menuGroups = [
+  {
+    label: "",
+    items: [
+      { icon: LayoutDashboard, label: "首页", path: "/admin" },
+    ],
+  },
   {
     label: "资源管理",
     items: [
@@ -58,10 +64,12 @@ export default function AdminLayout() {
         <h2 className="text-sm font-bold px-4 py-4 border-b border-white/10">学习管理后台</h2>
         <nav className="flex-1 py-2 overflow-y-auto">
           {menuGroups.map((group) => (
-            <div key={group.label} className="mb-3">
-              <p className="px-4 py-1 text-[10px] text-white/40 uppercase tracking-wider">
-                {group.label}
-              </p>
+            <div key={group.label || "home"} className="mb-3">
+              {group.label && (
+                <p className="px-4 py-1 text-[10px] text-white/40 uppercase tracking-wider">
+                  {group.label}
+                </p>
+              )}
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.path);

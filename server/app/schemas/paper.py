@@ -27,6 +27,7 @@ class PaperCreate(BaseModel):
     random_rules: list[RandomRule] | None = None
     source_banks: list[str] | None = None
     total_score: int = 0
+    status: str | None = None
 
 
 class PaperUpdate(BaseModel):

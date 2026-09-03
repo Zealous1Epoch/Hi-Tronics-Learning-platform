@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.course import Course
-from app.models.exam import Exam, ExamPaper
+from app.models.exam import Exam, ExamPaper, ExamResult
+from app.models.paper import Paper
 from app.schemas.exam import ExamCreate, ExamUpdate, ExamOut, PaperCreate, PaperOut
 from app.routers.auth import require_admin
 
@@ -42,6 +43,13 @@ def create_exam(
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
 
+    # 如果关联了试卷，读取试卷数据
+    paper = None
+    if data.paper_id:
+        paper = db.query(Paper).filter(Paper.id == data.paper_id).first()
+        if not paper:
+            raise HTTPException(status_code=404, detail="试卷不存在")
+
     start_time = datetime.fromisoformat(data.start_time) if data.start_time else None
     end_time = datetime.fromisoformat(data.end_time) if data.end_time else None
 
@@ -50,6 +58,7 @@ def create_exam(
         course_id=data.course_id,
         title=data.title,
         paper_type=data.paper_type,
+        paper_id=data.paper_id,
         duration=data.duration,
         total_score=data.total_score,
         pass_score=data.pass_score,
@@ -59,6 +68,21 @@ def create_exam(
         created_by=current_user.id,
     )
     db.add(exam)
+    db.flush()  # 获取 exam.id，但暂不提交
+
+    # 从试卷复制组卷内容到 exam_papers
+    if paper:
+        exam_paper = ExamPaper(
+            id=str(uuid.uuid4()),
+            exam_id=exam.id,
+            questions=paper.mandatory_questions,
+            random_rules=paper.random_rules,
+        )
+        db.add(exam_paper)
+
+    # 将考试关联到课程，学员端通过 course.exam_id 看到考试
+    course.exam_id = exam.id
+
     db.commit()
     db.refresh(exam)
     return exam
@@ -107,6 +131,7 @@ def delete_exam(
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
+    db.query(ExamResult).filter(ExamResult.exam_id == exam_id).delete()
     db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).delete()
     db.delete(exam)
     db.commit()

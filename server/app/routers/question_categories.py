@@ -163,6 +163,38 @@ def delete_category(
     return {"ok": True}
 
 
+@router.get("/question-categories/stats")
+def get_all_stats(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """获取全部试题的聚合统计"""
+    questions = db.query(Question).all()
+
+    type_counts = {
+        "single_choice": 0,
+        "multi_choice": 0,
+        "true_false": 0,
+        "fill_blank": 0,
+        "essay": 0,
+    }
+    for q in questions:
+        if q.type in type_counts:
+            type_counts[q.type] += 1
+
+    total = sum(type_counts.values())
+
+    return {
+        "id": "",
+        "name": "全部试题",
+        "is_leaf": False,
+        "child_count": 0,
+        **type_counts,
+        "total_count": total,
+        "created_at": None,
+    }
+
+
 @router.get("/question-categories/{category_id}/stats")
 def get_category_stats(
     category_id: str,

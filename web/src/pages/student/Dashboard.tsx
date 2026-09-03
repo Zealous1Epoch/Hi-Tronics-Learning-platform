@@ -11,6 +11,7 @@ interface CourseProgress {
   video_progress: Record<string, { watched_seconds: number; total_seconds: number; completed: boolean }>;
   completed_count: number;
   total_count: number;
+  exam_passed: boolean;
 }
 
 export default function StudentDashboard() {
@@ -29,7 +30,7 @@ export default function StudentDashboard() {
           try {
             progressResults[c.id] = await api<CourseProgress>(`/student/progress/${c.id}`);
           } catch {
-            progressResults[c.id] = { video_progress: {}, completed_count: 0, total_count: c.video_count };
+            progressResults[c.id] = { video_progress: {}, completed_count: 0, total_count: c.video_count, exam_passed: false };
           }
         })
       );
@@ -41,10 +42,14 @@ export default function StudentDashboard() {
   const filteredCourses = courses.filter((c) => {
     const progress = progressMap[c.id];
     if (tab === "in_progress") {
-      return progress && progress.completed_count > 0 && progress.completed_count < progress.total_count;
+      // 有进度但未完成（视频未看完且考试未通过）
+      const hasProgress = progress && (progress.completed_count > 0 || progress.exam_passed);
+      const isComplete = progress && (progress.total_count > 0 && progress.completed_count >= progress.total_count) || progress?.exam_passed;
+      return hasProgress && !isComplete;
     }
     if (tab === "done") {
-      return progress && progress.total_count > 0 && progress.completed_count >= progress.total_count;
+      // 视频全部看完 或 考试通过
+      return progress && ((progress.total_count > 0 && progress.completed_count >= progress.total_count) || progress.exam_passed);
     }
     return true;
   });
@@ -82,10 +87,10 @@ export default function StudentDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredCourses.map((c) => {
             const progress = progressMap[c.id];
-            const pct = progress && progress.total_count > 0
+            const isDone = progress && ((progress.total_count > 0 && progress.completed_count >= progress.total_count) || progress.exam_passed);
+            const pct = isDone ? 100 : (progress && progress.total_count > 0
               ? Math.round((progress.completed_count / progress.total_count) * 100)
-              : 0;
-            const isDone = progress && progress.total_count > 0 && pct >= 100;
+              : 0);
 
             return (
               <Link
@@ -102,14 +107,16 @@ export default function StudentDashboard() {
                   <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
                     <span>{c.video_count} 个视频</span>
                     {progress && (
-                      <span className={isDone ? "text-green-600" : "text-primary"}>
-                        {progress.completed_count}/{progress.total_count} 完成
+                      <span className="text-primary">
+                        {progress.exam_passed && progress.total_count === 0
+                          ? "考试已通过"
+                          : `${progress.completed_count}/${progress.total_count} 完成`}
                       </span>
                     )}
                   </div>
                   <div className="w-full bg-bg-layout rounded-full h-1.5">
                     <div
-                      className={`h-1.5 rounded-full transition-all ${isDone ? "bg-green-500" : "bg-primary"}`}
+                      className="h-1.5 rounded-full transition-all bg-primary"
                       style={{ width: `${pct}%` }}
                     />
                   </div>

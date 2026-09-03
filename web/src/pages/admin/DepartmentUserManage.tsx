@@ -38,6 +38,17 @@ export default function DepartmentUserManage() {
   const [newUser, setNewUser] = useState({ name: "", username: "", password: "", employee_id: "", role: "student" });
   const [creatingUser, setCreatingUser] = useState(false);
 
+  // 编辑用户
+  const [showEditUser, setShowEditUser] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", username: "", employee_id: "", department: "", role: "student", password: "" });
+
+  // 批量导入
+  const [showImport, setShowImport] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ success_count: number; skip_count: number; total: number; errors: string[] } | null>(null);
+
   const fetchTree = async () => {
     const [treeData, flatData] = await Promise.all([
       api<DeptNode[]>("/departments"),
@@ -51,12 +62,16 @@ export default function DepartmentUserManage() {
   useEffect(() => { fetchTree(); }, []);
 
   const fetchUsers = async () => {
-    if (!selectedId) return;
     setLoadingUsers(true);
     const params = new URLSearchParams();
     if (userSearch) params.set("search", userSearch);
-    const data = await api<UserInfo[]>(`/departments/${selectedId}/users?${params}`);
-    setUsers(data);
+    if (selectedId) {
+      const data = await api<UserInfo[]>(`/departments/${selectedId}/users?${params}`);
+      setUsers(data);
+    } else {
+      const data = await api<UserInfo[]>(`/users?${params}`);
+      setUsers(data);
+    }
     setLoadingUsers(false);
   };
 
@@ -146,6 +161,45 @@ export default function DepartmentUserManage() {
     setCreatingUser(false);
     setShowCreateUser(false);
     setNewUser({ name: "", username: "", password: "", employee_id: "", role: "student" });
+    fetchUsers();
+  };
+
+  const handleEditUser = async () => {
+    if (!editForm.name.trim() || !editForm.username.trim() || !editingUserId) return;
+    await api(`/users/${editingUserId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name: editForm.name.trim(),
+        username: editForm.username.trim(),
+        employee_id: editForm.employee_id.trim() || null,
+        department: editForm.department.trim() || null,
+        role: editForm.role,
+        password: editForm.password || null,
+      }),
+    });
+    setShowEditUser(false);
+    setEditingUserId(null);
+    fetchUsers();
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    setImporting(true);
+    setImportResult(null);
+    const formData = new FormData();
+    formData.append("file", importFile);
+    const url = `/api/users/batch-import${selectedId ? `?department_id=${selectedId}` : ""}`;
+    const token = localStorage.getItem("token");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.detail || "导入失败");
+    setImportResult(result);
+    setImporting(false);
+    setImportFile(null);
     fetchUsers();
   };
 
@@ -277,6 +331,14 @@ export default function DepartmentUserManage() {
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧部门树 */}
         <div className="w-56 shrink-0 pr-4 border-r border-border">
+          <div
+            onClick={() => { setSelectedId(null); setUsers([]); }}
+            className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
+              selectedId === null ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-bg-layout"
+            }`}
+          >
+            全部用户
+          </div>
           <div className="relative mb-2">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
             <input
@@ -356,16 +418,10 @@ export default function DepartmentUserManage() {
 
         {/* 右侧用户列表 */}
         <div className="flex-1 min-w-0">
-          {!selectedId ? (
-            <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
-              请在左侧选择一个部门
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-text-secondary">
-                  {getDeptPath(selectedId)}
-                </span>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm text-text-secondary">
+              {selectedId ? getDeptPath(selectedId) : "全部用户"}
+            </span>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -387,6 +443,12 @@ export default function DepartmentUserManage() {
                   >
                     <Plus size={14} className="inline mr-1" />新增用户
                   </button>
+                  <button
+                    onClick={() => { setShowImport(true); setImportResult(null); setImportFile(null); }}
+                    className="px-3 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout"
+                  >
+                    批量导入
+                  </button>
                 </div>
               </div>
 
@@ -394,12 +456,12 @@ export default function DepartmentUserManage() {
                 <table className="w-full text-sm table-fixed">
                   <thead className="bg-bg-layout border-b border-border">
                     <tr>
-                      <th className="text-left px-4 py-3 font-medium text-text-secondary">姓名</th>
-                      <th className="text-left px-4 py-3 font-medium text-text-secondary">工号</th>
-                      <th className="text-left px-4 py-3 font-medium text-text-secondary">部门</th>
-                      <th className="text-left px-4 py-3 font-medium text-text-secondary">角色</th>
-                      <th className="text-left px-4 py-3 font-medium text-text-secondary">状态</th>
-                      <th className="text-right px-4 py-3 font-medium text-text-secondary">操作</th>
+                      <th className="text-center px-4 py-3 font-medium text-text-secondary">姓名</th>
+                      <th className="text-center px-3 py-3 font-medium text-text-secondary">工号</th>
+                      <th className="text-center px-3 py-3 font-medium text-text-secondary">部门</th>
+                      <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">角色</th>
+                      <th className="text-center px-3 py-3 font-medium text-text-secondary w-16">状态</th>
+                      <th className="text-center px-3 py-3 font-medium text-text-secondary w-64">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -410,40 +472,64 @@ export default function DepartmentUserManage() {
                     ) : (
                       users.map(u => (
                         <tr key={u.id} className="border-b border-border last:border-0 hover:bg-bg-layout/50">
-                          <td className="px-4 py-3 font-medium">{u.name}</td>
-                          <td className="px-4 py-3 text-text-secondary">{u.employee_id || "-"}</td>
-                          <td className="px-4 py-3 text-text-secondary">{u.department || "-"}</td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3 font-medium text-center">{u.name}</td>
+                          <td className="px-3 py-3 text-text-secondary text-center">{u.employee_id || "-"}</td>
+                          <td className="px-3 py-3 text-text-secondary text-center">{u.department || "-"}</td>
+                          <td className="px-3 py-3 text-center">
                             <span className={`inline-block px-2 py-0.5 rounded text-xs ${
                               u.role === "admin" ? "bg-primary/10 text-primary" : "bg-border text-text-secondary"
                             }`}>
                               {u.role === "admin" ? "管理员" : "学员"}
                             </span>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-3 text-center">
                             <span className={`inline-block px-2 py-0.5 rounded text-xs ${
                               u.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
                             }`}>
                               {u.status === "active" ? "正常" : "已禁用"}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex gap-2 justify-end">
-                              <button
-                                onClick={() => handleRoleChange(u.id, u.role === "admin" ? "student" : "admin")}
-                                className="text-xs text-primary hover:underline"
-                              >
-                                {u.role === "admin" ? "降为学员" : "提升管理员"}
-                              </button>
-                              <button
-                                onClick={() => handleStatusChange(u.id, u.status === "active" ? "disabled" : "active")}
-                                className={`text-xs hover:underline ${
-                                  u.status === "active" ? "text-red-500" : "text-emerald-600"
-                                }`}
-                              >
-                                {u.status === "active" ? "禁用" : "启用"}
-                              </button>
-                            </div>
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            <button
+                              onClick={() => handleRoleChange(u.id, u.role === "admin" ? "student" : "admin")}
+                              className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1"
+                            >
+                              {u.role === "admin" ? "降为学员" : "提升管理员"}
+                            </button>
+                            <button
+                              onClick={() => handleStatusChange(u.id, u.status === "active" ? "disabled" : "active")}
+                              className={`text-xs border rounded px-1.5 py-0.5 hover:bg-red-50 mr-1 ${
+                                u.status === "active" ? "text-red-500 border-red-200" : "text-emerald-600 border-emerald-200"
+                              }`}
+                            >
+                              {u.status === "active" ? "禁用" : "启用"}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingUserId(u.id);
+                                setEditForm({
+                                  name: u.name,
+                                  username: u.username,
+                                  employee_id: u.employee_id || "",
+                                  department: u.department || "",
+                                  role: u.role,
+                                  password: "",
+                                });
+                                setShowEditUser(true);
+                              }}
+                              className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1"
+                            >
+                              编辑
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!confirm(`确定删除用户 ${u.name}？`)) return;
+                                api(`/users/${u.id}`, { method: "DELETE" }).then(fetchUsers);
+                              }}
+                              className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50"
+                            >
+                              删除
+                            </button>
                           </td>
                         </tr>
                       ))
@@ -451,11 +537,75 @@ export default function DepartmentUserManage() {
                   </tbody>
                 </table>
               </div>
-            </>
-          )}
         </div>
       </div>
-    {/* 新增用户弹窗 */}
+    {/* 批量导入弹窗 */}
+      {showImport && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowImport(false)}>
+          <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h3 className="font-bold text-sm">批量导入用户</h3>
+              <button onClick={() => setShowImport(false)} className="text-text-secondary hover:text-text-base">
+                <span className="text-lg">&times;</span>
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="text-sm text-text-secondary">
+                下载模板，按格式填写后上传 Excel 文件即可批量导入。
+              </div>
+              <a
+                href="/api/users/batch-import/template"
+                className="inline-block text-sm text-primary hover:underline"
+              >
+                下载导入模板
+              </a>
+              {selectedId && (
+                <p className="text-xs text-text-secondary">
+                  导入用户将自动归属到：{flatDepts.find(d => d.id === selectedId)?.name || ""}
+                </p>
+              )}
+              <div>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={e => setImportFile(e.target.files?.[0] || null)}
+                  className="w-full text-sm"
+                />
+              </div>
+              {importResult && (
+                <div className="bg-bg-layout rounded-md p-3 text-sm space-y-1">
+                  <p>导入完成：成功 <span className="text-emerald-600 font-bold">{importResult.success_count}</span> 条，
+                    跳过 <span className="text-text-secondary font-bold">{importResult.skip_count}</span> 条</p>
+                  {importResult.errors.length > 0 && (
+                    <div className="max-h-32 overflow-y-auto mt-2">
+                      {importResult.errors.map((err, i) => (
+                        <p key={i} className="text-red-500 text-xs">{err}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3 px-5 py-4 border-t border-border">
+              <button
+                onClick={handleImport}
+                disabled={!importFile || importing}
+                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light border border-primary disabled:opacity-50"
+              >
+                {importing ? "导入中..." : "开始导入"}
+              </button>
+              <button
+                onClick={() => setShowImport(false)}
+                className="px-4 py-2 rounded-md text-sm border border-border text-text-secondary hover:text-text-base"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 新增用户弹窗 */}
       {showCreateUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowCreateUser(false)}>
           <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
@@ -534,6 +684,88 @@ export default function DepartmentUserManage() {
               </button>
               <button
                 onClick={() => setShowCreateUser(false)}
+                className="px-4 py-2 rounded-md text-sm border border-border text-text-secondary hover:text-text-base"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 编辑用户弹窗 */}
+      {showEditUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => { setShowEditUser(false); setEditingUserId(null); }}>
+          <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h3 className="font-bold text-sm">编辑用户</h3>
+              <button onClick={() => { setShowEditUser(false); setEditingUserId(null); }} className="text-text-secondary hover:text-text-base">
+                <span className="text-lg">&times;</span>
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">姓名 *</label>
+                <input
+                  type="text" value={editForm.name}
+                  onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">用户名 *</label>
+                <input
+                  type="text" value={editForm.username}
+                  onChange={e => setEditForm(prev => ({ ...prev, username: e.target.value }))}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">新密码（留空不修改）</label>
+                <input
+                  type="password" value={editForm.password}
+                  onChange={e => setEditForm(prev => ({ ...prev, password: e.target.value }))}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  placeholder="留空则不修改密码"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">工号</label>
+                <input
+                  type="text" value={editForm.employee_id}
+                  onChange={e => setEditForm(prev => ({ ...prev, employee_id: e.target.value }))}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">部门</label>
+                <input
+                  type="text" value={editForm.department}
+                  onChange={e => setEditForm(prev => ({ ...prev, department: e.target.value }))}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">角色</label>
+                <select
+                  value={editForm.role}
+                  onChange={e => setEditForm(prev => ({ ...prev, role: e.target.value }))}
+                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                >
+                  <option value="student">学员</option>
+                  <option value="admin">管理员</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 px-5 py-4 border-t border-border">
+              <button
+                onClick={handleEditUser}
+                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light border border-primary"
+              >
+                保存
+              </button>
+              <button
+                onClick={() => { setShowEditUser(false); setEditingUserId(null); }}
                 className="px-4 py-2 rounded-md text-sm border border-border text-text-secondary hover:text-text-base"
               >
                 取消

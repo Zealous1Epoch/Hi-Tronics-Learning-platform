@@ -84,6 +84,16 @@ export default function CourseManage() {
   const [selectedDepts, setSelectedDepts] = useState<Set<string>>(new Set());
   const [userSearch, setUserSearch] = useState("");
   const [deptSearch, setDeptSearch] = useState("");
+  const [activeDeptId, setActiveDeptId] = useState<string | null>(null);
+
+  // 编辑弹窗内分配
+  const [editAssignUsers, setEditAssignUsers] = useState<UserItem[]>([]);
+  const [editAssignDepts, setEditAssignDepts] = useState<DeptItem[]>([]);
+  const [editSelectedUsers, setEditSelectedUsers] = useState<Set<string>>(new Set());
+  const [editSelectedDepts, setEditSelectedDepts] = useState<Set<string>>(new Set());
+  const [editUserSearch, setEditUserSearch] = useState("");
+  const [editDeptSearch, setEditDeptSearch] = useState("");
+  const [editActiveDeptId, setEditActiveDeptId] = useState<string | null>(null);
 
   const fetchData = async () => {
     const [treeData, flatData, coursesData] = await Promise.all([
@@ -178,7 +188,7 @@ export default function CourseManage() {
   };
 
   // 编辑弹窗
-  const openCreate = () => {
+  const openCreate = async () => {
     setEditingCourse(null);
     setEditTitle("");
     setEditDescription("");
@@ -187,16 +197,39 @@ export default function CourseManage() {
     setPendingFiles([]);
     setCategorySearch("");
     setShowCategoryDropdown(false);
+    const [users, depts] = await Promise.all([
+      api<UserItem[]>("/users"),
+      api<DeptItem[]>("/departments?flat=true"),
+    ]);
+    setEditAssignUsers(users);
+    setEditAssignDepts(flattenDepts(depts));
+    setEditSelectedUsers(new Set());
+    setEditSelectedDepts(new Set());
+    setEditUserSearch("");
+    setEditDeptSearch("");
+    setEditActiveDeptId(null);
     setShowEditModal(true);
   };
 
   const openEdit = async (courseId: string) => {
-    const detail = await api<CourseDetail>(`/courses/${courseId}`);
+    const [detail, users, depts, assignments] = await Promise.all([
+      api<CourseDetail>(`/courses/${courseId}`),
+      api<UserItem[]>("/users"),
+      api<DeptItem[]>("/departments?flat=true"),
+      api<{ users: UserItem[]; departments: DeptItem[] }>(`/courses/${courseId}/assignments`),
+    ]);
     setEditingCourse(detail);
     setEditTitle(detail.title);
     setEditDescription(detail.description || "");
     setEditVideos(detail.videos);
     setPendingFiles([]);
+    setEditAssignUsers(users);
+    setEditAssignDepts(flattenDepts(depts));
+    setEditSelectedUsers(new Set(assignments.users.map(u => u.id)));
+    setEditSelectedDepts(new Set());
+    setEditUserSearch("");
+    setEditDeptSearch("");
+    setEditActiveDeptId(null);
     setShowEditModal(true);
   };
 
@@ -215,6 +248,13 @@ export default function CourseManage() {
     } else {
       const course = await api<CourseDetail>("/courses", { method: "POST", body: JSON.stringify(body) });
       courseId = course.id;
+    }
+    // 保存分配
+    if (courseId && editSelectedUsers.size > 0) {
+      await api(`/courses/${courseId}/assignments`, {
+        method: "POST",
+        body: JSON.stringify({ user_ids: [...editSelectedUsers], department_ids: [...editSelectedDepts] }),
+      });
     }
     // 上传待上传的视频文件
     if (courseId && pendingFiles.length > 0) {
@@ -285,6 +325,7 @@ export default function CourseManage() {
     setSelectedDepts(new Set());
     setUserSearch("");
     setDeptSearch("");
+    setActiveDeptId(null);
     setShowAssignModal(true);
   };
 
@@ -369,11 +410,6 @@ export default function CourseManage() {
     }
   }, [showCategoryDropdown]);
 
-  const filteredUsers = allUsers.filter(u =>
-    u.name.includes(userSearch) || (u.department && u.department.includes(userSearch))
-  );
-  const filteredDepts = allDepts.filter(d => d.name.includes(deptSearch));
-
   const renderTree = (nodes: TreeNode[], depth: number = 0) => {
     return nodes.map(node => {
       const isExpanded = expandedIds.has(node.id);
@@ -441,6 +477,14 @@ export default function CourseManage() {
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧课程树 */}
         <div className="w-56 shrink-0 pr-4 border-r border-border">
+          <div
+            onClick={() => setSelectedId(null)}
+            className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
+              selectedId === null ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-bg-layout"
+            }`}
+          >
+            全部课程
+          </div>
           <div className="relative mb-2">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
             <input
@@ -703,6 +747,141 @@ export default function CourseManage() {
                 />
               </div>
 
+              {/* 分配学员 */}
+              <div>
+                <label className="block text-sm text-text-secondary mb-2">
+                  分配学员
+                  {(editSelectedUsers.size > 0 || editSelectedDepts.size > 0) && (
+                    <span className="text-primary ml-1">
+                      （已选 {editSelectedDepts.size + editSelectedUsers.size} 项）
+                    </span>
+                  )}
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* 部门 */}
+                  <div className="border border-border rounded-md p-2">
+                    <input
+                      type="text" placeholder="搜索部门..."
+                      value={editDeptSearch} onChange={e => setEditDeptSearch(e.target.value)}
+                      className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5"
+                    />
+                    <div className="max-h-28 overflow-y-auto space-y-0.5">
+                      {editAssignDepts.filter(d => d.name.includes(editDeptSearch)).map(d => {
+                        const isActive = editActiveDeptId === d.id;
+                        return (
+                          <div key={d.id} className={`flex items-center gap-1.5 py-0.5 px-1 rounded text-xs ${
+                            isActive ? "bg-primary/10" : "hover:bg-bg-layout"
+                          }`}>
+                            <input
+                              type="checkbox"
+                              checked={editSelectedDepts.has(d.id)}
+                              onChange={() => {
+                                const deptName = d.name;
+                                const deptUsers = editAssignUsers.filter(u => u.department === deptName);
+                                const nextDepts = new Set(editSelectedDepts);
+                                const nextUsers = new Set(editSelectedUsers);
+                                if (nextDepts.has(d.id)) {
+                                  nextDepts.delete(d.id);
+                                  deptUsers.forEach(u => nextUsers.delete(u.id));
+                                } else {
+                                  nextDepts.add(d.id);
+                                  deptUsers.forEach(u => nextUsers.add(u.id));
+                                }
+                                setEditSelectedDepts(nextDepts);
+                                setEditSelectedUsers(nextUsers);
+                              }}
+                            />
+                            <span
+                              className="truncate flex-1 cursor-pointer"
+                              onClick={() => setEditActiveDeptId(isActive ? null : d.id)}
+                            >
+                              {d.name}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {/* 学员 */}
+                  <div className="border border-border rounded-md p-2">
+                    <input
+                      type="text" placeholder="搜索姓名..."
+                      value={editUserSearch} onChange={e => setEditUserSearch(e.target.value)}
+                      className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5"
+                    />
+                    <div className="max-h-28 overflow-y-auto space-y-0.5">
+                      {(() => {
+                        const activeDept = editActiveDeptId ? editAssignDepts.find(d => d.id === editActiveDeptId) : null;
+                        const filtered = editAssignUsers.filter(u => {
+                          if (activeDept && u.department !== activeDept.name) return false;
+                          if (editUserSearch && !u.name.includes(editUserSearch) && !(u.department && u.department.includes(editUserSearch))) return false;
+                          return true;
+                        });
+                        if (!activeDept) {
+                          return <p className="text-xs text-text-secondary py-4 text-center">点击左侧部门名称查看学员</p>;
+                        }
+                        if (filtered.length === 0) {
+                          return <p className="text-xs text-text-secondary py-2 text-center">该部门暂无用户</p>;
+                        }
+                        return (
+                          <div>
+                            <label className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-bg-layout rounded text-xs cursor-pointer border-b border-border mb-0.5">
+                              <input
+                                type="checkbox"
+                                checked={filtered.every(u => editSelectedUsers.has(u.id))}
+                                onChange={() => {
+                                  const allIds = new Set(filtered.map(u => u.id));
+                                  const allSelected = filtered.every(u => editSelectedUsers.has(u.id));
+                                  const next = new Set(editSelectedUsers);
+                                  allSelected ? allIds.forEach(id => next.delete(id)) : allIds.forEach(id => next.add(id));
+                                  setEditSelectedUsers(next);
+                                }}
+                              />
+                              <span className="text-text-secondary">全选</span>
+                            </label>
+                            {filtered.map(u => (
+                              <label key={u.id} className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-bg-layout rounded text-xs cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={editSelectedUsers.has(u.id)}
+                                  onChange={() => {
+                                    const next = new Set(editSelectedUsers);
+                                    next.has(u.id) ? next.delete(u.id) : next.add(u.id);
+                                    setEditSelectedUsers(next);
+                                  }}
+                                />
+                                <span className="truncate">{u.name}</span>
+                                {u.department && <span className="text-text-secondary truncate">({u.department})</span>}
+                              </label>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+                {/* 分配结果摘要 */}
+                {(editSelectedDepts.size > 0 || editSelectedUsers.size > 0) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {[...editSelectedDepts].map(id => {
+                      const d = editAssignDepts.find(dep => dep.id === id);
+                      return d ? (
+                        <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
+                          {d.name}（部门）
+                        </span>
+                      ) : null;
+                    })}
+                    {editAssignUsers.filter(u => editSelectedUsers.has(u.id) && !editSelectedDepts.has(
+                      editAssignDepts.find(d => d.name === u.department)?.id || ""
+                    )).map(u => (
+                      <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">
+                        {u.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* 已有视频（仅编辑模式） */}
               {editingCourse && editVideos.length > 0 && (
                 <div>
@@ -845,34 +1024,7 @@ export default function CourseManage() {
 
             <div className="p-5">
               <div className="grid grid-cols-2 gap-4">
-                {/* 人员选择 */}
-                <div className="bg-bg-base rounded-lg border border-border p-3">
-                  <h4 className="font-bold text-sm mb-2">选择学员</h4>
-                  <input
-                    type="text" placeholder="搜索姓名/部门..."
-                    value={userSearch} onChange={e => setUserSearch(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2"
-                  />
-                  <div className="max-h-52 overflow-y-auto space-y-1 mb-2">
-                    {filteredUsers.map(u => (
-                      <label key={u.id} className="flex items-center gap-2 py-1 px-2 hover:bg-bg-layout rounded text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedUsers.has(u.id)}
-                          onChange={() => {
-                            const next = new Set(selectedUsers);
-                            next.has(u.id) ? next.delete(u.id) : next.add(u.id);
-                            setSelectedUsers(next);
-                          }}
-                        />
-                        <span>{u.name}</span>
-                        {u.department && <span className="text-text-secondary text-xs">({u.department})</span>}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 部门选择 */}
+                {/* 部门 */}
                 <div className="bg-bg-base rounded-lg border border-border p-3">
                   <h4 className="font-bold text-sm mb-2">选择部门</h4>
                   <input
@@ -881,30 +1033,140 @@ export default function CourseManage() {
                     className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2"
                   />
                   <div className="max-h-52 overflow-y-auto space-y-1 mb-2">
-                    {filteredDepts.map(d => (
-                      <label key={d.id} className="flex items-center gap-2 py-1 px-2 hover:bg-bg-layout rounded text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedDepts.has(d.id)}
-                          onChange={() => {
-                            const next = new Set(selectedDepts);
-                            next.has(d.id) ? next.delete(d.id) : next.add(d.id);
-                            setSelectedDepts(next);
-                          }}
-                        />
-                        <span>{d.name}</span>
-                      </label>
-                    ))}
+                    {allDepts.filter(d => d.name.includes(deptSearch)).map(d => {
+                      const isActive = activeDeptId === d.id;
+                      return (
+                        <div key={d.id} className={`flex items-center gap-2 py-1 px-2 rounded text-sm ${
+                          isActive ? "bg-primary/10" : "hover:bg-bg-layout"
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={selectedDepts.has(d.id)}
+                            onChange={() => {
+                              const deptUsers = allUsers.filter(u => u.department === d.name);
+                              const nextDepts = new Set(selectedDepts);
+                              const nextUsers = new Set(selectedUsers);
+                              if (nextDepts.has(d.id)) {
+                                nextDepts.delete(d.id);
+                                deptUsers.forEach(u => nextUsers.delete(u.id));
+                              } else {
+                                nextDepts.add(d.id);
+                                deptUsers.forEach(u => nextUsers.add(u.id));
+                              }
+                              setSelectedDepts(nextDepts);
+                              setSelectedUsers(nextUsers);
+                            }}
+                          />
+                          <span
+                            className="flex-1 cursor-pointer"
+                            onClick={() => setActiveDeptId(isActive ? null : d.id)}
+                          >
+                            {d.name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 学员 */}
+                <div className="bg-bg-base rounded-lg border border-border p-3">
+                  <h4 className="font-bold text-sm mb-2">
+                    选择学员
+                    {activeDeptId && (
+                      <span className="text-text-secondary font-normal ml-1">
+                        ({allDepts.find(d => d.id === activeDeptId)?.name || ""})
+                      </span>
+                    )}
+                  </h4>
+                  <input
+                    type="text" placeholder="搜索姓名..."
+                    value={userSearch} onChange={e => setUserSearch(e.target.value)}
+                    className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2"
+                  />
+                  <div className="max-h-52 overflow-y-auto space-y-1 mb-2">
+                    {(() => {
+                      const activeDept = activeDeptId ? allDepts.find(d => d.id === activeDeptId) : null;
+                      const filtered = allUsers.filter(u => {
+                        if (activeDept && u.department !== activeDept.name) return false;
+                        if (userSearch && !u.name.includes(userSearch) && !(u.department && u.department.includes(userSearch))) return false;
+                        return true;
+                      });
+                      if (!activeDept) {
+                        return <p className="text-sm text-text-secondary py-4 text-center">点击左侧部门名称查看学员</p>;
+                      }
+                      if (filtered.length === 0) {
+                        return <p className="text-sm text-text-secondary py-2 text-center">该部门暂无用户</p>;
+                      }
+                      return (
+                        <div>
+                          <label className="flex items-center gap-2 py-1 px-2 hover:bg-bg-layout rounded text-sm cursor-pointer border-b border-border mb-1">
+                            <input
+                              type="checkbox"
+                              checked={filtered.every(u => selectedUsers.has(u.id))}
+                              onChange={() => {
+                                const allIds = new Set(filtered.map(u => u.id));
+                                const allSelected = filtered.every(u => selectedUsers.has(u.id));
+                                if (allSelected) {
+                                  const next = new Set(selectedUsers);
+                                  allIds.forEach(id => next.delete(id));
+                                  setSelectedUsers(next);
+                                } else {
+                                  setSelectedUsers(new Set([...selectedUsers, ...allIds]));
+                                }
+                              }}
+                            />
+                            <span className="text-text-secondary text-xs">全选</span>
+                          </label>
+                          {filtered.map(u => (
+                            <label key={u.id} className="flex items-center gap-2 py-1 px-2 hover:bg-bg-layout rounded text-sm cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selectedUsers.has(u.id)}
+                                onChange={() => {
+                                  const next = new Set(selectedUsers);
+                                  next.has(u.id) ? next.delete(u.id) : next.add(u.id);
+                                  setSelectedUsers(next);
+                                }}
+                              />
+                              <span>{u.name}</span>
+                              {u.department && <span className="text-text-secondary text-xs">({u.department})</span>}
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
+
+              {/* 分配结果摘要 */}
+              {(selectedDepts.size > 0 || selectedUsers.size > 0) && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[...selectedDepts].map(id => {
+                    const d = allDepts.find(dep => dep.id === id);
+                    return d ? (
+                      <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
+                        {d.name}（部门）
+                      </span>
+                    ) : null;
+                  })}
+                  {allUsers.filter(u => selectedUsers.has(u.id) && !selectedDepts.has(
+                    allDepts.find(d => d.name === u.department)?.id || ""
+                  )).map(u => (
+                    <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">
+                      {u.name}
+                    </span>
+                  ))}
+                </div>
+              )}
 
               <button
                 onClick={handleAssign}
                 disabled={selectedUsers.size === 0 && selectedDepts.size === 0}
                 className="mt-3 bg-primary text-white px-4 py-2 rounded-md text-sm disabled:opacity-50 border border-primary"
               >
-                分配选中 ({selectedUsers.size + selectedDepts.size})
+                分配选中 ({selectedDepts.size + selectedUsers.size})
               </button>
 
               {/* 已分配 */}
@@ -914,16 +1176,16 @@ export default function CourseManage() {
                   <p className="text-sm text-text-secondary">暂无分配</p>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    {assignedUsers.map(u => (
-                      <span key={u.id} className="inline-flex items-center gap-1 px-2 py-1 bg-bg-layout rounded text-sm">
-                        {u.name}
-                        <button onClick={() => handleRemoveAssignment("user", u.id)} className="text-red-400 hover:text-red-600 border border-red-200 rounded px-1 hover:bg-red-50">x</button>
-                      </span>
-                    ))}
                     {assignedDepts.map(d => (
                       <span key={d.id} className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded text-sm">
                         {d.name}（部门）
                         <button onClick={() => handleRemoveAssignment("dept", d.id)} className="text-red-400 hover:text-red-600 border border-red-200 rounded px-1 hover:bg-red-50">x</button>
+                      </span>
+                    ))}
+                    {assignedUsers.map(u => (
+                      <span key={u.id} className="inline-flex items-center gap-1 px-2 py-1 bg-bg-layout rounded text-sm">
+                        {u.name}
+                        <button onClick={() => handleRemoveAssignment("user", u.id)} className="text-red-400 hover:text-red-600 border border-red-200 rounded px-1 hover:bg-red-50">x</button>
                       </span>
                     ))}
                   </div>

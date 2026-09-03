@@ -73,6 +73,19 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
     return (0, 10)
 
 
+@router.get("/exams/{exam_id}/status")
+def get_exam_status(
+    exam_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取考试状态"""
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="考试不存在")
+    return {"status": exam.status}
+
+
 @router.get("/exams/{exam_id}/start")
 def start_exam(
     exam_id: str,

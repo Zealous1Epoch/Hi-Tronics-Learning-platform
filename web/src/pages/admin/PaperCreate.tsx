@@ -54,15 +54,16 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
   const [bankQuestions, setBankQuestions] = useState<QuestionItem[]>([]);
   const [selectedQuestions, setSelectedQuestions] = useState<Map<string, number>>(new Map());
   const [questionOrder, setQuestionOrder] = useState<string[]>([]);
+  const [selectedQuestionData, setSelectedQuestionData] = useState<Map<string, QuestionItem>>(new Map());
   const [searchText, setSearchText] = useState("");
 
   // 步骤 3: 组卷策略
-  const [rules, setRules] = useState<Record<string, { enabled: boolean; difficulty: string; count: number; score: number }>>({
-    single_choice: { enabled: false, difficulty: "medium", count: 5, score: 10 },
-    multi_choice: { enabled: false, difficulty: "medium", count: 5, score: 10 },
-    true_false: { enabled: false, difficulty: "medium", count: 5, score: 5 },
-    fill_blank: { enabled: false, difficulty: "medium", count: 5, score: 10 },
-    essay: { enabled: false, difficulty: "medium", count: 2, score: 20 },
+  const [rules, setRules] = useState<Record<string, { enabled: boolean; difficulties: Record<string, { count: number; score: number }> }>>({
+    single_choice: { enabled: false, difficulties: { easy: { count: 0, score: 10 }, medium: { count: 0, score: 10 }, hard: { count: 0, score: 10 } } },
+    multi_choice: { enabled: false, difficulties: { easy: { count: 0, score: 10 }, medium: { count: 0, score: 10 }, hard: { count: 0, score: 10 } } },
+    true_false: { enabled: false, difficulties: { easy: { count: 0, score: 5 }, medium: { count: 0, score: 5 }, hard: { count: 0, score: 5 } } },
+    fill_blank: { enabled: false, difficulties: { easy: { count: 0, score: 10 }, medium: { count: 0, score: 10 }, hard: { count: 0, score: 10 } } },
+    essay: { enabled: false, difficulties: { easy: { count: 0, score: 20 }, medium: { count: 0, score: 20 }, hard: { count: 0, score: 20 } } },
   });
 
   // 步骤 4: 预览
@@ -85,7 +86,14 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
     if (paper && paper.random_rules) {
       const newRules = { ...rules };
       paper.random_rules.forEach(r => {
-        newRules[r.type] = { enabled: true, difficulty: r.difficulty, count: r.count, score: r.score };
+        if (!newRules[r.type]) return;
+        newRules[r.type] = {
+          enabled: true,
+          difficulties: {
+            ...newRules[r.type].difficulties,
+            [r.difficulty]: { count: r.count, score: r.score },
+          },
+        };
       });
       setRules(newRules);
     }
@@ -152,9 +160,23 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
       if (next.has(qid)) {
         next.delete(qid);
         setQuestionOrder(o => o.filter(id => id !== qid));
+        setSelectedQuestionData(prevData => {
+          const nextData = new Map(prevData);
+          nextData.delete(qid);
+          return nextData;
+        });
       } else {
         next.set(qid, 10);
         setQuestionOrder(o => [...o, qid]);
+        // 存储完整题目数据
+        const qData = bankQuestions.find(q => q.id === qid);
+        if (qData) {
+          setSelectedQuestionData(prevData => {
+            const nextData = new Map(prevData);
+            nextData.set(qid, qData);
+            return nextData;
+          });
+        }
       }
       return next;
     });
@@ -196,11 +218,14 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
             style={{ paddingLeft: `${8 + depth * 16}px` }}
             onClick={() => {
               if (paperType === "random") {
-                setSelectedBankIds(prev => {
-                  const next = new Set(prev);
-                  next.has(node.id) ? next.delete(node.id) : next.add(node.id);
-                  return next;
-                });
+                // 只有叶子节点（无子节点）才能被选为题库范围
+                if (!hasChildren) {
+                  setSelectedBankIds(prev => {
+                    const next = new Set(prev);
+                    next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+                    return next;
+                  });
+                }
               } else {
                 setSelectedBankId(node.id);
               }
@@ -229,27 +254,54 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
   };
 
   // 生成预览
-  const generatePreview = () => {
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const generatePreview = async () => {
+    setLoadingPreview(true);
     const allQuestions: (QuestionItem & { score: number })[] = [];
 
     if (paperType === "fixed") {
       questionOrder.forEach(qid => {
         const score = selectedQuestions.get(qid) || 10;
-        // 暂存所有题目用于预览
-        allQuestions.push({ id: qid, type: "", stem: "", options: null, difficulty: "", score });
+        const qData = selectedQuestionData.get(qid);
+        allQuestions.push({
+          id: qid,
+          type: qData?.type || "",
+          stem: qData?.stem || "(题目已删除)",
+          options: qData?.options || null,
+          difficulty: qData?.difficulty || "",
+          score,
+        });
       });
     } else {
+      // 随机试卷：从已选题库中获取实际题目作为预览示例
+      const bankIds = [...selectedBankIds];
+      const promises = bankIds.map(id => api<QuestionItem[]>(`/questions?category_id=${id}`));
+      const results = await Promise.all(promises);
+      const allBankQuestions = results.flat();
+
       Object.entries(rules).forEach(([type, rule]) => {
         if (rule.enabled) {
-          for (let i = 0; i < rule.count; i++) {
-            allQuestions.push({
-              id: `${type}-${i}`, type, stem: `[${TYPE_LABELS[type]}] ${DIFF_LABELS[rule.difficulty]}`, options: null, difficulty: rule.difficulty, score: rule.score,
-            });
-          }
+          const typeQuestions = allBankQuestions.filter(q => q.type === type);
+          Object.entries(rule.difficulties).forEach(([diff, d]) => {
+            const diffQuestions = typeQuestions.filter(q => q.difficulty === diff);
+            // 随机抽取所需数量
+            const shuffled = [...diffQuestions].sort(() => Math.random() - 0.5);
+            for (let i = 0; i < d.count; i++) {
+              const q = shuffled[i % shuffled.length];
+              if (q) {
+                allQuestions.push({ ...q, score: d.score });
+              } else {
+                allQuestions.push({
+                  id: `${type}-${diff}-${i}`, type, stem: `[${TYPE_LABELS[type]}] ${DIFF_LABELS[diff]} - 题库中暂无此类题目`, options: null, difficulty: diff, score: d.score,
+                });
+              }
+            }
+          });
         }
       });
     }
     setPreviewQuestions(allQuestions);
+    setLoadingPreview(false);
   };
 
   const moveQuestion = (idx: number, direction: "up" | "down") => {
@@ -270,22 +322,25 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
 
   const totalScore = paperType === "fixed"
     ? Array.from(selectedQuestions.values()).reduce((a, b) => a + b, 0)
-    : Object.values(rules).reduce((sum, r) => sum + (r.enabled ? r.count * r.score : 0), 0);
+    : Object.values(rules).reduce((sum, r) => {
+        if (!r.enabled) return sum;
+        return sum + Object.values(r.difficulties).reduce((s, d) => s + d.count * d.score, 0);
+      }, 0);
 
   const canNext = () => {
     if (step === 0) return title.trim() !== "";
     if (step === 1) return paperType === "fixed" ? selectedQuestions.size > 0 : selectedBankIds.size > 0;
-    if (step === 2) return Object.values(rules).some(r => r.enabled);
+    if (step === 2) return Object.values(rules).some(r => r.enabled && Object.values(r.difficulties).some(d => d.count > 0));
     return true;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (step === 0) {
       setStep(1);
     } else if (step === 1 && paperType === "random") {
       setStep(2);
     } else if (step === 1 || step === 2) {
-      generatePreview();
+      await generatePreview();
       setStep(3);
     } else {
       setStep(step + 1);
@@ -302,35 +357,45 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
 
   const handleSave = async (status: string) => {
     setSaving(true);
-    const body: Record<string, unknown> = {
-      title,
-      category_id: defaultCategoryId,
-      paper_type: paperType,
-      total_score: totalScore,
-      status,
-    };
+    try {
+      const body: Record<string, unknown> = {
+        title,
+        category_id: defaultCategoryId,
+        paper_type: paperType,
+        total_score: totalScore,
+        status,
+      };
 
-    if (paperType === "fixed") {
-      body.mandatory_questions = questionOrder.map(qid => ({
-        question_id: qid,
-        score: selectedQuestions.get(qid) || 10,
-      }));
-      body.random_rules = null;
-    } else {
-      body.mandatory_questions = null;
-      body.random_rules = Object.entries(rules)
-        .filter(([, r]) => r.enabled)
-        .map(([type, r]) => ({ type, difficulty: r.difficulty, count: r.count, score: r.score }));
-      body.source_banks = [...selectedBankIds];
-    }
+      if (paperType === "fixed") {
+        body.mandatory_questions = questionOrder.map(qid => ({
+          question_id: qid,
+          score: selectedQuestions.get(qid) || 10,
+        }));
+        body.random_rules = null;
+      } else {
+        body.mandatory_questions = null;
+        body.random_rules = Object.entries(rules)
+          .filter(([, r]) => r.enabled)
+          .flatMap(([type, r]) =>
+            Object.entries(r.difficulties)
+              .filter(([, d]) => d.count > 0)
+              .map(([difficulty, d]) => ({ type, difficulty, count: d.count, score: d.score }))
+          );
+        body.source_banks = [...selectedBankIds];
+      }
 
-    if (isEdit) {
-      await api(`/papers/${paper.id}`, { method: "PUT", body: JSON.stringify(body) });
-    } else {
-      await api("/papers", { method: "POST", body: JSON.stringify(body) });
+      if (isEdit) {
+        await api(`/papers/${paper.id}`, { method: "PUT", body: JSON.stringify(body) });
+      } else {
+        await api("/papers", { method: "POST", body: JSON.stringify(body) });
+      }
+      onDone();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "未知错误";
+      alert(`保存失败：${msg}`);
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    onDone();
   };
 
   return (
@@ -458,7 +523,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                             <td className="px-3 py-2 text-center">
                               {selectedQuestions.has(q.id) && (
                                 <input type="number" value={selectedQuestions.get(q.id) || 10}
-                                  onChange={e => setQuestionScore(q.id, parseInt(e.target.value) || 0)}
+                                  onChange={e => setQuestionScore(q.id, (parseInt(e.target.value) || 0))}
                                   className="w-14 border border-border rounded-md px-1.5 py-0.5 text-xs text-center" min={1} />
                               )}
                             </td>
@@ -550,10 +615,10 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                 <span className="text-sm font-bold">组卷策略</span>
                 <span className="text-sm text-text-secondary">总分：{totalScore} 分</span>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {ALL_TYPES.map(type => (
-                  <div key={type} className={`flex items-center gap-3 py-3 px-4 rounded-lg border ${rules[type].enabled ? "border-primary/30 bg-primary/5" : "border-border bg-bg-base"}`}>
-                    <label className="flex items-center gap-2 text-sm cursor-pointer w-24">
+                  <div key={type} className={`py-3 px-4 rounded-lg border ${rules[type].enabled ? "border-primary/30 bg-primary/5" : "border-border bg-bg-base"}`}>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer mb-2">
                       <input
                         type="checkbox"
                         checked={rules[type].enabled}
@@ -562,41 +627,50 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                           [type]: { ...prev[type], enabled: e.target.checked },
                         }))}
                       />
-                      {TYPE_LABELS[type]}
+                      <span className="font-medium">{TYPE_LABELS[type]}</span>
                     </label>
                     {rules[type].enabled && (
-                      <>
-                        <select
-                          value={rules[type].difficulty}
-                          onChange={e => setRules(prev => ({
-                            ...prev,
-                            [type]: { ...prev[type], difficulty: e.target.value },
-                          }))}
-                          className="border border-border rounded-md px-2 py-1 text-sm"
-                        >
-                          {Object.entries(DIFF_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                        </select>
-                        <span className="text-text-secondary text-sm">抽</span>
-                        <input
-                          type="number" value={rules[type].count}
-                          onChange={e => setRules(prev => ({
-                            ...prev,
-                            [type]: { ...prev[type], count: parseInt(e.target.value) || 0 },
-                          }))}
-                          className="w-16 border border-border rounded-md px-2 py-1 text-sm text-center" min={1}
-                        />
-                        <span className="text-text-secondary text-sm">题，每题</span>
-                        <input
-                          type="number" value={rules[type].score}
-                          onChange={e => setRules(prev => ({
-                            ...prev,
-                            [type]: { ...prev[type], score: parseInt(e.target.value) || 0 },
-                          }))}
-                          className="w-16 border border-border rounded-md px-2 py-1 text-sm text-center" min={1}
-                        />
-                        <span className="text-text-secondary text-sm">分</span>
-                        <span className="text-text-secondary text-xs ml-auto">= {rules[type].count * rules[type].score} 分</span>
-                      </>
+                      <div className="space-y-1.5 ml-6">
+                        {(Object.entries(DIFF_LABELS) as [string, string][]).map(([diffKey, diffLabel]) => (
+                          <div key={diffKey} className="flex items-center gap-2">
+                            <span className="text-xs text-text-secondary w-8">{diffLabel}</span>
+                            <span className="text-xs text-text-secondary">抽</span>
+                            <input
+                              type="number" value={rules[type].difficulties[diffKey].count || ""}
+                              onChange={e => setRules(prev => ({
+                                ...prev,
+                                [type]: {
+                                  ...prev[type],
+                                  difficulties: {
+                                    ...prev[type].difficulties,
+                                    [diffKey]: { ...prev[type].difficulties[diffKey], count: (parseInt(e.target.value) || 0) },
+                                  },
+                                },
+                              }))}
+                              className="w-14 border border-border rounded-md px-1.5 py-0.5 text-xs text-center" min={0}
+                            />
+                            <span className="text-xs text-text-secondary">题，每题</span>
+                            <input
+                              type="number" value={rules[type].difficulties[diffKey].score}
+                              onChange={e => setRules(prev => ({
+                                ...prev,
+                                [type]: {
+                                  ...prev[type],
+                                  difficulties: {
+                                    ...prev[type].difficulties,
+                                    [diffKey]: { ...prev[type].difficulties[diffKey], score: (parseInt(e.target.value) || 0) },
+                                  },
+                                },
+                              }))}
+                              className="w-14 border border-border rounded-md px-1.5 py-0.5 text-xs text-center" min={0}
+                            />
+                            <span className="text-xs text-text-secondary">分</span>
+                            <span className="text-xs text-text-secondary ml-auto">
+                              = {rules[type].difficulties[diffKey].count * rules[type].difficulties[diffKey].score} 分
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -619,7 +693,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
               </div>
               {!previewQuestions || previewQuestions.length === 0 ? (
                 <div className="bg-bg-base rounded-lg p-8 border border-border text-center text-text-secondary text-sm">
-                  点击"生成预览"查看试卷
+                  {loadingPreview ? "加载中..." : "点击\"生成预览\"查看试卷"}
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto">
@@ -638,7 +712,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                       <input
                         type="number" value={q.score}
                         onChange={e => {
-                          const newScore = parseInt(e.target.value) || 0;
+                          const newScore = (parseInt(e.target.value) || 0);
                           setPreviewQuestions(prev => prev ? prev.map((p, j) => j === i ? { ...p, score: newScore } : p) : null);
                         }}
                         className="w-14 border border-border rounded-md px-1.5 py-0.5 text-xs text-center" min={1}

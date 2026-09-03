@@ -88,6 +88,7 @@ def create_course(data: CourseCreate, db: Session = Depends(get_db), current_use
         id=str(uuid.uuid4()),
         title=data.title, description=data.description, cover_image=data.cover_image,
         category_id=data.category_id, exam_id=data.exam_id,
+        status=data.status or "draft",
         created_by=current_user.id,
     )
     db.add(course)
@@ -127,6 +128,10 @@ def delete_course(course_id: str, db: Session = Depends(get_db), _: User = Depen
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
+    from app.models.course import CourseAssignment
+    from app.models.learning_progress import LearningProgress
+    db.query(LearningProgress).filter(LearningProgress.course_id == course_id).delete()
+    db.query(CourseAssignment).filter(CourseAssignment.course_id == course_id).delete()
     db.query(Video).filter(Video.course_id == course_id).delete()
     db.delete(course)
     db.commit()

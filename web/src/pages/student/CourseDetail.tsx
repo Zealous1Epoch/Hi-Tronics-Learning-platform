@@ -11,16 +11,29 @@ interface CourseDetail {
   id: string; title: string; description: string | null;
   videos: VideoItem[]; exam_id: string | null;
 }
+interface ExamInfo {
+  status: string;
+}
 
 export default function CourseDetail() {
   const { id } = useParams();
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [examStatus, setExamStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    api<CourseDetail>(`/courses/${id}`).then((data) => {
+    api<CourseDetail>(`/courses/${id}`).then(async (data) => {
       setCourse(data);
+      // 检查考试状态
+      if (data.exam_id) {
+        try {
+          const exam = await api<ExamInfo>(`/student/exams/${data.exam_id}/status`);
+          setExamStatus(exam.status);
+        } catch {
+          setExamStatus(null);
+        }
+      }
       setLoading(false);
     });
   }, [id]);
@@ -66,7 +79,7 @@ export default function CourseDetail() {
           {course.description && (
             <p className="mt-4 text-sm text-text-secondary">{course.description}</p>
           )}
-          {course.exam_id && (
+          {course.exam_id && examStatus === "published" && (
             <div className="mt-4">
               <Link
                 to={`/student/exams/${course.exam_id}`}
@@ -74,6 +87,13 @@ export default function CourseDetail() {
               >
                 开始考试
               </Link>
+            </div>
+          )}
+          {course.exam_id && examStatus === "ended" && (
+            <div className="mt-4">
+              <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border">
+                考试已结束
+              </span>
             </div>
           )}
         </div>

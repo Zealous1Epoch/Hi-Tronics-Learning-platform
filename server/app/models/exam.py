@@ -37,7 +37,10 @@ class Exam(Base):
         String(20),
         default="draft",
         nullable=False,
-        comment="draft / not_started / in_progress / ended",
+        comment="draft / published / ended",
+    )
+    paper_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, comment="关联试卷（papers 表）"
     )
     created_by: Mapped[str | None] = mapped_column(
         String(36), nullable=True, comment="创建者"

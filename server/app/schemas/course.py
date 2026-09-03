@@ -34,6 +34,7 @@ class CourseCreate(BaseModel):
     cover_image: str | None = None
     category_id: str | None = None
     exam_id: str | None = None
+    status: str | None = None
 
 
 class CourseUpdate(BaseModel):

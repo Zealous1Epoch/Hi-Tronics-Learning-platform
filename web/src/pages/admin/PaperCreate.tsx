@@ -82,8 +82,19 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
       });
       setSelectedQuestions(map);
       setQuestionOrder(order);
+      // 加载已选题目的完整数据，用于预览
+      const ids = paper.mandatory_questions.map(mq => mq.question_id);
+      api<{ items: QuestionItem[] }>(`/questions?page_size=200`).then(data => {
+        const dataMap = new Map<string, QuestionItem>();
+        data.items.filter(q => ids.includes(q.id)).forEach(q => dataMap.set(q.id, q));
+        setSelectedQuestionData(dataMap);
+      });
     }
     if (paper && paper.random_rules) {
+      // 加载题库范围
+      if (paper.source_banks) {
+        setSelectedBankIds(new Set(paper.source_banks));
+      }
       const newRules = { ...rules };
       paper.random_rules.forEach(r => {
         if (!newRules[r.type]) return;
@@ -113,7 +124,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
   // 选中题库时加载题目
   useEffect(() => {
     if (!selectedBankId) { setBankQuestions([]); return; }
-    api<QuestionItem[]>(`/questions?category_id=${selectedBankId}`).then(setBankQuestions);
+    api<{ items: QuestionItem[] }>(`/questions?category_id=${selectedBankId}&page_size=200`).then(data => setBankQuestions(data.items));
   }, [selectedBankId]);
 
   // 步骤 2 自动展开
@@ -275,9 +286,9 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
     } else {
       // 随机试卷：从已选题库中获取实际题目作为预览示例
       const bankIds = [...selectedBankIds];
-      const promises = bankIds.map(id => api<QuestionItem[]>(`/questions?category_id=${id}`));
+      const promises = bankIds.map(id => api<{ items: QuestionItem[] }>(`/questions?category_id=${id}&page_size=200`));
       const results = await Promise.all(promises);
-      const allBankQuestions = results.flat();
+      const allBankQuestions = results.flatMap(r => r.items);
 
       Object.entries(rules).forEach(([type, rule]) => {
         if (rule.enabled) {
@@ -367,10 +378,18 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
       };
 
       if (paperType === "fixed") {
-        body.mandatory_questions = questionOrder.map(qid => ({
-          question_id: qid,
-          score: selectedQuestions.get(qid) || 10,
-        }));
+        // 优先使用预览步骤的数据（含用户调整的分值和顺序）
+        if (previewQuestions && previewQuestions.length > 0) {
+          body.mandatory_questions = previewQuestions.map(q => ({
+            question_id: q.id,
+            score: q.score,
+          }));
+        } else {
+          body.mandatory_questions = questionOrder.map(qid => ({
+            question_id: qid,
+            score: selectedQuestions.get(qid) || 10,
+          }));
+        }
         body.random_rules = null;
       } else {
         body.mandatory_questions = null;
@@ -460,11 +479,11 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                 <label className="block text-sm text-text-secondary mb-1">试卷类型</label>
                 <div className="flex gap-4">
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="radio" name="paperType" checked={paperType === "fixed"} onChange={() => setPaperType("fixed")} />
+                    <input type="radio" name="paperType" checked={paperType === "fixed"} onChange={() => { setPaperType("fixed"); setRules(prev => ({...prev})); setSelectedBankIds(new Set()); }} />
                     固定试卷
                   </label>
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input type="radio" name="paperType" checked={paperType === "random"} onChange={() => setPaperType("random")} />
+                    <input type="radio" name="paperType" checked={paperType === "random"} onChange={() => { setPaperType("random"); setSelectedQuestions(new Map()); setQuestionOrder([]); setSelectedQuestionData(new Map()); setSelectedBankId(null); }} />
                     随机试卷
                   </label>
                 </div>

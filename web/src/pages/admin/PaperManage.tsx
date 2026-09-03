@@ -53,8 +53,12 @@ export default function PaperManage() {
 
   const handleDeletePaper = async (id: string) => {
     if (!confirm("确定删除此试卷？")) return;
-    await api(`/papers/${id}`, { method: "DELETE" });
-    fetchData();
+    try {
+      await api(`/papers/${id}`, { method: "DELETE" });
+      fetchData();
+    } catch (e: any) {
+      alert(e.message || "删除失败");
+    }
   };
 
   const handleCreateDone = () => {

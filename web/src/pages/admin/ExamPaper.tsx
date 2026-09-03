@@ -65,13 +65,13 @@ export default function ExamPaper() {
   useEffect(() => {
     Promise.all([
       api<ExamInfo>(`/exams/${id}`),
-      api<QuestionItem[]>("/questions"),
+      api<{ items: QuestionItem[] }>("/questions?page_size=200"),
       api<PaperData>(`/exams/${id}/paper`),
       api<FlatCategory[]>("/question-categories/flat"),
     ]).then(([examData, questionsData, paperData, catsData]) => {
       setFlatCategories(catsData);
       setExam(examData);
-      setQuestions(questionsData);
+      setQuestions(questionsData.items);
       setPaper(paperData);
 
       if (examData.paper_type === "fixed" && paperData.questions) {

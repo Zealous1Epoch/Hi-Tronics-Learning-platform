@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.paper import Paper
+from app.models.exam import Exam
 from app.schemas.paper import (
     PaperCreate, PaperUpdate, PaperOut,
 )
@@ -116,6 +117,16 @@ def delete_paper(
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=404, detail="试卷不存在")
+
+    # 检查是否被考试引用
+    refs = db.query(Exam).filter(Exam.paper_id == paper_id).all()
+    if refs:
+        exam_names = [f"{e.title}" for e in refs]
+        raise HTTPException(
+            status_code=409,
+            detail=f"试卷被以下考试引用，无法删除: {', '.join(exam_names)}",
+        )
+
     db.delete(paper)
     db.commit()
     return {"ok": True}

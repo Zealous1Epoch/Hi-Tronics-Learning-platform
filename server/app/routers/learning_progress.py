@@ -183,20 +183,27 @@ def get_courses_with_progress(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取已分配课程及每门课的进度（聚合接口，避免客户端 N+1）"""
+    """获取已分配课程及每门课的进度（管理端切换学员视图时返回全部课程）"""
     from app.models.course import CourseAssignment
 
-    dept_id = _get_user_dept_id(current_user, db)
-    conditions = [CourseAssignment.user_id == current_user.id]
-    if dept_id:
-        conditions.append(CourseAssignment.department_id == dept_id)
+    # 管理员切换学员视图时，展示所有已发布课程
+    if current_user.role == "admin":
+        course_ids = [
+            c[0] for c in db.query(Course.id).filter(Course.status == "published").all()
+        ]
+    else:
+        dept_id = _get_user_dept_id(current_user, db)
+        conditions = [CourseAssignment.user_id == current_user.id]
+        if dept_id:
+            conditions.append(CourseAssignment.department_id == dept_id)
 
-    assignments = (
-        db.query(CourseAssignment)
-        .filter(or_(*conditions))
-        .all()
-    )
-    course_ids = list(set(a.course_id for a in assignments))
+        assignments = (
+            db.query(CourseAssignment)
+            .filter(or_(*conditions))
+            .all()
+        )
+        course_ids = list(set(a.course_id for a in assignments))
+
     if not course_ids:
         return []
 

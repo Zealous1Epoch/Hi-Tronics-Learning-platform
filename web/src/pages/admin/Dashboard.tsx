@@ -231,8 +231,8 @@ function AdminNoticePanel() {
     );
 
   return (
-    <div className="bg-bg-base rounded-lg border border-border p-4">
-      <div className="flex items-center justify-between mb-4">
+    <div className="bg-bg-base rounded-lg border border-border p-4 h-full flex flex-col">
+      <div className="flex items-center justify-between mb-4 shrink-0">
         <h3 className="text-base font-bold text-primary">公告管理</h3>
         <button
           onClick={handleCreate}
@@ -242,51 +242,53 @@ function AdminNoticePanel() {
         </button>
       </div>
 
-      {loading ? (
-        <p className="text-sm text-text-secondary">加载中...</p>
-      ) : notices.length === 0 ? (
-        <p className="text-sm text-text-secondary">暂无公告</p>
-      ) : (
-        <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
-          {notices.map((n) => (
-            <div
-              key={n.id}
-              className="border border-border rounded-lg p-3 flex items-start justify-between gap-4 hover:shadow-sm transition-shadow"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  {n.is_pinned && (
-                    <span className="text-xs text-orange-500 font-bold">[置顶]</span>
-                  )}
-                  <span className="text-sm font-medium truncate">{n.title}</span>
-                  {statusLabel(n.status)}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {loading ? (
+          <p className="text-sm text-text-secondary">加载中...</p>
+        ) : notices.length === 0 ? (
+          <p className="text-sm text-text-secondary">暂无公告</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {notices.map((n) => (
+              <div
+                key={n.id}
+                className="border border-border rounded-lg p-3 flex items-start justify-between gap-4 hover:shadow-sm transition-shadow"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    {n.is_pinned && (
+                      <span className="text-xs text-orange-500 font-bold">[置顶]</span>
+                    )}
+                    <span className="text-sm font-medium truncate">{n.title}</span>
+                    {statusLabel(n.status)}
+                  </div>
+                  <div className="text-xs text-text-secondary mt-1">
+                    {new Date(n.created_at).toLocaleString("zh-CN")} | 已读 {n.read_count}/{n.total_users}
+                  </div>
                 </div>
-                <div className="text-xs text-text-secondary mt-1">
-                  {new Date(n.created_at).toLocaleString("zh-CN")} | 已读 {n.read_count}/{n.total_users}
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => handleEdit(n)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    onClick={() => handleDelete(n.id, n.title)}
+                    className="text-xs text-red-500 hover:underline"
+                  >
+                    删除
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2 shrink-0">
-                <button
-                  onClick={() => handleEdit(n)}
-                  className="text-xs text-primary hover:underline"
-                >
-                  编辑
-                </button>
-                <button
-                  onClick={() => handleDelete(n.id, n.title)}
-                  className="text-xs text-red-500 hover:underline"
-                >
-                  删除
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
 
-      {total > 5 && (
-        <p className="text-xs text-text-secondary mt-2 text-center">共 {total} 条公告</p>
-      )}
+        {total > 5 && (
+          <p className="text-xs text-text-secondary mt-2 text-center">共 {total} 条公告</p>
+        )}
+      </div>
 
       {modalOpen && (
         <NoticeModal
@@ -331,15 +333,16 @@ function RecentActivities() {
   }, {});
 
   return (
-    <div className="bg-bg-base rounded-lg border border-border p-4">
-      <h3 className="text-base font-bold text-primary mb-4">最近动态</h3>
-      {loading ? (
-        <p className="text-sm text-text-secondary">加载中...</p>
-      ) : activities.length === 0 ? (
-        <p className="text-sm text-text-secondary">暂无动态</p>
-      ) : (
-        <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
-          {Object.entries(grouped).map(([userName, items]) => {
+    <div className="bg-bg-base rounded-lg border border-border p-4 h-full flex flex-col">
+      <h3 className="text-base font-bold text-primary mb-4 shrink-0">最近动态</h3>
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {loading ? (
+          <p className="text-sm text-text-secondary">加载中...</p>
+        ) : activities.length === 0 ? (
+          <p className="text-sm text-text-secondary">暂无动态</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {Object.entries(grouped).map(([userName, items]) => {
             const isExpanded = expandedUser === userName;
             return (
               <div
@@ -387,6 +390,7 @@ function RecentActivities() {
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -421,11 +425,11 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div>
-      <h2 className="text-xl font-bold text-primary mb-4">管理后台首页</h2>
+    <div className="h-full flex flex-col">
+      <h2 className="text-xl font-bold text-primary mb-4 shrink-0">管理后台首页</h2>
 
       {/* 统计卡片 */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-4 gap-4 mb-6 shrink-0">
         {statCards.map((s) => (
           <div key={s.label} className="bg-bg-base rounded-lg p-4 border border-border text-center">
             <div className="text-2xl font-bold text-primary">
@@ -437,7 +441,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* 两列布局：左侧公告，右侧动态 */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-2 gap-6 flex-1 min-h-0">
         <AdminNoticePanel />
         <RecentActivities />
       </div>

@@ -2,6 +2,130 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../../lib/api";
 
+// ── 公告组件 ──
+
+interface NoticeItem {
+  id: string;
+  title: string;
+  content: string;
+  is_pinned: boolean;
+  created_at: string;
+  is_read: boolean;
+}
+
+interface NoticeListResponse {
+  notices: NoticeItem[];
+  total: number;
+}
+
+function NoticeSection() {
+  const [notices, setNotices] = useState<NoticeItem[]>([]);
+  const [activeNotice, setActiveNotice] = useState<NoticeItem | null>(null);
+  const [loading, setLoading] = useState(true);
+  const mountedRef = useRef(true);
+
+  const fetchData = () => {
+    api<NoticeListResponse>("/notices/published")
+      .then((data) => {
+        if (mountedRef.current) {
+          setNotices(data.notices);
+          if (data.notices.length > 0) {
+            setActiveNotice(data.notices[0]);
+          }
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchData();
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const handleSelect = async (notice: NoticeItem) => {
+    setActiveNotice(notice);
+    if (!notice.is_read) {
+      try {
+        await api(`/notices/${notice.id}/read`, { method: "POST" });
+        fetchData();
+      } catch (e) {
+        console.error("标记已读失败", e);
+      }
+    }
+  };
+
+  if (loading) return null;
+  if (notices.length === 0) return null;
+
+  return (
+    <div className="bg-bg-base rounded-lg border border-border">
+      <div className="px-4 py-3 border-b border-border">
+        <span className="text-sm font-bold text-primary">系统公告</span>
+      </div>
+      <div className="flex gap-0">
+        {/* 左侧 2/3：当前公告详情 */}
+        <div className="w-2/3 p-4 border-r border-border min-h-[180px]">
+          {activeNotice ? (
+            <>
+              <div className="flex items-center gap-2 mb-2">
+                {activeNotice.is_pinned && (
+                  <span className="text-xs text-orange-500 font-bold shrink-0">[置顶]</span>
+                )}
+                <h3 className="text-base font-bold text-primary">{activeNotice.title}</h3>
+              </div>
+              <p className="text-xs text-text-secondary mb-3">
+                {new Date(activeNotice.created_at).toLocaleString("zh-CN")}
+              </p>
+              <div className="text-sm text-text-base whitespace-pre-wrap leading-relaxed">
+                {activeNotice.content}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-text-secondary">暂无公告</p>
+          )}
+        </div>
+
+        {/* 右侧 1/3：历史公告列表 */}
+        <div className="w-1/3 max-h-[300px] overflow-y-auto p-2">
+          {notices.length <= 1 ? (
+            <p className="text-sm text-text-secondary text-center py-8">暂无历史公告</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {notices.slice(1).map((n) => (
+                <div
+                  key={n.id}
+                  className={`border rounded-lg p-3 cursor-pointer hover:shadow-sm transition-shadow ${
+                    activeNotice?.id === n.id ? "border-primary bg-primary/5" : "border-border"
+                  }`}
+                  onClick={() => handleSelect(n)}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    {!n.is_read && (
+                      <span className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
+                    )}
+                    {n.is_pinned && (
+                      <span className="text-xs text-orange-500 font-bold shrink-0">[置顶]</span>
+                    )}
+                    <span className="text-xs font-medium truncate">{n.title}</span>
+                  </div>
+                  <p className="text-xs text-text-secondary line-clamp-2">{n.content}</p>
+                  <p className="text-xs text-text-secondary mt-1">
+                    {new Date(n.created_at).toLocaleString("zh-CN")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── 月历组件 ──
 
 const WEEKDAY_CN = ["日", "一", "二", "三", "四", "五", "六"];
@@ -323,14 +447,17 @@ export default function StudentDashboard() {
   );
 
   return (
-    <div className="flex gap-4 items-stretch">
-      {/* 左侧 1/3：月历 */}
-      <div className="w-1/3">
-        <Calendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
-      </div>
-      {/* 右侧 2/3：当日任务列表 */}
-      <div className="w-2/3">
-        <TodoPanel selectedDate={selectedDate} />
+    <div className="space-y-4">
+      <NoticeSection />
+      <div className="flex gap-4 items-stretch">
+        {/* 左侧 1/3：月历 */}
+        <div className="w-1/3">
+          <Calendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+        </div>
+        {/* 右侧 2/3：当日任务列表 */}
+        <div className="w-2/3">
+          <TodoPanel selectedDate={selectedDate} />
+        </div>
       </div>
     </div>
   );

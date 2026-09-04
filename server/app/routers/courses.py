@@ -218,6 +218,74 @@ def student_courses(
     )
     return _courses_with_videos(db, courses)
 
+
+@router.get("/student/courses/{course_id}/sibling-chapters")
+def get_sibling_chapters(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取同一根分类下所有课程的章节"""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="课程不存在")
+    if not course.category_id:
+        return {"root_category_name": None, "courses": []}
+
+    # 追溯到根分类
+    current_cat = db.query(QuestionCategory).filter(QuestionCategory.id == course.category_id).first()
+    root = current_cat
+    while root and root.parent_id:
+        root = db.query(QuestionCategory).filter(QuestionCategory.id == root.parent_id).first()
+    if not root:
+        return {"root_category_name": None, "courses": []}
+
+    root_name = root.name
+    root_id = root.id
+
+    # 收集根分类下所有子分类 ID
+    all_cat_ids = _collect_category_ids(db, root_id)
+
+    # 查询该分类下所有已发布课程
+    siblings = (
+        db.query(Course)
+        .filter(Course.category_id.in_(all_cat_ids), Course.status == "published")
+        .order_by(Course.created_at.desc())
+        .all()
+    )
+
+    # 批量查询视频
+    sibling_ids = [c.id for c in siblings]
+    all_videos = (
+        db.query(Video)
+        .filter(Video.course_id.in_(sibling_ids))
+        .order_by(Video.sort_order)
+        .all()
+    )
+    videos_by_course: dict[str, list[Video]] = defaultdict(list)
+    for v in all_videos:
+        videos_by_course[v.course_id].append(v)
+
+    return {
+        "root_category_name": root_name,
+        "courses": [
+            {
+                "id": c.id,
+                "title": c.title,
+                "videos": [
+                    {
+                        "id": v.id,
+                        "title": v.title,
+                        "duration": v.duration,
+                    }
+                    for v in videos_by_course.get(c.id, [])
+                ],
+            }
+            for c in siblings
+        ],
+    }
+
+
 # ========== 课程分配 ==========
 
 

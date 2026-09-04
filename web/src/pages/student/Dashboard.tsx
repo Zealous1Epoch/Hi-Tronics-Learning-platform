@@ -24,20 +24,17 @@ interface NoticeListResponse {
 
 function StudentNoticeCard() {
   const [notices, setNotices] = useState<NoticeItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [selectedNotice, setSelectedNotice] = useState<NoticeItem | null>(null);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
 
+  const unreadCount = notices.filter((n) => !n.is_read).length;
+
   const fetchData = () => {
-    Promise.all([
-      api<NoticeListResponse>("/notices/published"),
-      api<{ unread_count: number }>("/notices/unread-count"),
-    ])
-      .then(([noticeRes, countRes]) => {
+    api<NoticeListResponse>("/notices/published")
+      .then((data) => {
         if (mountedRef.current) {
-          setNotices(noticeRes.notices);
-          setUnreadCount(countRes.unread_count);
+          setNotices(data.notices);
           setLoading(false);
         }
       })
@@ -60,7 +57,6 @@ function StudentNoticeCard() {
         setNotices((prev) =>
           prev.map((n) => (n.id === notice.id ? { ...n, is_read: true } : n))
         );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
       } catch (e) {
         console.error("标记已读失败", e);
       }

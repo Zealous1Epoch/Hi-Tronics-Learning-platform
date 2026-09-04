@@ -121,7 +121,15 @@ export default function CourseManage() {
       api<FlatCategory[]>("/question-categories/flat"),
       api<CourseItem[]>(`/courses${selectedId ? `?category_id=${selectedId}` : ""}`),
     ]);
-    setTree(treeData);
+    // 过滤树：只保留有课程的分类节点
+    const catIdsWithCourses = new Set(
+      coursesData.map((c: CourseItem) => c.category_id).filter(Boolean) as string[]
+    );
+    const filterTree = (nodes: TreeNode[]): TreeNode[] =>
+      nodes
+        .map((n) => ({ ...n, children: filterTree(n.children) }))
+        .filter((n) => catIdsWithCourses.has(n.id) || n.children.length > 0);
+    setTree(filterTree(treeData));
     setFlatCategories(flatData);
     setCourses(coursesData);
     setLoading(false);

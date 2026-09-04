@@ -171,7 +171,18 @@ export default function MyCourses() {
       .then(([courseData, treeData, flatData]) => {
         if (mountedRef.current) {
           setCourses(courseData);
-          setTree(treeData);
+          // 过滤树：只保留有课程的分类节点
+          const catIdsWithCourses = new Set(
+            courseData.map((c) => c.category_id).filter(Boolean) as string[]
+          );
+          const filterTree = (nodes: TreeNode[]): TreeNode[] =>
+            nodes
+              .map((n) => ({ ...n, children: filterTree(n.children) }))
+              .filter(
+                (n) =>
+                  catIdsWithCourses.has(n.id) || n.children.length > 0
+              );
+          setTree(filterTree(treeData));
           setFlatCategories(flatData);
           setLoading(false);
         }

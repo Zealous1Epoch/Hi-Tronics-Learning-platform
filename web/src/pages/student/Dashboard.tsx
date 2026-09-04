@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "../../lib/api";
 
 interface NoticeItem {
@@ -131,10 +131,194 @@ function StudentNoticeCard() {
   );
 }
 
+interface TaskItem {
+  id: string;
+  title: string;
+  description: string | null;
+  due_date: string;
+  completed: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function TodoPanel() {
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [selectedDate, setSelectedDate] = useState(
+    () => new Date().toISOString().split("T")[0]
+  );
+  const [loading, setLoading] = useState(true);
+  const [newTitle, setNewTitle] = useState("");
+  const [adding, setAdding] = useState(false);
+  const mountedRef = useRef(true);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const data = await api<TaskItem[]>(
+        `/student/tasks?date=${selectedDate}`
+      );
+      if (mountedRef.current) {
+        setTasks(data);
+        setLoading(false);
+      }
+    } catch {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, [selectedDate]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchTasks();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [fetchTasks]);
+
+  const handleAdd = async () => {
+    const title = newTitle.trim();
+    if (!title) return;
+    setAdding(true);
+    try {
+      await api("/student/tasks", {
+        method: "POST",
+        body: JSON.stringify({ title, due_date: selectedDate }),
+      });
+      setNewTitle("");
+      fetchTasks();
+    } catch (e) {
+      console.error("添加任务失败", e);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleToggle = async (task: TaskItem) => {
+    try {
+      await api(`/student/tasks/${task.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ completed: !task.completed }),
+      });
+      fetchTasks();
+    } catch (e) {
+      console.error("更新任务失败", e);
+    }
+  };
+
+  const handleDelete = async (taskId: string) => {
+    try {
+      await api(`/student/tasks/${taskId}`, { method: "DELETE" });
+      fetchTasks();
+    } catch (e) {
+      console.error("删除任务失败", e);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleAdd();
+    }
+  };
+
+  return (
+    <div className="bg-bg-base rounded-lg border border-border">
+      <div className="px-4 py-3 border-b border-border">
+        <span className="text-sm font-bold text-primary">代办任务</span>
+      </div>
+      <div className="flex gap-0 p-0">
+        {/* 左侧：日期选择器 */}
+        <div className="w-56 shrink-0 p-4 border-r border-border">
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="w-full px-3 py-2 border border-border rounded-md text-sm
+                       focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
+                       bg-bg-base"
+          />
+          <p className="text-xs text-text-secondary mt-2 text-center">
+            {selectedDate === new Date().toISOString().split("T")[0]
+              ? "今天"
+              : selectedDate}
+          </p>
+        </div>
+
+        {/* 右侧：任务列表 */}
+        <div className="flex-1 min-w-0">
+          {/* 添加任务输入框 */}
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+            <input
+              type="text"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="添加新任务..."
+              className="flex-1 px-3 py-1.5 border border-border rounded-md text-sm
+                         focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
+                         bg-bg-base"
+              disabled={adding}
+            />
+            <button
+              onClick={handleAdd}
+              disabled={adding || !newTitle.trim()}
+              className="px-3 py-1.5 text-sm bg-primary text-white rounded-md
+                         hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {adding ? "添加中..." : "添加"}
+            </button>
+          </div>
+
+          {/* 任务列表 */}
+          <div className="max-h-[280px] overflow-y-auto">
+            {loading ? (
+              <p className="p-4 text-sm text-text-secondary">加载中...</p>
+            ) : tasks.length === 0 ? (
+              <p className="p-4 text-sm text-text-secondary text-center">
+                暂无任务
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1 p-2">
+                {tasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-bg-layout group"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={task.completed}
+                      onChange={() => handleToggle(task)}
+                      className="w-4 h-4 rounded border-border accent-primary cursor-pointer shrink-0"
+                    />
+                    <span
+                      className={`flex-1 text-sm truncate ${
+                        task.completed
+                          ? "line-through text-text-secondary"
+                          : "text-text-base"
+                      }`}
+                    >
+                      {task.title}
+                    </span>
+                    <button
+                      onClick={() => handleDelete(task.id)}
+                      className="text-xs text-red-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function StudentDashboard() {
   return (
-    <div>
+    <div className="space-y-4">
       <StudentNoticeCard />
+      <TodoPanel />
     </div>
   );
 }

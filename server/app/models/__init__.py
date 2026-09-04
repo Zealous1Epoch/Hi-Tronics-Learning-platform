@@ -10,6 +10,7 @@ from app.models.learning_progress import LearningProgress
 from app.models.paper import Paper
 from app.models.system_log import SystemLog
 from app.models.notice import Notice, NoticeRead
+from app.models.task import Task
 
 __all__ = [
     "User",
@@ -28,4 +29,5 @@ __all__ = [
     "SystemLog",
     "Notice",
     "NoticeRead",
+    "Task",
 ]

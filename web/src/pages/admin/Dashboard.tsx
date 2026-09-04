@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
 
 // ── 类型 ──
@@ -298,36 +297,6 @@ function AdminNoticePanel() {
   );
 }
 
-// ── 快捷操作 ──
-
-const QUICK_ACTIONS = [
-  { label: "创建课程", path: "/admin/courses", desc: "添加新课程及视频章节" },
-  { label: "发布考试", path: "/admin/exams", desc: "创建试卷并关联课程" },
-  { label: "导入学员", path: "/admin/users", desc: "批量导入学员账号" },
-];
-
-function QuickActions() {
-  const navigate = useNavigate();
-
-  return (
-    <div className="bg-bg-base rounded-lg border border-border p-4">
-      <h3 className="text-base font-bold text-primary mb-4">快捷操作</h3>
-      <div className="flex flex-col gap-3">
-        {QUICK_ACTIONS.map((a) => (
-          <button
-            key={a.path}
-            onClick={() => navigate(a.path)}
-            className="w-full text-left px-4 py-3 rounded-md border border-border hover:bg-bg-layout hover:border-primary transition-colors"
-          >
-            <div className="text-sm font-medium text-primary">{a.label}</div>
-            <div className="text-xs text-text-secondary mt-0.5">{a.desc}</div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── 最近动态 ──
 
 function RecentActivities() {
@@ -431,15 +400,10 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* 两列布局：左侧公告 + 动态，右侧快捷操作 */}
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2 space-y-6">
-          <AdminNoticePanel />
-          <RecentActivities />
-        </div>
-        <div className="col-span-1">
-          <QuickActions />
-        </div>
+      {/* 两列布局：左侧公告，右侧动态 */}
+      <div className="grid grid-cols-2 gap-6">
+        <AdminNoticePanel />
+        <RecentActivities />
       </div>
     </div>
   );

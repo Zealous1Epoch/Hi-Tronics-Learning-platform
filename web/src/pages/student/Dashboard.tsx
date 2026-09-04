@@ -8,6 +8,142 @@ interface CourseWithProgress {
   completed_count: number; total_count: number; exam_passed: boolean;
 }
 
+interface NoticeItem {
+  id: string;
+  title: string;
+  content: string;
+  is_pinned: boolean;
+  created_at: string;
+  is_read: boolean;
+}
+
+interface NoticeListResponse {
+  notices: NoticeItem[];
+  total: number;
+}
+
+function StudentNoticeCard() {
+  const [notices, setNotices] = useState<NoticeItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [selectedNotice, setSelectedNotice] = useState<NoticeItem | null>(null);
+  const [loading, setLoading] = useState(true);
+  const mountedRef = useRef(true);
+
+  const fetchData = () => {
+    Promise.all([
+      api<NoticeListResponse>("/notices/published"),
+      api<{ unread_count: number }>("/notices/unread-count"),
+    ])
+      .then(([noticeRes, countRes]) => {
+        if (mountedRef.current) {
+          setNotices(noticeRes.notices);
+          setUnreadCount(countRes.unread_count);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchData();
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const handleRead = async (notice: NoticeItem) => {
+    setSelectedNotice(notice);
+    if (!notice.is_read) {
+      try {
+        await api(`/notices/${notice.id}/read`, { method: "POST" });
+        setNotices((prev) =>
+          prev.map((n) => (n.id === notice.id ? { ...n, is_read: true } : n))
+        );
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      } catch (e) {
+        console.error("标记已读失败", e);
+      }
+    }
+  };
+
+  if (loading) return null;
+  if (notices.length === 0) return null;
+
+  return (
+    <div className="bg-bg-base rounded-lg border border-border mb-6">
+      {/* 标题行 */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold text-primary">系统公告</span>
+          {unreadCount > 0 && (
+            <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-tight">
+              {unreadCount}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 固定高度公告列表，溢出滚动 */}
+      <div className="max-h-[280px] overflow-y-auto divide-y divide-border">
+        {notices.map((n) => (
+          <div
+            key={n.id}
+            className="flex items-center justify-between px-4 py-3 hover:bg-bg-layout transition-colors"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                {!n.is_read && (
+                  <span className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
+                )}
+                {n.is_pinned && (
+                  <span className="text-xs text-orange-500 font-bold shrink-0">[置顶]</span>
+                )}
+                <span className={`text-sm truncate ${n.is_read ? "text-text-secondary" : "font-medium"}`}>
+                  {n.title}
+                </span>
+              </div>
+              <span className="text-xs text-text-secondary ml-4">
+                {new Date(n.created_at).toLocaleString("zh-CN")}
+              </span>
+            </div>
+            <button
+              onClick={() => handleRead(n)}
+              className="shrink-0 ml-3 px-3 py-1 text-xs bg-primary text-white rounded-md hover:bg-primary/90"
+            >
+              查看
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* 详情弹窗 */}
+      {selectedNotice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg w-full max-w-lg mx-4 p-6 shadow-xl">
+            <h3 className="text-lg font-bold text-primary mb-2">{selectedNotice.title}</h3>
+            <p className="text-xs text-text-secondary mb-4">
+              {new Date(selectedNotice.created_at).toLocaleString("zh-CN")}
+            </p>
+            <div className="text-sm text-text-base whitespace-pre-wrap max-h-60 overflow-y-auto">
+              {selectedNotice.content}
+            </div>
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setSelectedNotice(null)}
+                className="px-4 py-2 text-sm bg-primary text-white rounded-md hover:bg-primary/90"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      </div>
+  );
+}
+
 export default function StudentDashboard() {
   const [courses, setCourses] = useState<CourseWithProgress[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,6 +180,8 @@ export default function StudentDashboard() {
 
   return (
     <div>
+      <StudentNoticeCard />
+
       <h2 className="text-xl font-bold text-primary mb-4">我的课程</h2>
       <div className="flex gap-3 mb-6">
         {[
@@ -89,7 +227,6 @@ export default function StudentDashboard() {
                 {c.description && (
                   <p className="text-xs text-text-secondary mb-3 line-clamp-2">{c.description}</p>
                 )}
-                {/* 进度条 */}
                 <div className="mb-3">
                   <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
                     <span>{c.total_count} 个视频</span>

@@ -1,3 +1,281 @@
+import { useState, useEffect, useRef } from "react";
+import { api } from "../../lib/api";
+
+interface NoticeItem {
+  id: string;
+  title: string;
+  content: string;
+  author_id: string;
+  status: string;
+  is_pinned: boolean;
+  created_at: string;
+  updated_at: string;
+  read_count: number;
+  total_users: number;
+}
+
+interface NoticeListResponse {
+  notices: NoticeItem[];
+  total: number;
+}
+
+function NoticeModal({
+  open,
+  onClose,
+  editItem,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  editItem: NoticeItem | null;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [status, setStatus] = useState<"draft" | "published">("published");
+  const [isPinned, setIsPinned] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      if (editItem) {
+        setTitle(editItem.title);
+        setContent(editItem.content);
+        setStatus(editItem.status as "draft" | "published");
+        setIsPinned(editItem.is_pinned);
+      } else {
+        setTitle("");
+        setContent("");
+        setStatus("published");
+        setIsPinned(false);
+      }
+    }
+  }, [open, editItem]);
+
+  if (!open) return null;
+
+  const handleSave = async () => {
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      if (editItem) {
+        await api(`/notices/${editItem.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ title, content, status, is_pinned: isPinned }),
+        });
+      } else {
+        await api("/notices", {
+          method: "POST",
+          body: JSON.stringify({ title, content, status, is_pinned: isPinned }),
+        });
+      }
+      onSaved();
+      onClose();
+    } catch (e) {
+      console.error("保存公告失败", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-lg w-full max-w-lg mx-4 p-6 shadow-xl">
+        <h3 className="text-lg font-bold text-primary mb-4">
+          {editItem ? "编辑公告" : "发布公告"}
+        </h3>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-text-secondary mb-1">标题</label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary"
+              placeholder="请输入公告标题"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-text-secondary mb-1">内容</label>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={5}
+              className="w-full border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary resize-none"
+              placeholder="请输入公告内容"
+            />
+          </div>
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="radio"
+                checked={status === "published"}
+                onChange={() => setStatus("published")}
+              />
+              直接发布
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="radio"
+                checked={status === "draft"}
+                onChange={() => setStatus("draft")}
+              />
+              保存草稿
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isPinned}
+                onChange={(e) => setIsPinned(e.target.checked)}
+              />
+              置顶
+            </label>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm border border-border rounded-md hover:bg-bg-layout"
+          >
+            取消
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !title.trim()}
+            className="px-4 py-2 text-sm bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saving ? "保存中..." : "保存"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminNoticePanel() {
+  const [notices, setNotices] = useState<NoticeItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editItem, setEditItem] = useState<NoticeItem | null>(null);
+  const mountedRef = useRef(true);
+
+  const fetchNotices = () => {
+    setLoading(true);
+    api<NoticeListResponse>("/notices?page=1&page_size=5")
+      .then((data) => {
+        if (mountedRef.current) {
+          setNotices(data.notices);
+          setTotal(data.total);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) setLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchNotices();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const handleDelete = async (id: string, title: string) => {
+    if (!confirm(`确定要删除公告「${title}」吗？`)) return;
+    try {
+      await api(`/notices/${id}`, { method: "DELETE" });
+      fetchNotices();
+    } catch (e) {
+      console.error("删除失败", e);
+    }
+  };
+
+  const handleEdit = (item: NoticeItem) => {
+    setEditItem(item);
+    setModalOpen(true);
+  };
+
+  const handleCreate = () => {
+    setEditItem(null);
+    setModalOpen(true);
+  };
+
+  const statusLabel = (s: string) =>
+    s === "published" ? (
+      <span className="text-green-600 text-xs">已发布</span>
+    ) : (
+      <span className="text-yellow-600 text-xs">草稿</span>
+    );
+
+  return (
+    <div className="bg-bg-base rounded-lg border border-border p-4 mt-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-base font-bold text-primary">公告管理</h3>
+        <button
+          onClick={handleCreate}
+          className="px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary/90"
+        >
+          + 发布
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-text-secondary">加载中...</p>
+      ) : notices.length === 0 ? (
+        <p className="text-sm text-text-secondary">暂无公告</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {notices.map((n) => (
+            <li key={n.id} className="py-3 flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  {n.is_pinned && (
+                    <span className="text-xs text-orange-500 font-bold">[置顶]</span>
+                  )}
+                  <span className="text-sm font-medium truncate">{n.title}</span>
+                  {statusLabel(n.status)}
+                </div>
+                <div className="text-xs text-text-secondary mt-1">
+                  {new Date(n.created_at).toLocaleString("zh-CN")} | 已读 {n.read_count}/{n.total_users}
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => handleEdit(n)}
+                  className="text-xs text-primary hover:underline"
+                >
+                  编辑
+                </button>
+                <button
+                  onClick={() => handleDelete(n.id, n.title)}
+                  className="text-xs text-red-500 hover:underline"
+                >
+                  删除
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {total > 5 && (
+        <p className="text-xs text-text-secondary mt-2 text-center">共 {total} 条公告</p>
+      )}
+
+      {modalOpen && (
+        <NoticeModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          editItem={editItem}
+          onSaved={fetchNotices}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   return (
     <div>
@@ -10,6 +288,7 @@ export default function AdminDashboard() {
           </div>
         ))}
       </div>
+      <AdminNoticePanel />
     </div>
   );
 }

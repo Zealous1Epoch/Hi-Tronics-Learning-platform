@@ -9,6 +9,7 @@ from app.models.exam import Exam, ExamPaper, ExamResult
 from app.models.learning_progress import LearningProgress
 from app.models.paper import Paper
 from app.models.system_log import SystemLog
+from app.models.notice import Notice, NoticeRead
 
 __all__ = [
     "User",
@@ -25,4 +26,6 @@ __all__ = [
     "LearningProgress",
     "Paper",
     "SystemLog",
+    "Notice",
+    "NoticeRead",
 ]

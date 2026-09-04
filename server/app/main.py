@@ -25,6 +25,7 @@ from app.routers.learning_progress import router as learning_progress_router, ad
 from app.routers.papers import router as papers_router
 from app.routers.knowledge import router as knowledge_router
 from app.routers.logs import router as logs_router
+from app.routers.notices import router as notices_router
 from app.services.seed import seed_builtin_admin
 
 logger = setup_logging(debug=settings.DEBUG)
@@ -115,6 +116,7 @@ app.include_router(admin_progress_router)
 app.include_router(papers_router)
 app.include_router(knowledge_router)
 app.include_router(logs_router)
+app.include_router(notices_router)
 
 
 @app.get("/api/health")

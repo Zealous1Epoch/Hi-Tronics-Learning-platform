@@ -28,6 +28,7 @@ export default function CourseDetail() {
   const [examStatus, setExamStatus] = useState<string | null>(null);
   const [progress, setProgress] = useState<CourseProgress | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
+  const [currentVideoWatched, setCurrentVideoWatched] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -54,8 +55,9 @@ export default function CourseDetail() {
     return () => { mountedRef.current = false; };
   }, [id]);
 
-  // 切换视频时获取短期播放 token
+  // 切换视频时重置当前视频观看状态，并获取播放 token
   useEffect(() => {
+    setCurrentVideoWatched(false);
     if (!course || course.videos.length === 0) return;
     const activeVideo = course.videos[activeVideoIdx];
     if (!activeVideo) return;
@@ -82,6 +84,8 @@ export default function CourseDetail() {
     ? progress.video_progress[activeVideo.id]
     : null;
   const resumeTime = activeVideoProgress?.watched_seconds || 0;
+  const isCurrentVideoCompleted = activeVideoProgress?.completed || false;
+  const examEnabled = currentVideoWatched || isCurrentVideoCompleted;
 
   const handleProgress = (seconds: number, duration: number) => {
     if (!activeVideo) return;
@@ -99,8 +103,9 @@ export default function CourseDetail() {
       .catch(() => {}); // 静默失败，不影响播放体验
   };
 
-  // 视频播放结束，直接刷新进度解锁考试入口
+  // 视频播放结束，当前视频已看完，解锁考试按钮
   const handleVideoEnded = () => {
+    setCurrentVideoWatched(true);
     api<CourseProgress>(`/student/progress/${course.id}`)
       .then((p) => setProgress(p))
       .catch(() => {});
@@ -138,14 +143,11 @@ export default function CourseDetail() {
           {course.exam_id && examStatus === "published" && (
             <div className="mt-4">
               {/* 课程无视频时直接解锁考试；有视频则需全部看完 */}
-              {course.videos.length > 0 && progress && progress.completed_count < progress.total_count ? (
+              {course.videos.length > 0 && !examEnabled ? (
                 <div>
                   <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border cursor-not-allowed">
-                    完成所有章节视频后可开始考试
+                    完成当前章节视频后可开始考试
                   </span>
-                  <p className="mt-1 text-xs text-text-secondary">
-                    观看进度：{progress.completed_count}/{progress.total_count}
-                  </p>
                 </div>
               ) : (
                 <Link

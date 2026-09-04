@@ -7,6 +7,7 @@ from app.database import get_db
 from app.models.user import User
 from app.schemas.auth import LoginRequest, TokenResponse, UserInfo
 from app.services.auth_service import verify_password, create_access_token, decode_access_token
+from app.services.log_service import write_log
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
 
@@ -94,12 +95,44 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == req.username).first()
     if not user or not user.password_hash:
         _record_login_attempt(client_ip)
+        write_log(
+            db=db,
+            operator=req.username,
+            category="system",
+            action="login",
+            resource_type="系统",
+            resource_name=req.username,
+            description=f"用户 {req.username} 登录失败",
+            level="warning",
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     if not verify_password(req.password, user.password_hash):
         _record_login_attempt(client_ip)
+        write_log(
+            db=db,
+            operator=req.username,
+            category="system",
+            action="login",
+            resource_type="系统",
+            resource_name=req.username,
+            description=f"用户 {req.username} 登录失败",
+            level="warning",
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
     if user.status != "active":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用")
+
+    write_log(
+        db=db,
+        operator=user.name,
+        operator_id=user.id,
+        category="system",
+        action="login",
+        resource_type="系统",
+        resource_name=user.name,
+        description=f"{user.name} 登录了系统",
+        level="info",
+    )
 
     token = create_access_token(user.id, user.role)
     return TokenResponse(

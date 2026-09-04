@@ -11,6 +11,7 @@ from app.models.exam import Exam, ExamPaper, ExamResult
 from app.models.paper import Paper
 from app.schemas.exam import ExamCreate, ExamUpdate, ExamOut, PaperCreate, PaperOut
 from app.routers.auth import require_admin
+from app.services.log_service import write_log
 
 router = APIRouter(prefix="/api", tags=["考试管理"])
 
@@ -85,6 +86,7 @@ def create_exam(
 
     db.commit()
     db.refresh(exam)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="exam", action="create", resource_type="考试", resource_name=exam.title if hasattr(exam, 'title') else "", description=f"{current_user.name} 创建了考试「{exam.title}」", level="info")
     return exam
 
 
@@ -105,7 +107,7 @@ def update_exam(
     exam_id: str,
     data: ExamUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
@@ -119,6 +121,7 @@ def update_exam(
         setattr(exam, field, value)
     db.commit()
     db.refresh(exam)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="exam", action="update", resource_type="考试", resource_name=exam.title if hasattr(exam, 'title') else "", description=f"{current_user.name} 编辑了考试「{exam.title}」", level="info")
     return exam
 
 
@@ -126,7 +129,7 @@ def update_exam(
 def delete_exam(
     exam_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
@@ -139,6 +142,7 @@ def delete_exam(
     db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).delete()
     db.delete(exam)
     db.commit()
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="exam", action="delete", resource_type="考试", resource_name=exam.title if hasattr(exam, 'title') else "", description=f"{current_user.name} 删除了考试「{exam.title}」", level="warning")
     return {"ok": True}
 
 

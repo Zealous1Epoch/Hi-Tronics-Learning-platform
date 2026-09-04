@@ -1,9 +1,14 @@
 """系统日志查看路由"""
 
 import os
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from app.database import get_db
 from app.models.user import User
+from app.models.system_log import SystemLog
 from app.routers.auth import require_admin
 import app.logger
 
@@ -49,3 +54,74 @@ def download_logs(
         filename="app.log",
         headers={"Content-Disposition": "attachment; filename=app.log"},
     )
+
+
+@router.get("/system-logs")
+def get_system_logs(
+    category: str | None = Query(None, description="分类筛选"),
+    level: str | None = Query(None, description="级别筛选"),
+    search: str | None = Query(None, description="搜索关键词"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(50, ge=1, le=200, description="每页条数"),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """获取结构化操作日志"""
+    q = db.query(SystemLog)
+
+    if category:
+        q = q.filter(SystemLog.category == category)
+    if level:
+        q = q.filter(SystemLog.level == level)
+    if search:
+        like = f"%{search}%"
+        q = q.filter(
+            SystemLog.description.like(like)
+            | SystemLog.operator.like(like)
+            | SystemLog.resource_name.like(like)
+        )
+
+    total = q.count()
+    items = (
+        q.order_by(desc(SystemLog.created_at))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return {
+        "items": [
+            {
+                "id": log.id,
+                "operator": log.operator,
+                "category": log.category,
+                "action": log.action,
+                "resource_type": log.resource_type,
+                "resource_name": log.resource_name,
+                "description": log.description,
+                "level": log.level,
+                "created_at": log.created_at.isoformat(),
+            }
+            for log in items
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@router.get("/system-logs/categories")
+def get_system_log_categories(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """获取所有日志分类列表"""
+    from sqlalchemy import func as sa_func
+
+    rows = (
+        db.query(SystemLog.category, sa_func.count(SystemLog.id))
+        .group_by(SystemLog.category)
+        .order_by(sa_func.count(SystemLog.id).desc())
+        .all()
+    )
+    return [{"category": c, "count": n} for c, n in rows]

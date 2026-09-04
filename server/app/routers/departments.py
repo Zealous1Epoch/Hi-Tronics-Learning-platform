@@ -8,6 +8,7 @@ from app.models.user import User
 from app.schemas.department import DepartmentCreate, DepartmentUpdate, DepartmentOut, FlatDepartmentOut
 from app.schemas.user import UserOut
 from app.routers.auth import get_current_user, require_admin
+from app.services.log_service import write_log
 
 router = APIRouter(prefix="/api/departments", tags=["部门管理"])
 
@@ -40,13 +41,14 @@ def list_departments(
 def create_department(
     data: DepartmentCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """创建部门"""
     dept = Department(name=data.name, parent_id=data.parent_id)
     db.add(dept)
     db.commit()
     db.refresh(dept)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="user", action="create", resource_type="部门", resource_name=dept.name if hasattr(dept, 'name') else "", description=f"{current_user.name} 创建了部门「{dept.name}」", level="info")
     return DepartmentOut(id=dept.id, name=dept.name, parent_id=dept.parent_id, children=[])
 
 
@@ -55,7 +57,7 @@ def update_department(
     dept_id: str,
     data: DepartmentUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """更新部门"""
     dept = db.query(Department).filter(Department.id == dept_id).first()
@@ -74,6 +76,7 @@ def update_department(
         dept.parent_id = data.parent_id
     db.commit()
     db.refresh(dept)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="user", action="update", resource_type="部门", resource_name=dept.name if hasattr(dept, 'name') else "", description=f"{current_user.name} 编辑了部门「{dept.name}」", level="info")
     return DepartmentOut(id=dept.id, name=dept.name, parent_id=dept.parent_id, children=[])
 
 
@@ -81,7 +84,7 @@ def update_department(
 def delete_department(
     dept_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """删除部门（含所有后代子部门）"""
     dept = db.query(Department).filter(Department.id == dept_id).first()
@@ -115,6 +118,7 @@ def delete_department(
     for did in all_ids:
         db.query(Department).filter(Department.id == did).delete()
     db.commit()
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="user", action="delete", resource_type="部门", resource_name=dept.name, description=f"{current_user.name} 删除了部门「{dept.name}」", level="warning")
     return {"ok": True}
 
 

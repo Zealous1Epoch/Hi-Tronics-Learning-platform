@@ -1,6 +1,7 @@
 """课程管理路由"""
 
 import uuid
+from app.services.log_service import write_log
 from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
@@ -96,6 +97,7 @@ def create_course(data: CourseCreate, db: Session = Depends(get_db), current_use
     db.add(course)
     db.commit()
     db.refresh(course)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="course", action="create", resource_type="课程", resource_name=course.title if hasattr(course, 'title') else "", description=f"{current_user.name} 创建了课程「{course.title}」", level="info")
     return CourseOut(
         id=course.id, title=course.title, description=course.description,
         cover_image=course.cover_image, category_id=course.category_id,
@@ -114,7 +116,7 @@ def get_course(course_id: str, db: Session = Depends(get_db), _: User = Depends(
 
 
 @router.put("/courses/{course_id}", response_model=CourseOut)
-def update_course(course_id: str, data: CourseUpdate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def update_course(course_id: str, data: CourseUpdate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -122,14 +124,16 @@ def update_course(course_id: str, data: CourseUpdate, db: Session = Depends(get_
         setattr(course, field, value)
     db.commit()
     db.refresh(course)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="course", action="update", resource_type="课程", resource_name=course.title if hasattr(course, 'title') else "", description=f"{current_user.name} 编辑了课程「{course.title}」", level="info")
     return _courses_with_videos(db, [course])[0]
 
 
 @router.delete("/courses/{course_id}")
-def delete_course(course_id: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def delete_course(course_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="course", action="delete", resource_type="课程", resource_name=course.title if hasattr(course, 'title') else "", description=f"{current_user.name} 删除了课程「{course.title}」", level="warning")
     from app.models.course import CourseAssignment
     from app.models.learning_progress import LearningProgress
     db.query(LearningProgress).filter(LearningProgress.course_id == course_id).delete()

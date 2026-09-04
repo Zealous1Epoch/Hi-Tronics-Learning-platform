@@ -23,6 +23,7 @@ from app.routers.question_tags import router as question_tags_router
 from app.routers.question_categories import router as question_categories_router
 from app.routers.learning_progress import router as learning_progress_router, admin_router as admin_progress_router
 from app.routers.papers import router as papers_router
+from app.routers.knowledge import router as knowledge_router
 from app.routers.logs import router as logs_router
 from app.services.seed import seed_builtin_admin
 
@@ -112,6 +113,7 @@ app.include_router(question_categories_router)
 app.include_router(learning_progress_router)
 app.include_router(admin_progress_router)
 app.include_router(papers_router)
+app.include_router(knowledge_router)
 app.include_router(logs_router)
 
 

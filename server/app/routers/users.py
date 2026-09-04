@@ -8,6 +8,7 @@ from app.models.user import User
 from app.schemas.user import UserOut, UserUpdateRole, UserCreate, UserUpdate, UserUpdateStatus
 from app.routers.auth import get_current_user, require_admin, invalidate_user_cache
 from app.services.auth_service import hash_password
+from app.services.log_service import write_log
 import io
 import openpyxl
 
@@ -63,6 +64,7 @@ def create_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+    write_log(db=db, operator=_.name, operator_id=_.id, category="user", action="create", resource_type="用户", resource_name=data.name, description=f"{_.name} 创建了用户「{data.name}」", level="info")
     return user
 
 
@@ -97,6 +99,7 @@ def update_user(
     db.commit()
     db.refresh(user)
     invalidate_user_cache(user_id)
+    write_log(db=db, operator=_.name, operator_id=_.id, category="user", action="update", resource_type="用户", resource_name=user.name, description=f"{_.name} 编辑了用户「{user.name}」", level="info")
     return user
 
 
@@ -119,6 +122,7 @@ def update_user_role(
     db.commit()
     db.refresh(user)
     invalidate_user_cache(user_id)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="user", action="update", resource_type="用户", resource_name=user.name, description=f"{current_user.name} 将用户「{user.name}」角色改为 {data.role}", level="info")
     return user
 
 
@@ -141,6 +145,7 @@ def update_user_status(
     db.commit()
     db.refresh(user)
     invalidate_user_cache(user_id)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="user", action="update", resource_type="用户", resource_name=user.name, description=f"{current_user.name} 将用户「{user.name}」状态改为 {data.status}", level="info")
     return user
 
 
@@ -159,6 +164,7 @@ def delete_user(
     invalidate_user_cache(user_id)
     db.delete(user)
     db.commit()
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="user", action="delete", resource_type="用户", resource_name=user.name, description=f"{current_user.name} 删除了用户「{user.name}」", level="warning")
     return {"ok": True}
 
 
@@ -262,6 +268,7 @@ async def batch_import_users(
 
     db.commit()
 
+    write_log(db=db, operator=_.name, operator_id=_.id, category="user", action="import", resource_type="用户", resource_name="", description=f"{_.name} 批量导入了 {success_count} 个用户", level="info")
     return {
         "success_count": success_count,
         "skip_count": skip_count,

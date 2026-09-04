@@ -1,12 +1,14 @@
 from app.models.user import User
 from app.models.department import Department
 from app.models.course import Course, CourseAssignment, Video
+from app.models.knowledge_node import KnowledgeNode
 from app.models.question import Question
 from app.models.question_tag import QuestionTag
 from app.models.question_category import QuestionCategory
 from app.models.exam import Exam, ExamPaper, ExamResult
 from app.models.learning_progress import LearningProgress
 from app.models.paper import Paper
+from app.models.system_log import SystemLog
 
 __all__ = [
     "User",
@@ -14,6 +16,7 @@ __all__ = [
     "Course",
     "CourseAssignment",
     "Video",
+    "KnowledgeNode",
     "Question",
     "Exam",
     "ExamPaper",
@@ -21,4 +24,5 @@ __all__ = [
     "QuestionCategory",
     "LearningProgress",
     "Paper",
+    "SystemLog",
 ]

@@ -17,6 +17,7 @@ from app.models.paper import Paper
 from app.models.exam import ExamPaper
 from app.schemas.question import QuestionCreate, QuestionUpdate, QuestionOut, PaginatedResponse
 from app.routers.auth import require_admin
+from app.services.log_service import write_log
 
 router = APIRouter(prefix="/api", tags=["题库管理"])
 
@@ -71,6 +72,8 @@ def create_question(
     db.add(question)
     db.commit()
     db.refresh(question)
+    stem = data.stem
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="create", resource_type="试题", resource_name=stem[:50] if stem else "", description=f"{current_user.name} 创建了试题「{stem[:50]}」", level="info")
     return question
 
 
@@ -407,6 +410,7 @@ async def import_questions(
 
     db.commit()
 
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="import", resource_type="试题", resource_name="", description=f"{current_user.name} 批量导入了 {created} 道试题", level="info")
     return {"created": created, "skipped": skipped, "errors": errors}
 
 
@@ -429,7 +433,7 @@ def update_question(
     question_id: str,
     data: QuestionUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
@@ -438,6 +442,8 @@ def update_question(
         setattr(question, field, value)
     db.commit()
     db.refresh(question)
+    stem = question.stem
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="update", resource_type="试题", resource_name=stem[:50] if stem else "", description=f"{current_user.name} 编辑了试题「{stem[:50]}」", level="info")
     return question
 
 
@@ -474,7 +480,7 @@ def clone_question(
 def delete_question(
     question_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
@@ -490,6 +496,8 @@ def delete_question(
 
     db.delete(question)
     db.commit()
+    stem = question.stem
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="delete", resource_type="试题", resource_name=stem[:50] if stem else "", description=f"{current_user.name} 删除了试题「{stem[:50]}」", level="warning")
     return {"ok": True}
 
 

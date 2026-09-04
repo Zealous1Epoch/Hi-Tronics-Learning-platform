@@ -11,6 +11,7 @@ from app.schemas.paper import (
     PaperCreate, PaperUpdate, PaperOut,
 )
 from app.routers.auth import require_admin
+from app.services.log_service import write_log
 
 router = APIRouter(prefix="/api", tags=["试卷管理"])
 
@@ -67,6 +68,7 @@ def create_paper(
     db.add(paper)
     db.commit()
     db.refresh(paper)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="paper", action="create", resource_type="试卷", resource_name=paper.title if hasattr(paper, 'title') else "", description=f"{current_user.name} 创建了试卷「{paper.title}」", level="info")
     return paper
 
 
@@ -87,7 +89,7 @@ def update_paper(
     paper_id: str,
     data: PaperUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
@@ -105,6 +107,7 @@ def update_paper(
         setattr(paper, field, value)
     db.commit()
     db.refresh(paper)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="paper", action="update", resource_type="试卷", resource_name=paper.title if hasattr(paper, 'title') else "", description=f"{current_user.name} 编辑了试卷「{paper.title}」", level="info")
     return paper
 
 
@@ -112,7 +115,7 @@ def update_paper(
 def delete_paper(
     paper_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     paper = db.query(Paper).filter(Paper.id == paper_id).first()
     if not paper:
@@ -129,4 +132,5 @@ def delete_paper(
 
     db.delete(paper)
     db.commit()
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="paper", action="delete", resource_type="试卷", resource_name=paper.title if hasattr(paper, 'title') else "", description=f"{current_user.name} 删除了试卷「{paper.title}」", level="warning")
     return {"ok": True}

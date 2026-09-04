@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.question_category import QuestionCategory
 from app.models.question import Question
 from app.routers.auth import require_admin
+from app.services.log_service import write_log
 
 router = APIRouter(prefix="/api", tags=["题库分类"])
 
@@ -72,7 +73,7 @@ def get_category_flat(
 def create_category(
     data: CategoryCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """创建分类"""
     if data.parent_id:
@@ -89,6 +90,7 @@ def create_category(
     db.add(category)
     db.commit()
     db.refresh(category)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="create", resource_type="题库分类", resource_name=category.name if hasattr(category, 'name') else "", description=f"{current_user.name} 创建了题库分类「{category.name}」", level="info")
     return {
         "id": category.id,
         "name": category.name,
@@ -102,7 +104,7 @@ def update_category(
     category_id: str,
     data: CategoryUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """更新分类"""
     category = db.query(QuestionCategory).filter(QuestionCategory.id == category_id).first()
@@ -122,6 +124,7 @@ def update_category(
         setattr(category, field, value)
     db.commit()
     db.refresh(category)
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="update", resource_type="题库分类", resource_name=category.name if hasattr(category, 'name') else "", description=f"{current_user.name} 编辑了题库分类「{category.name}」", level="info")
     return {
         "id": category.id,
         "name": category.name,
@@ -134,7 +137,7 @@ def update_category(
 def delete_category(
     category_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """删除分类（递归删除子分类及关联题目）"""
     category = db.query(QuestionCategory).filter(QuestionCategory.id == category_id).first()
@@ -159,6 +162,7 @@ def delete_category(
     # 从深到浅删除分类（all_ids 已经是深度优先，叶子在前）
     for cid in all_ids:
         db.query(QuestionCategory).filter(QuestionCategory.id == cid).delete()
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="delete", resource_type="题库分类", resource_name=category.name if hasattr(category, 'name') else "", description=f"{current_user.name} 删除了题库分类「{category.name}」", level="warning")
     db.commit()
     return {"ok": True}
 

@@ -84,12 +84,12 @@ function StudentNoticeCard() {
         </div>
       </div>
 
-      {/* 固定高度公告列表，溢出滚动 */}
-      <div className="max-h-[280px] overflow-y-auto divide-y divide-border">
+      {/* 固定高度公告列表，卡片样式 */}
+      <div className="max-h-[280px] overflow-y-auto flex flex-col gap-2 p-3">
         {notices.map((n) => (
           <div
             key={n.id}
-            className="flex items-center justify-between px-4 py-3 hover:bg-bg-layout transition-colors"
+            className="border border-border rounded-lg p-3 flex items-center justify-between gap-4 hover:shadow-sm transition-shadow"
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

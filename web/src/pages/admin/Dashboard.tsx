@@ -247,9 +247,12 @@ function AdminNoticePanel() {
       ) : notices.length === 0 ? (
         <p className="text-sm text-text-secondary">暂无公告</p>
       ) : (
-        <ul className="divide-y divide-border">
+        <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
           {notices.map((n) => (
-            <li key={n.id} className="py-3 flex items-start justify-between gap-4">
+            <div
+              key={n.id}
+              className="border border-border rounded-lg p-3 flex items-start justify-between gap-4 hover:shadow-sm transition-shadow"
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   {n.is_pinned && (
@@ -276,9 +279,9 @@ function AdminNoticePanel() {
                   删除
                 </button>
               </div>
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
 
       {total > 5 && (

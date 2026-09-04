@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../lib/api";
 
 interface ExamQuestion {
@@ -23,6 +23,8 @@ const TYPE_LABELS: Record<string, string> = {
 export default function ExamPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const courseId = searchParams.get("courseId");
   const [examData, setExamData] = useState<ExamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -129,7 +131,7 @@ export default function ExamPage() {
   if (error) return (
     <div className="bg-bg-base rounded-lg p-12 border border-border text-center">
       <p className="text-red-500 mb-4">{error}</p>
-      <button onClick={() => navigate("/student")} className="text-primary hover:underline">返回课程</button>
+      <button onClick={() => navigate(courseId ? `/student/courses/${courseId}` : "/student/courses")} className="text-primary hover:underline">返回课程</button>
     </div>
   );
 
@@ -154,7 +156,7 @@ export default function ExamPage() {
               </div>
             ))}
           </div>
-          <button onClick={() => navigate("/student")} className="px-6 py-2 bg-primary text-white rounded-md text-sm">
+          <button onClick={() => navigate(courseId ? `/student/courses/${courseId}` : "/student/courses")} className="px-6 py-2 bg-primary text-white rounded-md text-sm">
             返回课程
           </button>
         </div>

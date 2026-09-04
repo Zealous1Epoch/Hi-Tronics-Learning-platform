@@ -77,6 +77,12 @@ export default function CourseDetail() {
 
   const activeVideo = course.videos[activeVideoIdx];
 
+  // 从进度数据中获取当前视频的已看位置，用于恢复播放
+  const activeVideoProgress = activeVideo && progress
+    ? progress.video_progress[activeVideo.id]
+    : null;
+  const resumeTime = activeVideoProgress?.watched_seconds || 0;
+
   const handleProgress = (seconds: number, duration: number) => {
     if (!activeVideo) return;
     // 优先用播放器实测时长，videos 表的 duration 可能为空
@@ -109,8 +115,9 @@ export default function CourseDetail() {
           {activeVideo && playUrl ? (
             <div className="bg-black rounded-lg overflow-hidden">
               <VideoPlayer
-                key={activeVideo.id}
+                key={`${activeVideo.id}-${resumeTime}`}
                 src={playUrl}
+                startTime={resumeTime}
                 onProgress={handleProgress}
                 onVideoEnded={handleVideoEnded}
                 disableSeek
@@ -142,7 +149,7 @@ export default function CourseDetail() {
                 </div>
               ) : (
                 <Link
-                  to={`/student/exams/${course.exam_id}`}
+                  to={`/student/exams/${course.exam_id}?courseId=${course.id}`}
                   className="inline-block px-6 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
                 >
                   开始考试

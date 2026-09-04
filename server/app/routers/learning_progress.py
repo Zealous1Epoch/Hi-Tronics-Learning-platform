@@ -69,9 +69,9 @@ def report_progress(
     if not video:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="视频不属于该课程")
 
-    # 校验学员已分配该课程
+    # 校验学员已分配该课程（管理员跳过）
     dept_id = _get_user_dept_id(current_user, db)
-    if not _check_course_assignment(current_user.id, data.course_id, dept_id, db):
+    if current_user.role != "admin" and not _check_course_assignment(current_user.id, data.course_id, dept_id, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="未分配该课程")
 
     existing = (
@@ -129,9 +129,9 @@ def get_course_progress(
     current_user: User = Depends(get_current_user),
 ):
     """获取某课程的所有视频进度（含考试状态）"""
-    # 校验学员已分配该课程
+    # 校验学员已分配该课程（管理员跳过）
     dept_id = _get_user_dept_id(current_user, db)
-    if not _check_course_assignment(current_user.id, course_id, dept_id, db):
+    if current_user.role != "admin" and not _check_course_assignment(current_user.id, course_id, dept_id, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="未分配该课程")
 
     # 获取课程实际视频数

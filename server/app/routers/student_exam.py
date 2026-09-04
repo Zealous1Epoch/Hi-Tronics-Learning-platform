@@ -111,35 +111,36 @@ def start_exam(
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
 
-    # 校验课程视频已全部看完（每章节视频 100% 才能考试）
-    from app.models.course import Course, Video
-    from app.models.learning_progress import LearningProgress
+    # 校验课程视频已全部看完（管理员跳过）
+    if current_user.role != "admin":
+        from app.models.course import Course, Video
+        from app.models.learning_progress import LearningProgress
 
-    course = db.query(Course).filter(Course.exam_id == exam_id).first()
-    if course:
-        videos = db.query(Video).filter(Video.course_id == course.id).all()
-        if videos:
-            video_ids = [v.id for v in videos]
-            records = (
-                db.query(LearningProgress)
-                .filter(
-                    LearningProgress.user_id == current_user.id,
-                    LearningProgress.course_id == course.id,
-                    LearningProgress.video_id.in_(video_ids),
+        course = db.query(Course).filter(Course.exam_id == exam_id).first()
+        if course:
+            videos = db.query(Video).filter(Video.course_id == course.id).all()
+            if videos:
+                video_ids = [v.id for v in videos]
+                records = (
+                    db.query(LearningProgress)
+                    .filter(
+                        LearningProgress.user_id == current_user.id,
+                        LearningProgress.course_id == course.id,
+                        LearningProgress.video_id.in_(video_ids),
+                    )
+                    .all()
                 )
-                .all()
-            )
-            # 已完成 = completed 为 True，或旧数据有记录但总时长为 0（历史兼容，视为已看完）
-            done_ids = {
-                r.video_id
-                for r in records
-                if r.completed or (r.total_seconds or 0) <= 0
-            }
-            remaining = len(video_ids) - len(done_ids & set(video_ids))
-            if remaining > 0:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"还有 {remaining} 个章节视频未看完，完成后才能开始考试",
+                # 已完成 = completed 为 True，或旧数据有记录但总时长为 0（历史兼容，视为已看完）
+                done_ids = {
+                    r.video_id
+                    for r in records
+                    if r.completed or (r.total_seconds or 0) <= 0
+                }
+                remaining = len(video_ids) - len(done_ids & set(video_ids))
+                if remaining > 0:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"还有 {remaining} 个章节视频未看完，完成后才能开始考试",
                 )
 
     # 检查是否已参加过（达到最大次数）

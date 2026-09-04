@@ -1,9 +1,11 @@
 """学习进度路由"""
 
 import uuid
+import io
 from collections import defaultdict
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer, or_
@@ -14,6 +16,9 @@ from app.models.exam import Exam, ExamResult
 from app.models.learning_progress import LearningProgress
 from app.models.department import Department
 from app.routers.auth import get_current_user, require_admin
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 router = APIRouter(prefix="/api/student", tags=["学习进度"])
 admin_router = APIRouter(prefix="/api/admin", tags=["管理后台进度"])
@@ -582,6 +587,173 @@ def admin_progress_overview(
             })
 
     return result
+
+
+@admin_router.get("/progress/export")
+def admin_progress_export(
+    department_id: str | None = Query(None),
+    course_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """导出学员进度为 Excel"""
+    # 复用 overview 逻辑获取数据
+    dept_names = None
+    if department_id:
+        dept = db.query(Department).filter(Department.id == department_id).first()
+        if not dept:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
+        all_depts = db.query(Department).all()
+        dept_map: dict[str, Department] = {d.id: d for d in all_depts}
+        children_map: dict[str, list[Department]] = defaultdict(list)
+        for d in all_depts:
+            if d.parent_id:
+                children_map[d.parent_id].append(d)
+        def collect_names_in_memory(dept_id: str) -> list[str]:
+            names: list[str] = [dept_map[dept_id].name]
+            for child in children_map.get(dept_id, []):
+                names.extend(collect_names_in_memory(child.id))
+            return names
+        dept_names = [dept.name] + collect_names_in_memory(department_id)
+
+    courses_query = db.query(Course).filter(Course.status == "published")
+    if course_id:
+        courses_query = courses_query.filter(Course.id == course_id)
+    courses = courses_query.all()
+
+    course_ids = [c.id for c in courses]
+    video_counts_raw = (
+        db.query(Video.course_id, func.count(Video.id))
+        .filter(Video.course_id.in_(course_ids))
+        .group_by(Video.course_id)
+        .all()
+    )
+    course_video_counts: dict[str, int] = {cid: count for cid, count in video_counts_raw if count > 0}
+    if not course_video_counts:
+        return StreamingResponse(io.BytesIO(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    users_query = db.query(User).filter(User.role == "student", User.status == "active")
+    if dept_names:
+        users_query = users_query.filter(User.department.in_(dept_names))
+    students = users_query.all()
+    student_ids = [s.id for s in students]
+
+    progress_rows = (
+        db.query(
+            LearningProgress.user_id,
+            LearningProgress.course_id,
+            func.count(LearningProgress.id).label("completed"),
+        )
+        .filter(
+            LearningProgress.completed == True,
+            LearningProgress.user_id.in_(student_ids),
+            LearningProgress.course_id.in_(course_video_counts.keys()),
+        )
+        .group_by(LearningProgress.user_id, LearningProgress.course_id)
+        .all()
+    )
+    user_video_progress: dict[str, dict[str, int]] = defaultdict(dict)
+    for row in progress_rows:
+        user_video_progress[row.user_id][row.course_id] = row.completed
+
+    course_exam_map: dict[str, str] = {}
+    for c in courses:
+        if c.exam_id:
+            course_exam_map[c.exam_id] = c.id
+
+    exam_results = db.query(ExamResult).filter(ExamResult.user_id.in_(student_ids)).all()
+    user_exam_info: dict[str, dict[str, dict]] = defaultdict(lambda: defaultdict(dict))
+    for r in exam_results:
+        cid = course_exam_map.get(r.exam_id)
+        if not cid:
+            continue
+        existing = user_exam_info[r.user_id].get(cid)
+        if existing:
+            existing["attempts"] += 1
+            if r.score > existing["best_score"]:
+                existing["best_score"] = r.score
+                existing["passed"] = r.passed
+        else:
+            user_exam_info[r.user_id][cid] = {"passed": r.passed, "best_score": r.score, "attempts": 1}
+
+    # 生成 Excel
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "学员进度"
+
+    # 样式
+    header_font = Font(name="微软雅黑", bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin", color="C0C0C0"),
+        right=Side(style="thin", color="C0C0C0"),
+        top=Side(style="thin", color="C0C0C0"),
+        bottom=Side(style="thin", color="C0C0C0"),
+    )
+    sample_font = Font(name="微软雅黑", size=10)
+    pct_font = Font(name="微软雅黑", size=10, color="1B365D")
+    done_font = Font(name="微软雅黑", size=10, color="2E7D32")
+
+    # 表头
+    headers = ["序号", "姓名", "用户名", "部门", "课程", "视频完成数", "视频总数", "完成率", "考试通过", "最佳成绩", "考试次数"]
+    for col_idx, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # 数据行
+    row_idx = 2
+    seq = 0
+    for student in students:
+        for cid, video_count in course_video_counts.items():
+            c = next((co for co in courses if co.id == cid), None)
+            if not c:
+                continue
+            completed = user_video_progress.get(student.id, {}).get(cid, 0)
+            exam_info = user_exam_info.get(student.id, {}).get(cid, {})
+            pct = round(completed / video_count * 100) if video_count > 0 else (100 if exam_info.get("passed") else 0)
+            exam_passed = exam_info.get("passed", False)
+            exam_score = exam_info.get("best_score")
+            exam_attempts = exam_info.get("attempts", 0)
+
+            seq += 1
+            vals = [
+                seq, student.name, student.username, student.department or "",
+                c.title, completed, video_count, f"{pct}%",
+                "是" if exam_passed else "否",
+                exam_score if exam_score is not None else "",
+                exam_attempts if exam_attempts > 0 else "",
+            ]
+            for col_idx, val in enumerate(vals, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=val)
+                cell.font = sample_font
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+                cell.border = thin_border
+                if col_idx == 8:  # 完成率列
+                    cell.font = pct_font
+                if col_idx == 9 and exam_passed:
+                    cell.font = done_font
+            row_idx += 1
+
+    # 列宽
+    col_widths = [6, 10, 12, 14, 28, 12, 10, 10, 10, 10, 10]
+    for i, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = width
+
+    # 冻结首行
+    ws.freeze_panes = "A2"
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''%E5%AD%A6%E5%91%98%E8%BF%9B%E5%BA%A6.xlsx"},
+    )
 
 
 @admin_router.get("/progress/detail/{user_id}/{course_id}")

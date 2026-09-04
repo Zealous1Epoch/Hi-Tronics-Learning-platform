@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../../lib/api";
-import QuestionManage from "./QuestionManage";
+import QuestionManage, { type QuestionManageHandle } from "./QuestionManage";
 import { ChevronRight, ChevronDown, Search } from "lucide-react";
 
 interface TreeNode {
@@ -44,6 +44,7 @@ export default function QuestionBank() {
   const [searchText, setSearchText] = useState("");
   const [stats, setStats] = useState<CategoryStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const qmRef = useRef<QuestionManageHandle>(null);
 
   
   const fetchTree = async () => {
@@ -194,21 +195,30 @@ export default function QuestionBank() {
 
         {/* 右侧面板 */}
         <div className="flex-1 min-w-0">
-          <div className="mb-4 pb-3 border-b border-border w-fit">
-            <div className="flex gap-3">
-              {tabs.map(t => (
-                <button
-                  key={t.key}
-                  onClick={() => setActiveTab(t.key)}
-                  className={`px-4 py-2 rounded-md text-sm ${
-                    activeTab === t.key
-                      ? "bg-primary text-white"
-                      : "border border-border text-text-secondary"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
+          <div className="mb-4 pb-3 border-b border-border">
+            <div className="flex items-center justify-between">
+              <div className="flex gap-3">
+                {tabs.map(t => (
+                  <button
+                    key={t.key}
+                    onClick={() => setActiveTab(t.key)}
+                    className={`px-4 py-2 rounded-md text-sm ${
+                      activeTab === t.key
+                        ? "bg-primary text-white"
+                        : "border border-border text-text-secondary"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {activeTab === "questions" && (
+                <div className="flex gap-2">
+                  <button onClick={() => qmRef.current?.handleExport()} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">导出</button>
+                  <button onClick={() => qmRef.current?.openImport()} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">批量导入</button>
+                  <button onClick={() => qmRef.current?.openCreate()} className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light">新增试题</button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -259,7 +269,7 @@ export default function QuestionBank() {
                   请选择子题库查看试题
                 </div>
               ) : (
-                <QuestionManage categoryId={selectedId} />
+                <QuestionManage ref={qmRef} categoryId={selectedId} />
               )}
             </div>
           )}

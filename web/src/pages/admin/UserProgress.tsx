@@ -353,6 +353,30 @@ export default function UserProgress() {
                 className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
               />
             </div>
+            <button
+              onClick={() => {
+                const token = localStorage.getItem("token");
+                fetch("/api/admin/progress/export", {
+                  headers: token ? { Authorization: `Bearer ${token}` } : {},
+                })
+                  .then(res => {
+                    if (!res.ok) throw new Error("导出失败");
+                    return res.blob();
+                  })
+                  .then(blob => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "学员进度.xlsx";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  })
+                  .catch(err => alert(err.message));
+              }}
+              className="px-3 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout shrink-0"
+            >
+              导出
+            </button>
           </div>
 
           {/* 学员进度列表 */}

@@ -6,6 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 from pydantic import BaseModel
 from app.database import get_db
 from app.models.user import User
@@ -191,14 +194,105 @@ def download_template():
     wb = Workbook()
     ws = wb.active
     ws.title = "导入模板"
+
+    # 样式定义
+    header_font = Font(name="微软雅黑", bold=True, size=11, color="FFFFFF")
+    header_fill = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin", color="C0C0C0"),
+        right=Side(style="thin", color="C0C0C0"),
+        top=Side(style="thin", color="C0C0C0"),
+        bottom=Side(style="thin", color="C0C0C0"),
+    )
+    sample_font = Font(name="微软雅黑", size=10)
+    tip_font = Font(name="微软雅黑", size=9, color="888888", italic=True)
+
+    # 表头
     headers = ["题型", "题干", "选项A", "选项B", "选项C", "选项D", "正确答案", "关键词", "标签", "难度"]
-    ws.append(headers)
-    # 示例行：每种题型一行
-    ws.append(["单选题", "Python 中列表和元组的区别是什么？", "可变", "不可变", "有序", "无序", "A", "", "Python,基础", "easy"])
-    ws.append(["多选题", "以下哪些是 Python 不可变类型？", "字符串", "列表", "元组", "字典", "A,C", "", "Python,数据类型", "medium"])
-    ws.append(["判断题", "Python 是解释型语言", "", "", "", "", "true", "", "Python", "easy"])
-    ws.append(["填空题", "Python 中定义函数使用___关键字", "", "", "", "", "def", "", "Python,函数", "easy"])
-    ws.append(["问答题", "简述面向对象编程的三大特性", "", "", "", "", "", "封装,继承,多态", "OOP", "hard"])
+    for col_idx, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # 示例行
+    samples = [
+        ["单选题", "Python 中列表和元组的区别是什么？", "可变", "不可变", "有序", "无序", "A", "", "Python,基础", "easy"],
+        ["多选题", "以下哪些是 Python 不可变类型？", "字符串", "列表", "元组", "字典", "A,C", "", "Python,数据类型", "medium"],
+        ["判断题", "Python 是解释型语言", "", "", "", "", "true", "", "Python", "easy"],
+        ["填空题", "Python 中定义函数使用___关键字", "", "", "", "", "def", "", "Python,函数", "easy"],
+        ["问答题", "简述面向对象编程的三大特性", "", "", "", "", "", "封装,继承,多态", "OOP", "hard"],
+    ]
+    for row_idx, sample in enumerate(samples, start=2):
+        for col_idx, val in enumerate(sample, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.font = sample_font
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            cell.border = thin_border
+
+    # 列宽
+    col_widths = [10, 40, 12, 12, 12, 12, 12, 20, 16, 10]
+    for i, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = width
+
+    # 冻结首行
+    ws.freeze_panes = "A2"
+
+    # 数据验证：题型下拉
+    type_dv = DataValidation(
+        type="list",
+        formula1='"单选题,多选题,判断题,填空题,问答题"',
+        allow_blank=False,
+    )
+    type_dv.error = "请从下拉列表中选择题型"
+    type_dv.errorTitle = "输入错误"
+    type_dv.prompt = "请选择题型"
+    type_dv.promptTitle = "题型"
+    ws.add_data_validation(type_dv)
+    type_dv.add(f"A2:A1000")
+
+    # 数据验证：难度下拉
+    diff_dv = DataValidation(
+        type="list",
+        formula1='"easy,medium,hard"',
+        allow_blank=False,
+    )
+    diff_dv.error = "请从下拉列表中选择难度"
+    diff_dv.errorTitle = "输入错误"
+    diff_dv.prompt = "请选择难度"
+    diff_dv.promptTitle = "难度"
+    ws.add_data_validation(diff_dv)
+    diff_dv.add(f"J2:J1000")
+
+    # 添加说明 sheet
+    ws2 = wb.create_sheet(title="填写说明")
+    notes = [
+        ["字段", "说明", "备注"],
+        ["题型", "必填。单选题 / 多选题 / 判断题 / 填空题 / 问答题", "请从下拉列表中选择"],
+        ["题干", "必填。试题的题目内容", "与已有试题重复时自动跳过"],
+        ["选项A~D", "单选题和多选题必填，其他题型留空", "依次填入选项内容"],
+        ["正确答案", "单选题填单个字母，多选题用逗号分隔（如 A,C）", "判断题填 true/false，填空题填答案文本"],
+        ["关键词", "问答题的关键词，多个用逗号分隔", "用于自动评分"],
+        ["标签", "试题标签，多个用逗号分隔", "如 Python,基础"],
+        ["难度", "可选。easy / medium / hard", "默认为 medium"],
+        ["", "", ""],
+        ["提示", "导入前请先在系统界面选择目标题库分类", "导入的试题将归属到所选分类"],
+    ]
+    for row_idx, row in enumerate(notes, start=1):
+        for col_idx, val in enumerate(row, start=1):
+            cell = ws2.cell(row=row_idx, column=col_idx, value=val)
+            if row_idx == 1:
+                cell.font = Font(name="微软雅黑", bold=True, size=11, color="1B365D")
+            else:
+                cell.font = Font(name="微软雅黑", size=10)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            cell.border = thin_border
+
+    ws2.column_dimensions["A"].width = 14
+    ws2.column_dimensions["B"].width = 50
+    ws2.column_dimensions["C"].width = 30
 
     output = io.BytesIO()
     wb.save(output)

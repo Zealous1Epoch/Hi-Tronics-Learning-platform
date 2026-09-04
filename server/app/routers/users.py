@@ -278,14 +278,86 @@ def download_template(
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "用户导入模板"
-    ws.append(["姓名", "用户名", "密码", "工号", "部门", "角色"])
-    # 示例行
-    ws.append(["张三", "zhangsan", "Abc12345", "E001", "研发部", "学员"])
-    ws.append(["李四", "lisi", "Abc12345", "E002", "研发部", "管理员"])
 
-    # 设置列宽
-    for col, width in zip(["A", "B", "C", "D", "E", "F"], [10, 15, 12, 10, 12, 10]):
-        ws.column_dimensions[col].width = width
+    # 样式定义
+    header_font = openpyxl.styles.Font(name="微软雅黑", bold=True, size=11, color="FFFFFF")
+    header_fill = openpyxl.styles.PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
+    header_alignment = openpyxl.styles.Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = openpyxl.styles.Border(
+        left=openpyxl.styles.Side(style="thin", color="C0C0C0"),
+        right=openpyxl.styles.Side(style="thin", color="C0C0C0"),
+        top=openpyxl.styles.Side(style="thin", color="C0C0C0"),
+        bottom=openpyxl.styles.Side(style="thin", color="C0C0C0"),
+    )
+    sample_font = openpyxl.styles.Font(name="微软雅黑", size=10)
+    tip_font = openpyxl.styles.Font(name="微软雅黑", size=9, color="888888", italic=True)
+
+    # 表头
+    headers = ["姓名", "用户名", "密码", "工号", "部门", "角色"]
+    for col_idx, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = thin_border
+
+    # 示例行
+    samples = [
+        ["张三", "zhangsan", "Abc12345", "E001", "研发部", "学员"],
+        ["李四", "lisi", "Abc12345", "E002", "研发部", "管理员"],
+    ]
+    for row_idx, sample in enumerate(samples, start=2):
+        for col_idx, val in enumerate(sample, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            cell.font = sample_font
+            cell.alignment = openpyxl.styles.Alignment(vertical="center", wrap_text=True)
+            cell.border = thin_border
+
+    # 列宽
+    col_widths = [10, 15, 14, 10, 12, 10]
+    for i, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = width
+
+    # 冻结首行
+    ws.freeze_panes = "A2"
+
+    # 数据验证：角色下拉
+    role_dv = openpyxl.worksheet.datavalidation.DataValidation(
+        type="list",
+        formula1='"学员,管理员"',
+        allow_blank=True,
+    )
+    role_dv.error = "请从下拉列表中选择角色"
+    role_dv.errorTitle = "输入错误"
+    role_dv.prompt = "请选择角色"
+    role_dv.promptTitle = "角色"
+    ws.add_data_validation(role_dv)
+    role_dv.add(f"F2:F1000")
+
+    # 添加说明 sheet
+    ws2 = wb.create_sheet(title="填写说明")
+    notes = [
+        ["字段", "说明", "备注"],
+        ["姓名", "必填。用户真实姓名", ""],
+        ["用户名", "必填。登录用的用户名", "不能与已有用户重复"],
+        ["密码", "必填。登录密码", ""],
+        ["工号", "选填。员工编号", ""],
+        ["部门", "选填。如已在系统界面选择部门，可不填", "部门名称必须已存在系统中"],
+        ["角色", "必填。学员 / 管理员", "请从下拉列表中选择"],
+    ]
+    for row_idx, row in enumerate(notes, start=1):
+        for col_idx, val in enumerate(row, start=1):
+            cell = ws2.cell(row=row_idx, column=col_idx, value=val)
+            if row_idx == 1:
+                cell.font = openpyxl.styles.Font(name="微软雅黑", bold=True, size=11, color="1B365D")
+            else:
+                cell.font = openpyxl.styles.Font(name="微软雅黑", size=10)
+            cell.alignment = openpyxl.styles.Alignment(vertical="center", wrap_text=True)
+            cell.border = thin_border
+
+    ws2.column_dimensions["A"].width = 10
+    ws2.column_dimensions["B"].width = 50
+    ws2.column_dimensions["C"].width = 30
 
     output = io.BytesIO()
     wb.save(output)

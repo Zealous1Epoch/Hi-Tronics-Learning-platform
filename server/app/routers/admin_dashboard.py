@@ -8,7 +8,7 @@ from sqlalchemy import func
 from app.database import get_db
 from app.models.user import User
 from app.models.course import Course, CourseAssignment
-from app.models.exam import ExamResult
+from app.models.exam import Exam, ExamResult
 from app.models.learning_progress import LearningProgress
 from app.routers.auth import require_admin
 
@@ -77,21 +77,22 @@ def get_recent_activities(db: Session = Depends(get_db), _=Depends(require_admin
 
     # 最近通过考试
     exam_results = (
-        db.query(ExamResult, User)
+        db.query(ExamResult, User, Exam)
         .join(User, ExamResult.user_id == User.id)
+        .join(Exam, ExamResult.exam_id == Exam.id)
         .filter(ExamResult.passed == True)
         .order_by(ExamResult.submitted_at.desc())
         .limit(10)
         .all()
     )
 
-    for er, user in exam_results:
+    for er, user, exam in exam_results:
         activities.append(
             ActivityItem(
                 time=er.submitted_at.isoformat() if er.submitted_at else "",
                 user_name=user.name,
                 action="通过了考试",
-                target=er.exam_id,  # 后面前端会映射
+                target=exam.title,
                 type="exam",
             )
         )

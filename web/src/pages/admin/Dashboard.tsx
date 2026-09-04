@@ -304,6 +304,7 @@ function AdminNoticePanel() {
 
 function RecentActivities() {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
 
@@ -322,6 +323,13 @@ function RecentActivities() {
     return () => { mountedRef.current = false; };
   }, []);
 
+  // 按学员分组
+  const grouped = activities.reduce<Record<string, ActivityItem[]>>((acc, a) => {
+    if (!acc[a.user_name]) acc[a.user_name] = [];
+    acc[a.user_name].push(a);
+    return acc;
+  }, {});
+
   return (
     <div className="bg-bg-base rounded-lg border border-border p-4">
       <h3 className="text-base font-bold text-primary mb-4">最近动态</h3>
@@ -330,28 +338,53 @@ function RecentActivities() {
       ) : activities.length === 0 ? (
         <p className="text-sm text-text-secondary">暂无动态</p>
       ) : (
-        <div className="max-h-[280px] overflow-y-auto">
-          <ul className="divide-y divide-border">
-            {activities.map((a, i) => (
-              <li key={i} className="py-2.5 flex items-start gap-3">
-                <span
-                  className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
-                    a.type === "exam" ? "bg-green-500" : "bg-blue-500"
-                  }`}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm">
-                    <span className="font-medium">{a.user_name}</span>
-                    <span className="text-text-secondary"> {a.action} </span>
-                    <span>{a.target}</span>
+        <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
+          {Object.entries(grouped).map(([userName, items]) => {
+            const isExpanded = expandedUser === userName;
+            return (
+              <div
+                key={userName}
+                className="border border-border rounded-lg hover:shadow-sm transition-shadow"
+              >
+                <button
+                  onClick={() => setExpandedUser(isExpanded ? null : userName)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{userName}</span>
+                    <span className="text-xs text-text-secondary bg-bg-layout rounded-full px-2 py-0.5">
+                      {items.length}
+                    </span>
                   </div>
-                  <div className="text-xs text-text-secondary mt-0.5">
-                    {new Date(a.time).toLocaleString("zh-CN")}
+                  <span className={`text-xs text-text-secondary transition-transform ${isExpanded ? "rotate-180" : ""}`}>
+                    &#9660;
+                  </span>
+                </button>
+                {isExpanded && (
+                  <div className="border-t border-border px-3 py-2 space-y-2">
+                    {items.map((a, i) => (
+                      <div key={i} className="flex items-start gap-2 text-sm">
+                        <span
+                          className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
+                            a.type === "exam" ? "bg-green-500" : "bg-blue-500"
+                          }`}
+                        />
+                        <div>
+                          <div>
+                            <span className="text-text-secondary">{a.action} </span>
+                            <span>{a.target}</span>
+                          </div>
+                          <div className="text-xs text-text-secondary">
+                            {new Date(a.time).toLocaleString("zh-CN")}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              </li>
-            ))}
-          </ul>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

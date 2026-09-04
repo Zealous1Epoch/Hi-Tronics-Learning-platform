@@ -1,6 +1,7 @@
 import { Routes, Route, Link, Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import StudentDashboard from "../pages/student/Dashboard";
+import TodoTasks from "../pages/student/TodoTasks";
 import MyCourses from "../pages/student/MyCourses";
 import CourseDetail from "../pages/student/CourseDetail";
 import ExamPage from "../pages/student/ExamPage";
@@ -18,6 +19,7 @@ export default function StudentLayout() {
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-bold">海创光电在线学堂</h1>
           <Link to="/student" className="text-white/80 hover:text-white text-sm">首页</Link>
+          <Link to="/student/tasks" className="text-white/80 hover:text-white text-sm">代办任务</Link>
           <Link to="/student/courses" className="text-white/80 hover:text-white text-sm">我的课程</Link>
           <Link to="/student/profile" className="text-white/80 hover:text-white text-sm">学习档案</Link>
         </div>
@@ -32,6 +34,7 @@ export default function StudentLayout() {
       <main className="max-w-6xl mx-auto p-6">
         <Routes>
           <Route index element={<StudentDashboard />} />
+          <Route path="tasks" element={<TodoTasks />} />
           <Route path="courses" element={<MyCourses />} />
           <Route path="courses/:id" element={<CourseDetail />} />
           <Route path="exams/:id" element={<ExamPage />} />

@@ -4,16 +4,6 @@ import { api } from "../../lib/api";
 
 // ── 类型定义 ──
 
-interface OverviewTask {
-  id: string;
-  title: string;
-  description: string | null;
-  due_date: string;
-  completed: boolean;
-  overdue_days: number;
-  remaining_days: number;
-}
-
 interface ActiveCourse {
   id: string;
   title: string;
@@ -26,56 +16,8 @@ interface ActiveCourse {
 }
 
 interface OverviewResponse {
-  overdue_tasks: OverviewTask[];
-  upcoming_tasks: OverviewTask[];
   active_courses: ActiveCourse[];
-}
-
-// ── 个人任务卡片 ──
-
-function TaskCard({
-  task,
-  onToggle,
-  onDelete,
-  showOverdue,
-}: {
-  task: OverviewTask;
-  onToggle: () => void;
-  onDelete: () => void;
-  showOverdue: boolean;
-}) {
-  const label = showOverdue
-    ? `已过期 ${task.overdue_days}天`
-    : `剩余 ${task.remaining_days}天`;
-  const colorClass = showOverdue
-    ? "text-red-500"
-    : "text-orange-500";
-
-  return (
-    <div className="border border-border rounded-lg p-3 hover:shadow-sm transition-shadow">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <input
-            type="checkbox"
-            checked={task.completed}
-            onChange={onToggle}
-            className="w-4 h-4 rounded border-border accent-primary cursor-pointer shrink-0"
-          />
-          <span className="text-sm text-text-base truncate">{task.title}</span>
-        </div>
-        <button
-          onClick={onDelete}
-          className="text-xs text-red-400 opacity-0 hover:opacity-100 transition-opacity shrink-0"
-        >
-          删除
-        </button>
-      </div>
-      <div className="ml-6 mt-1 flex items-center gap-2 text-xs">
-        <span className={`font-medium ${colorClass}`}>{label}</span>
-        <span className="text-text-secondary">| 截止: {task.due_date}</span>
-      </div>
-    </div>
-  );
+  upcoming_expiry_courses: ActiveCourse[];
 }
 
 // ── 课程卡片 ──
@@ -129,13 +71,15 @@ function SectionBlock({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-bg-base rounded-lg border border-border">
-      <div className="px-4 py-3 border-b border-border">
+    <div className="bg-bg-base rounded-lg border border-border flex flex-col">
+      <div className="px-4 py-3 border-b border-border shrink-0">
         <span className={`text-sm font-bold ${titleColor || "text-primary"}`}>
           {title}
         </span>
       </div>
-      <div className="p-3 space-y-2">{children}</div>
+      <div className="p-3 overflow-y-auto h-[66vh] space-y-2">
+        {children}
+      </div>
     </div>
   );
 }
@@ -167,27 +111,6 @@ export default function TodoTasks() {
     };
   }, [fetchData]);
 
-  const handleToggle = async (taskId: string, completed: boolean) => {
-    try {
-      await api(`/student/tasks/${taskId}`, {
-        method: "PUT",
-        body: JSON.stringify({ completed: !completed }),
-      });
-      fetchData();
-    } catch (e) {
-      console.error("更新任务失败", e);
-    }
-  };
-
-  const handleDelete = async (taskId: string) => {
-    try {
-      await api(`/student/tasks/${taskId}`, { method: "DELETE" });
-      fetchData();
-    } catch (e) {
-      console.error("删除任务失败", e);
-    }
-  };
-
   if (loading) {
     return (
       <div>
@@ -197,64 +120,40 @@ export default function TodoTasks() {
     );
   }
 
-  const overdueTasks = data?.overdue_tasks || [];
-  const upcomingTasks = data?.upcoming_tasks || [];
   const activeCourses = data?.active_courses || [];
-  const hasAny =
-    overdueTasks.length > 0 || upcomingTasks.length > 0 || activeCourses.length > 0;
+  const upcomingExpiryCourses = data?.upcoming_expiry_courses || [];
 
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">代办任务</h2>
 
-      {!hasAny ? (
-        <div className="bg-bg-base rounded-lg border border-border p-12 text-center">
-          <p className="text-text-secondary">暂无待办任务，可以完全放松一下！</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {/* 已过期 */}
-          {overdueTasks.length > 0 && (
-            <SectionBlock title="已过期" titleColor="text-red-500">
-              {overdueTasks.map((t) => (
-                <TaskCard
-                  key={t.id}
-                  task={t}
-                  showOverdue
-                  onToggle={() => handleToggle(t.id, t.completed)}
-                  onDelete={() => handleDelete(t.id)}
-                />
+      <div className="grid grid-cols-2 gap-4">
+        {/* 进行中课程（左）—— 大于3天到期 */}
+        <SectionBlock title="进行中课程">
+          {activeCourses.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {activeCourses.map((c) => (
+                <CourseCard key={c.id} course={c} />
               ))}
-            </SectionBlock>
+            </div>
+          ) : (
+            <p className="text-sm text-text-secondary text-center py-4">暂无进行中的课程</p>
           )}
+        </SectionBlock>
 
-          {/* 即将到期 */}
-          {upcomingTasks.length > 0 && (
-            <SectionBlock title="即将到期" titleColor="text-orange-500">
-              {upcomingTasks.map((t) => (
-                <TaskCard
-                  key={t.id}
-                  task={t}
-                  showOverdue={false}
-                  onToggle={() => handleToggle(t.id, t.completed)}
-                  onDelete={() => handleDelete(t.id)}
-                />
+        {/* 即将到期（右）—— 3天内到期 */}
+        <SectionBlock title="即将到期" titleColor="text-orange-500">
+          {upcomingExpiryCourses.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {upcomingExpiryCourses.map((c) => (
+                <CourseCard key={c.id} course={c} />
               ))}
-            </SectionBlock>
+            </div>
+          ) : (
+            <p className="text-sm text-text-secondary text-center py-4">暂无即将到期的课程</p>
           )}
-
-          {/* 进行中课程 */}
-          {activeCourses.length > 0 && (
-            <SectionBlock title="进行中课程">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {activeCourses.map((c) => (
-                  <CourseCard key={c.id} course={c} />
-                ))}
-              </div>
-            </SectionBlock>
-          )}
-        </div>
-      )}
+        </SectionBlock>
+      </div>
     </div>
   );
 }

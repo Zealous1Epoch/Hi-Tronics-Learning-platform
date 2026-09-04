@@ -140,6 +140,7 @@ def get_tasks_overview(
         assigned_course_ids = list(set(a.course_id for a in assignments))
 
     active_courses = []
+    upcoming_expiry_courses = []
     if assigned_course_ids:
         course_rows = (
             db.query(Course)
@@ -183,18 +184,23 @@ def get_tasks_overview(
             if total > 0 and completed >= total:
                 continue  # 已完成的课程不展示
 
-            active_courses.append(
-                {
-                    "id": c.id,
-                    "title": c.title,
-                    "description": c.description,
-                    "start_date": c.start_date.isoformat() if c.start_date else None,
-                    "end_date": c.end_date.isoformat() if c.end_date else None,
-                    "completed_count": completed,
-                    "total_count": total,
-                    "exam_passed": False,
-                }
-            )
+            course_dict = {
+                "id": c.id,
+                "title": c.title,
+                "description": c.description,
+                "start_date": c.start_date.isoformat() if c.start_date else None,
+                "end_date": c.end_date.isoformat() if c.end_date else None,
+                "completed_count": completed,
+                "total_count": total,
+                "exam_passed": False,
+            }
+
+            # 3天内到期 → 即将到期
+            remaining_days = (c.end_date - today).days if c.end_date else 999
+            if remaining_days <= 3:
+                upcoming_expiry_courses.append(course_dict)
+            else:
+                active_courses.append(course_dict)
 
     # 构造返回数据
     def serialize_task(t: Task) -> dict:
@@ -212,6 +218,7 @@ def get_tasks_overview(
         "overdue_tasks": [serialize_task(t) for t in overdue_tasks],
         "upcoming_tasks": [serialize_task(t) for t in upcoming_tasks],
         "active_courses": active_courses,
+        "upcoming_expiry_courses": upcoming_expiry_courses,
     }
 
 

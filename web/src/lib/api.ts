@@ -47,6 +47,11 @@ export async function api<T extends object = Record<string, unknown>>(
     throw new Error(body.detail || `请求失败: ${res.status}`);
   }
 
+  // 204 No Content 无响应体，直接返回空对象
+  if (res.status === 204) {
+    return {} as T;
+  }
+
   return res.json();
 }
 

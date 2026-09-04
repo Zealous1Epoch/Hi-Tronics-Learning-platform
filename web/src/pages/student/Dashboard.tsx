@@ -54,9 +54,7 @@ function StudentNoticeCard() {
     if (!notice.is_read) {
       try {
         await api(`/notices/${notice.id}/read`, { method: "POST" });
-        setNotices((prev) =>
-          prev.map((n) => (n.id === notice.id ? { ...n, is_read: true } : n))
-        );
+        fetchData();
       } catch (e) {
         console.error("标记已读失败", e);
       }

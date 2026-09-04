@@ -85,7 +85,8 @@ export default function CourseDetail() {
     : null;
   const resumeTime = activeVideoProgress?.watched_seconds || 0;
   const isCurrentVideoCompleted = activeVideoProgress?.completed || false;
-  const examEnabled = currentVideoWatched || isCurrentVideoCompleted;
+  const hasWatchedAny = (activeVideoProgress?.watched_seconds || 0) > 0;
+  const examEnabled = currentVideoWatched || isCurrentVideoCompleted || hasWatchedAny;
 
   const handleProgress = (seconds: number, duration: number) => {
     if (!activeVideo) return;

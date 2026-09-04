@@ -94,7 +94,7 @@ function TreeSidebar({
     });
 
   return (
-    <div className="w-56 shrink-0 pr-4 border-r border-border">
+    <div className="w-44 shrink-0 pr-3 border-r border-border">
       <div
         onClick={() => onSelect(null)}
         className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
@@ -123,14 +123,14 @@ function CourseCard({ course }: { course: CourseWithProgress }) {
   return (
     <Link
       to={`/student/courses/${course.id}`}
-      className="bg-bg-base rounded-lg border border-border hover:shadow-md transition-shadow p-4 block"
+      className="bg-bg-base rounded-lg border border-border hover:shadow-sm transition-shadow p-3 block"
     >
-      <h3 className="font-bold text-sm mb-2">{course.title}</h3>
+      <h3 className="font-bold text-xs mb-1">{course.title}</h3>
       {course.description && (
-        <p className="text-xs text-text-secondary mb-3 line-clamp-2">{course.description}</p>
+        <p className="text-[11px] text-text-secondary mb-1.5 line-clamp-1">{course.description}</p>
       )}
-      <div className="mb-3">
-        <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
+      <div className="mb-1.5">
+        <div className="flex items-center justify-between text-[11px] text-text-secondary mb-0.5">
           <span>{course.total_count} 个视频</span>
           <span className="text-primary">
             {course.exam_passed && course.total_count === 0
@@ -138,14 +138,14 @@ function CourseCard({ course }: { course: CourseWithProgress }) {
               : `${course.completed_count}/${course.total_count} 完成`}
           </span>
         </div>
-        <div className="w-full bg-bg-layout rounded-full h-1.5">
+        <div className="w-full bg-bg-layout rounded-full h-1">
           <div
-            className="h-1.5 rounded-full transition-all bg-primary"
+            className="h-1 rounded-full transition-all bg-primary"
             style={{ width: `${pct}%` }}
           />
         </div>
       </div>
-      <div className="text-xs text-primary">
+      <div className="text-[11px] text-primary">
         {isDone ? "已完成" : pct > 0 ? "继续学习" : "开始学习"}
       </div>
     </Link>
@@ -217,16 +217,26 @@ export default function MyCourses() {
     ? filteredByStatus.filter((c) => c.category_id && categoryIds.has(c.category_id))
     : filteredByStatus;
 
-  // 按分类分组
-  const catMap = new Map(flatCategories.map((c) => [c.id, c.name]));
+  // 按分类分组（按根节点分类名分组，子分类归入父级）
+  const parentMap = new Map(flatCategories.map((c) => [c.id, c.parent_id]));
+  const nameMap = new Map(flatCategories.map((c) => [c.id, c.name]));
+  const getRootName = (id: string): string => {
+    let current = id;
+    let parent = parentMap.get(current);
+    while (parent) {
+      current = parent;
+      parent = parentMap.get(current);
+    }
+    return nameMap.get(current) || "未分类";
+  };
   const grouped: Record<string, CourseWithProgress[]> = {};
   const uncategorized: CourseWithProgress[] = [];
 
   for (const c of filteredCourses) {
-    if (c.category_id && catMap.has(c.category_id)) {
-      const catName = catMap.get(c.category_id)!;
-      if (!grouped[catName]) grouped[catName] = [];
-      grouped[catName].push(c);
+    if (c.category_id && nameMap.has(c.category_id)) {
+      const rootName = getRootName(c.category_id);
+      if (!grouped[rootName]) grouped[rootName] = [];
+      grouped[rootName].push(c);
     } else {
       uncategorized.push(c);
     }
@@ -251,7 +261,7 @@ export default function MyCourses() {
         {/* 右侧课程列表 */}
         <div className="flex-1 min-w-0">
           {/* 状态标签 */}
-          <div className="flex gap-3 mb-6">
+          <div className="flex gap-3 mb-3">
             {[
               { key: "all", label: "全部" },
               { key: "not_started", label: "未开始" },
@@ -279,13 +289,13 @@ export default function MyCourses() {
               {tab === "done" ? "暂无已完成的课程" : tab === "in_progress" ? "暂无进行中的课程" : tab === "not_started" ? "暂无未开始的课程" : "暂无课程，请联系管理员分配"}
             </div>
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-3">
               {sortedGroupNames.map((catName) => (
-                <div key={catName} className="bg-bg-base rounded-lg border border-border p-4">
-                  <h3 className="text-base font-bold text-primary mb-3 border-b border-border pb-2">
+                <div key={catName} className="bg-bg-base rounded-lg border border-border p-3">
+                  <h3 className="text-sm font-bold text-primary mb-2 border-b border-border pb-1.5">
                     {catName}
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                     {grouped[catName].map((c) => (
                       <CourseCard key={c.id} course={c} />
                     ))}
@@ -294,11 +304,11 @@ export default function MyCourses() {
               ))}
 
               {uncategorized.length > 0 && (
-                <div className="bg-bg-base rounded-lg border border-border p-4">
-                  <h3 className="text-base font-bold text-text-secondary mb-3 border-b border-border pb-2">
+                <div className="bg-bg-base rounded-lg border border-border p-3">
+                  <h3 className="text-sm font-bold text-text-secondary mb-2 border-b border-border pb-1.5">
                     未分类
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                     {uncategorized.map((c) => (
                       <CourseCard key={c.id} course={c} />
                     ))}

@@ -677,15 +677,25 @@ export default function CourseManage() {
           ) : (
             <div className="space-y-6">
               {(() => {
-                // 按分类分组
-                const catMap = new Map(flatCategories.map(c => [c.id, c.name]));
+                // 按分类分组（按根节点分类名分组，子分类归入父级）
+                const parentMap = new Map(flatCategories.map(c => [c.id, c.parent_id]));
+                const nameMap = new Map(flatCategories.map(c => [c.id, c.name]));
+                const getRootName = (id: string): string => {
+                  let current = id;
+                  let parent = parentMap.get(current);
+                  while (parent) {
+                    current = parent;
+                    parent = parentMap.get(current);
+                  }
+                  return nameMap.get(current) || "未分类";
+                };
                 const grouped: Record<string, typeof courses> = {};
                 const uncategorized: typeof courses = [];
                 for (const c of courses) {
-                  if (c.category_id && catMap.has(c.category_id)) {
-                    const name = catMap.get(c.category_id)!;
-                    if (!grouped[name]) grouped[name] = [];
-                    grouped[name].push(c);
+                  if (c.category_id && nameMap.has(c.category_id)) {
+                    const rootName = getRootName(c.category_id);
+                    if (!grouped[rootName]) grouped[rootName] = [];
+                    grouped[rootName].push(c);
                   } else {
                     uncategorized.push(c);
                   }

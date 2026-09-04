@@ -281,7 +281,7 @@ export default function MyCourses() {
           ) : (
             <div className="space-y-8">
               {sortedGroupNames.map((catName) => (
-                <div key={catName}>
+                <div key={catName} className="bg-bg-base rounded-lg border border-border p-4">
                   <h3 className="text-base font-bold text-primary mb-3 border-b border-border pb-2">
                     {catName}
                   </h3>
@@ -294,7 +294,7 @@ export default function MyCourses() {
               ))}
 
               {uncategorized.length > 0 && (
-                <div>
+                <div className="bg-bg-base rounded-lg border border-border p-4">
                   <h3 className="text-base font-bold text-text-secondary mb-3 border-b border-border pb-2">
                     未分类
                   </h3>

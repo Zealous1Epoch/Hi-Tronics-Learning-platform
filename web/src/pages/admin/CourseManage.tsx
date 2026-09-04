@@ -518,6 +518,37 @@ export default function CourseManage() {
     });
   };
 
+  const CourseCardItem = ({ c, getCategoryPath, openEdit, openAssign, handleDeleteCourse }: {
+    c: CourseItem;
+    getCategoryPath: (id: string | null) => string;
+    openEdit: (id: string) => void;
+    openAssign: (course: CourseItem) => void;
+    handleDeleteCourse: (id: string) => void;
+  }) => (
+    <div className="bg-bg-base rounded-lg border border-border p-4 hover:shadow-sm transition-shadow">
+      <div className="flex items-start justify-between mb-2">
+        <h4 className="font-medium text-sm truncate flex-1 min-w-0">{c.title}</h4>
+        <span className={`text-xs px-2 py-0.5 rounded shrink-0 ml-2 ${
+          c.status === "published" ? "bg-emerald-50 text-emerald-700" : "bg-bg-layout text-text-secondary"
+        }`}>
+          {c.status === "published" ? "已发布" : "草稿"}
+        </span>
+      </div>
+      <div className="space-y-1 text-xs text-text-secondary mb-3">
+        <p className="truncate">{getCategoryPath(c.category_id)}</p>
+        <div className="flex items-center gap-3">
+          <span>{c.video_count} 个视频</span>
+          <span>{new Date(c.created_at).toLocaleDateString("zh-CN")}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 pt-2 border-t border-border">
+        <button onClick={() => openEdit(c.id)} className="flex-1 text-xs text-center text-primary border border-border rounded-md py-1 hover:bg-bg-layout">编辑</button>
+        <button onClick={() => openAssign(c)} className="flex-1 text-xs text-center text-primary border border-border rounded-md py-1 hover:bg-bg-layout">分配</button>
+        <button onClick={() => handleDeleteCourse(c.id)} className="text-xs text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50 shrink-0">删除</button>
+      </div>
+    </div>
+  );
+
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4 pb-3 border-b border-border">课程管理</h2>
@@ -644,31 +675,51 @@ export default function CourseManage() {
               暂无课程
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-3">
-              {courses.map(c => (
-                <div key={c.id} className="bg-bg-base rounded-lg border border-border p-4 hover:shadow-sm transition-shadow">
-                  <div className="flex items-start justify-between mb-2">
-                    <h4 className="font-medium text-sm truncate flex-1 min-w-0">{c.title}</h4>
-                    <span className={`text-xs px-2 py-0.5 rounded shrink-0 ml-2 ${
-                      c.status === "published" ? "bg-emerald-50 text-emerald-700" : "bg-bg-layout text-text-secondary"
-                    }`}>
-                      {c.status === "published" ? "已发布" : "草稿"}
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-xs text-text-secondary mb-3">
-                    <p className="truncate">{getCategoryPath(c.category_id)}</p>
-                    <div className="flex items-center gap-3">
-                      <span>{c.video_count} 个视频</span>
-                      <span>{new Date(c.created_at).toLocaleDateString("zh-CN")}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 pt-2 border-t border-border">
-                    <button onClick={() => openEdit(c.id)} className="flex-1 text-xs text-center text-primary border border-border rounded-md py-1 hover:bg-bg-layout">编辑</button>
-                    <button onClick={() => openAssign(c)} className="flex-1 text-xs text-center text-primary border border-border rounded-md py-1 hover:bg-bg-layout">分配</button>
-                    <button onClick={() => handleDeleteCourse(c.id)} className="text-xs text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50 shrink-0">删除</button>
-                  </div>
-                </div>
-              ))}
+            <div className="space-y-6">
+              {(() => {
+                // 按分类分组
+                const catMap = new Map(flatCategories.map(c => [c.id, c.name]));
+                const grouped: Record<string, typeof courses> = {};
+                const uncategorized: typeof courses = [];
+                for (const c of courses) {
+                  if (c.category_id && catMap.has(c.category_id)) {
+                    const name = catMap.get(c.category_id)!;
+                    if (!grouped[name]) grouped[name] = [];
+                    grouped[name].push(c);
+                  } else {
+                    uncategorized.push(c);
+                  }
+                }
+                const groupNames = Object.keys(grouped);
+                return (
+                  <>
+                    {groupNames.map(catName => (
+                      <div key={catName}>
+                        <h3 className="text-base font-bold text-primary mb-3 border-b border-border pb-2">
+                          {catName}
+                        </h3>
+                        <div className="grid grid-cols-3 gap-3">
+                          {grouped[catName].map(c => (
+                            <CourseCardItem key={c.id} c={c} getCategoryPath={getCategoryPath} openEdit={openEdit} openAssign={openAssign} handleDeleteCourse={handleDeleteCourse} />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {uncategorized.length > 0 && (
+                      <div>
+                        <h3 className="text-base font-bold text-text-secondary mb-3 border-b border-border pb-2">
+                          未分类
+                        </h3>
+                        <div className="grid grid-cols-3 gap-3">
+                          {uncategorized.map(c => (
+                            <CourseCardItem key={c.id} c={c} getCategoryPath={getCategoryPath} openEdit={openEdit} openAssign={openAssign} handleDeleteCourse={handleDeleteCourse} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           )}
         </div>

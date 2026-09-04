@@ -93,6 +93,14 @@ function NoticeSection() {
               <div className="text-sm text-text-base whitespace-pre-wrap leading-relaxed">
                 {activeNotice.content}
               </div>
+              {notices.length > 0 && activeNotice.id !== notices[0].id && (
+                <button
+                  onClick={() => setActiveNotice(notices[0])}
+                  className="text-xs text-primary mt-3 hover:underline"
+                >
+                  &larr; 返回最新
+                </button>
+              )}
             </>
           ) : (
             <p className="text-sm text-text-secondary">暂无公告</p>

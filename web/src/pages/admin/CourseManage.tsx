@@ -12,6 +12,7 @@ interface FlatCategory {
 interface CourseItem {
   id: string; title: string; category_id: string | null;
   status: string; video_count: number; created_at: string;
+  start_date: string | null; end_date: string | null;
 }
 interface VideoItem {
   id: string; course_id: string; title: string; obs_key: string;
@@ -576,8 +577,11 @@ export default function CourseManage() {
         <p className="truncate">{getCategoryPath(c.category_id)}</p>
         <div className="flex items-center gap-3">
           <span>{c.video_count} 个视频</span>
-          <span>{new Date(c.created_at).toLocaleDateString("zh-CN")}</span>
+          <span>发布时间：{new Date(c.created_at).toLocaleDateString("zh-CN")}</span>
         </div>
+        {c.start_date && c.end_date && (
+          <p className="text-primary/70">时间范围：{c.start_date} ~ {c.end_date}</p>
+        )}
       </div>
       <div className="flex items-center gap-2 pt-2 border-t border-border">
         <button onClick={() => openEdit(c.id)} className="flex-1 text-xs text-center text-primary border border-border rounded-md py-1 hover:bg-bg-layout">编辑</button>

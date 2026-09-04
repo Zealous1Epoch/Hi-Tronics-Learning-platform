@@ -95,7 +95,7 @@ function TreeSidebar({
     });
 
   return (
-    <div className="w-44 shrink-0 pr-3 border-r border-border">
+    <div className="w-56 shrink-0 pr-3 border-r border-border">
       <div
         onClick={() => onSelect(null)}
         className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${

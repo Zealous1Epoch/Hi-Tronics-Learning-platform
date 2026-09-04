@@ -159,7 +159,7 @@ export default function MyCourses() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"all" | "in_progress" | "done">("all");
+  const [tab, setTab] = useState<"all" | "in_progress" | "done" | "not_started">("all");
   const mountedRef = useRef(true);
 
   const fetchData = () => {
@@ -204,6 +204,9 @@ export default function MyCourses() {
     }
     if (tab === "done") {
       return (c.total_count > 0 && c.completed_count >= c.total_count) && c.exam_passed;
+    }
+    if (tab === "not_started") {
+      return c.completed_count === 0 && !c.exam_passed;
     }
     return true;
   });
@@ -251,6 +254,7 @@ export default function MyCourses() {
           <div className="flex gap-3 mb-6">
             {[
               { key: "all", label: "全部" },
+              { key: "not_started", label: "未开始" },
               { key: "in_progress", label: "进行中" },
               { key: "done", label: "已完成" },
             ].map((t) => (
@@ -272,7 +276,7 @@ export default function MyCourses() {
             <p className="text-text-secondary">加载中...</p>
           ) : filteredCourses.length === 0 ? (
             <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
-              {tab === "done" ? "暂无已完成的课程" : tab === "in_progress" ? "暂无进行中的课程" : "暂无课程，请联系管理员分配"}
+              {tab === "done" ? "暂无已完成的课程" : tab === "in_progress" ? "暂无进行中的课程" : tab === "not_started" ? "暂无未开始的课程" : "暂无课程，请联系管理员分配"}
             </div>
           ) : (
             <div className="space-y-8">

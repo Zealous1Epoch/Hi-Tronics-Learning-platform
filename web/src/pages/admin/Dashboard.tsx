@@ -358,27 +358,29 @@ function RecentActivities() {
       ) : activities.length === 0 ? (
         <p className="text-sm text-text-secondary">暂无动态</p>
       ) : (
-        <ul className="divide-y divide-border">
-          {activities.map((a, i) => (
-            <li key={i} className="py-2.5 flex items-start gap-3">
-              <span
-                className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
-                  a.type === "exam" ? "bg-green-500" : "bg-blue-500"
-                }`}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="text-sm">
-                  <span className="font-medium">{a.user_name}</span>
-                  <span className="text-text-secondary"> {a.action} </span>
-                  <span>{a.target}</span>
+        <div className="max-h-[280px] overflow-y-auto">
+          <ul className="divide-y divide-border">
+            {activities.map((a, i) => (
+              <li key={i} className="py-2.5 flex items-start gap-3">
+                <span
+                  className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                    a.type === "exam" ? "bg-green-500" : "bg-blue-500"
+                  }`}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm">
+                    <span className="font-medium">{a.user_name}</span>
+                    <span className="text-text-secondary"> {a.action} </span>
+                    <span>{a.target}</span>
+                  </div>
+                  <div className="text-xs text-text-secondary mt-0.5">
+                    {new Date(a.time).toLocaleString("zh-CN")}
+                  </div>
                 </div>
-                <div className="text-xs text-text-secondary mt-0.5">
-                  {new Date(a.time).toLocaleString("zh-CN")}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

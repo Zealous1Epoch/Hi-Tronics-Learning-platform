@@ -20,17 +20,6 @@ interface CourseProgress {
   total_count: number;
 }
 
-interface SiblingCourse {
-  id: string;
-  title: string;
-  videos: { id: string; title: string; duration: number | null }[];
-}
-
-interface SiblingChapters {
-  root_category_name: string | null;
-  courses: SiblingCourse[];
-}
-
 export default function CourseDetail() {
   const { id } = useParams();
   const [course, setCourse] = useState<CourseDetail | null>(null);
@@ -39,7 +28,6 @@ export default function CourseDetail() {
   const [examStatus, setExamStatus] = useState<string | null>(null);
   const [progress, setProgress] = useState<CourseProgress | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
-  const [siblingChapters, setSiblingChapters] = useState<SiblingChapters | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -47,13 +35,9 @@ export default function CourseDetail() {
     api<CourseDetail>(`/courses/${id}`).then(async (data) => {
       if (!mountedRef.current) return;
       setCourse(data);
-      // 获取视频进度
+      // 获取视频进度（用于考试解锁判断）
       api<CourseProgress>(`/student/progress/${id}`).then((p) => {
         if (mountedRef.current) setProgress(p);
-      }).catch(() => {});
-      // 查询同根分类章节
-      api<SiblingChapters>(`/student/courses/${id}/sibling-chapters`).then((s) => {
-        if (mountedRef.current) setSiblingChapters(s);
       }).catch(() => {});
       // 检查考试状态
       if (data.exam_id) {
@@ -95,6 +79,7 @@ export default function CourseDetail() {
 
   const handleProgress = (seconds: number, duration: number) => {
     if (!activeVideo) return;
+    // 优先用播放器实测时长，videos 表的 duration 可能为空
     const total = duration > 0 ? duration : (activeVideo.duration || 0);
     api("/student/progress", {
       method: "POST",
@@ -105,18 +90,14 @@ export default function CourseDetail() {
         total_seconds: total,
       }),
     })
-      .catch(() => {});
+      .catch(() => {}); // 静默失败，不影响播放体验
   };
 
+  // 视频播放结束，直接刷新进度解锁考试入口
   const handleVideoEnded = () => {
     api<CourseProgress>(`/student/progress/${course.id}`)
       .then((p) => setProgress(p))
       .catch(() => {});
-  };
-
-  const formatDuration = (d: number | null) => {
-    if (!d) return "";
-    return `${Math.floor(d / 60)}:${String(d % 60).padStart(2, "0")}`;
   };
 
   return (
@@ -149,6 +130,7 @@ export default function CourseDetail() {
           )}
           {course.exam_id && examStatus === "published" && (
             <div className="mt-4">
+              {/* 课程无视频时直接解锁考试；有视频则需全部看完 */}
               {course.videos.length > 0 && progress && progress.completed_count < progress.total_count ? (
                 <div>
                   <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border cursor-not-allowed">
@@ -177,85 +159,27 @@ export default function CourseDetail() {
           )}
         </div>
 
-        {/* 右侧：同根分类章节列表 */}
+        {/* 章节列表 */}
         <div className="w-64 flex-shrink-0">
           <div className="bg-bg-base rounded-lg border border-border">
-            <div className="px-4 py-3 border-b border-border font-bold text-sm">
-              {siblingChapters?.root_category_name
-                ? `${siblingChapters.root_category_name} - 章节`
-                : "章节列表"}
-            </div>
-            <div className="max-h-[calc(100vh-240px)] overflow-y-auto">
-              {siblingChapters && siblingChapters.courses.length > 0 ? (
-                siblingChapters.courses.map((sc) => {
-                  const isCurrentCourse = sc.id === course.id;
-                  return (
-                    <div key={sc.id}>
-                      {/* 课程标题 */}
-                      <div className={`px-4 py-2 text-xs font-bold border-b border-border ${
-                        isCurrentCourse ? "text-primary" : "text-text-secondary"
-                      }`}>
-                        {isCurrentCourse ? "▼ " : ""}{sc.title}
-                      </div>
-                      {/* 视频列表 */}
-                      {sc.videos.map((v, vi) => {
-                        const isActive = isCurrentCourse && course.videos[activeVideoIdx]?.id === v.id;
-                        return isCurrentCourse ? (
-                          <button
-                            key={v.id}
-                            onClick={() => {
-                              const idx = course.videos.findIndex((cv) => cv.id === v.id);
-                              if (idx >= 0) setActiveVideoIdx(idx);
-                            }}
-                            className={`w-full text-left px-4 py-2 text-sm border-b border-border last:border-0 hover:bg-bg-layout transition-colors ${
-                              isActive ? "bg-primary/5 text-primary font-medium" : "text-text-secondary"
-                            }`}
-                          >
-                            <span className="mr-2">{vi + 1}.</span>
-                            {v.title}
-                            {v.duration && (
-                              <span className="text-text-secondary ml-2">({formatDuration(v.duration)})</span>
-                            )}
-                          </button>
-                        ) : (
-                          <Link
-                            key={v.id}
-                            to={`/student/courses/${sc.id}`}
-                            className="block w-full text-left px-4 py-2 text-sm border-b border-border last:border-0 hover:bg-bg-layout transition-colors text-text-secondary"
-                          >
-                            <span className="mr-2">{vi + 1}.</span>
-                            {v.title}
-                            {v.duration && (
-                              <span className="text-text-secondary ml-2">({formatDuration(v.duration)})</span>
-                            )}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  );
-                })
-              ) : (
-                <>
-                  {course.videos.map((v, i) => (
-                    <button
-                      key={v.id}
-                      onClick={() => setActiveVideoIdx(i)}
-                      className={`w-full text-left px-4 py-2.5 text-sm border-b border-border last:border-0 hover:bg-bg-layout transition-colors ${
-                        i === activeVideoIdx ? "bg-primary/5 text-primary font-medium" : "text-text-secondary"
-                      }`}
-                    >
-                      <span className="mr-2">{i + 1}.</span>
-                      {v.title}
-                      {v.duration && (
-                        <span className="text-text-secondary ml-2">
-                          ({formatDuration(v.duration)})
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
+            <div className="px-4 py-3 border-b border-border font-bold text-sm">章节列表</div>
+            {course.videos.map((v, i) => (
+              <button
+                key={v.id}
+                onClick={() => setActiveVideoIdx(i)}
+                className={`w-full text-left px-4 py-2.5 text-sm border-b border-border last:border-0 hover:bg-bg-layout transition-colors ${
+                  i === activeVideoIdx ? "bg-primary/5 text-primary font-medium" : "text-text-secondary"
+                }`}
+              >
+                <span className="mr-2">{i + 1}.</span>
+                {v.title}
+                {v.duration && (
+                  <span className="text-text-secondary ml-2">
+                    ({Math.floor(v.duration / 60)}:{String(v.duration % 60).padStart(2, "0")})
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
         </div>
       </div>

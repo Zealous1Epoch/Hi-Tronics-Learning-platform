@@ -117,22 +117,29 @@ def get_daily_plan(
     )
 
     # 2. 有效期内课程
-    dept_id = None
-    if current_user.department:
-        dept = db.query(Department).filter(Department.name == current_user.department).first()
-        if dept:
-            dept_id = dept.id
+    assigned_course_ids: list[str] = []
+    if current_user.role == "admin":
+        # 管理员切换学员视图时，展示所有已发布课程
+        assigned_course_ids = [
+            c[0] for c in db.query(Course.id).filter(Course.status == "published").all()
+        ]
+    else:
+        dept_id = None
+        if current_user.department:
+            dept = db.query(Department).filter(Department.name == current_user.department).first()
+            if dept:
+                dept_id = dept.id
 
-    conditions = [CourseAssignment.user_id == current_user.id]
-    if dept_id:
-        conditions.append(CourseAssignment.department_id == dept_id)
+        conditions = [CourseAssignment.user_id == current_user.id]
+        if dept_id:
+            conditions.append(CourseAssignment.department_id == dept_id)
 
-    assignments = (
-        db.query(CourseAssignment)
-        .filter(or_(*conditions))
-        .all()
-    )
-    assigned_course_ids = list(set(a.course_id for a in assignments))
+        assignments = (
+            db.query(CourseAssignment)
+            .filter(or_(*conditions))
+            .all()
+        )
+        assigned_course_ids = list(set(a.course_id for a in assignments))
 
     courses = []
     if assigned_course_ids:
@@ -163,13 +170,25 @@ def get_daily_plan(
         for pr in progress_records:
             progress_by_course.setdefault(pr.course_id, []).append(pr)
 
+        # 批量查询视频总数作为进度分母
+        from app.models.course import Video
+        from sqlalchemy import func
+        video_counts = dict(
+            db.query(Video.course_id, func.count(Video.id))
+            .filter(Video.course_id.in_(course_ids))
+            .group_by(Video.course_id)
+            .all()
+        )
+
         courses = [
             {
                 "id": c.id,
                 "title": c.title,
                 "description": c.description,
+                "start_date": c.start_date.isoformat() if c.start_date else None,
+                "end_date": c.end_date.isoformat() if c.end_date else None,
                 "completed_count": sum(1 for p in progress_by_course.get(c.id, []) if p.completed),
-                "total_count": len(progress_by_course.get(c.id, [])),
+                "total_count": video_counts.get(c.id, 0),
             }
             for c in course_rows
         ]

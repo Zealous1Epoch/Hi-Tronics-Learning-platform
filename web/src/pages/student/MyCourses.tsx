@@ -7,6 +7,7 @@ interface CourseWithProgress {
   id: string; title: string; description: string | null;
   cover_image: string | null; category_id: string | null;
   video_count: number; status: string;
+  start_date: string | null; end_date: string | null;
   completed_count: number; total_count: number; exam_passed: boolean;
 }
 
@@ -145,6 +146,9 @@ function CourseCard({ course }: { course: CourseWithProgress }) {
           />
         </div>
       </div>
+      {course.start_date && course.end_date && (
+        <p className="text-[11px] text-text-secondary text-right">{course.start_date} ~ {course.end_date}</p>
+      )}
       <div className="text-[11px] text-primary">
         {isDone ? "已完成" : pct > 0 ? "继续学习" : "开始学习"}
       </div>

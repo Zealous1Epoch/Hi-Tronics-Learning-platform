@@ -210,7 +210,7 @@ def get_courses_with_progress(
     courses = (
         db.query(Course)
         .filter(Course.id.in_(course_ids), Course.status == "published")
-        .order_by(Course.created_at.desc())
+        .order_by(Course.created_at.asc())
         .all()
     )
 
@@ -270,6 +270,8 @@ def get_courses_with_progress(
             "category_id": c.category_id,
             "video_count": total_videos,
             "status": c.status,
+            "start_date": c.start_date.isoformat() if c.start_date else None,
+            "end_date": c.end_date.isoformat() if c.end_date else None,
             "completed_count": completed_count,
             "total_count": total_videos,
             "exam_passed": exam_passed,

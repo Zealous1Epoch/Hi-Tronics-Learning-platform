@@ -93,6 +93,15 @@ export default function CourseManage() {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const blobUrlsRef = useRef<Map<File, string>>(new Map());
+
+  const getBlobUrl = (file: File): string => {
+    const cached = blobUrlsRef.current.get(file);
+    if (cached) return cached;
+    const url = URL.createObjectURL(file);
+    blobUrlsRef.current.set(file, url);
+    return url;
+  };
 
   // 分配弹窗
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -124,15 +133,7 @@ export default function CourseManage() {
       api<FlatCategory[]>("/question-categories/flat"),
       api<CourseItem[]>(`/courses${selectedId ? `?category_id=${selectedId}` : ""}`),
     ]);
-    // 过滤树：只保留有课程的分类节点
-    const catIdsWithCourses = new Set(
-      coursesData.map((c: CourseItem) => c.category_id).filter(Boolean) as string[]
-    );
-    const filterTree = (nodes: TreeNode[]): TreeNode[] =>
-      nodes
-        .map((n) => ({ ...n, children: filterTree(n.children) }))
-        .filter((n) => catIdsWithCourses.has(n.id) || n.children.length > 0);
-    setTree(filterTree(treeData));
+    setTree(treeData);
     setFlatCategories(flatData);
     setCourses(coursesData);
     setLoading(false);
@@ -276,58 +277,70 @@ export default function CourseManage() {
   const handleSaveCourse = async (status: string) => {
     if (!editTitle.trim()) return;
     setSaving(true);
-    const body = {
-      title: editTitle,
-      description: editDescription || null,
-      category_id: editingCourse ? editingCourse.category_id : (editCategoryId || null),
-      start_date: editStartDate || null,
-      end_date: editEndDate || null,
-      status,
-    };
-    let courseId = editingCourse?.id;
-    if (editingCourse) {
-      await api(`/courses/${editingCourse.id}`, { method: "PUT", body: JSON.stringify(body) });
-    } else {
-      const course = await api<CourseDetail>("/courses", { method: "POST", body: JSON.stringify(body) });
-      courseId = course.id;
-    }
-    // 保存分配：编辑时先清旧分配再追加，新增时直接追加
-    if (courseId) {
+    try {
+      const body = {
+        title: editTitle,
+        description: editDescription || null,
+        category_id: editingCourse ? editingCourse.category_id : (editCategoryId || null),
+        start_date: editStartDate || null,
+        end_date: editEndDate || null,
+        status,
+      };
+      let courseId = editingCourse?.id;
       if (editingCourse) {
-        const prev = editExistingAssignments.current;
-        if (prev.user_ids.length > 0 || prev.department_ids.length > 0) {
+        await api(`/courses/${editingCourse.id}`, { method: "PUT", body: JSON.stringify(body) });
+      } else {
+        const course = await api<CourseDetail>("/courses", { method: "POST", body: JSON.stringify(body) });
+        courseId = course.id;
+      }
+      // 保存分配：编辑时先清旧分配再追加，新增时直接追加
+      if (courseId) {
+        if (editingCourse) {
+          const prev = editExistingAssignments.current;
+          if (prev.user_ids.length > 0 || prev.department_ids.length > 0) {
+            await api(`/courses/${courseId}/assignments`, {
+              method: "DELETE",
+              body: JSON.stringify({ user_ids: prev.user_ids, department_ids: prev.department_ids }),
+            });
+          }
+        }
+        if (editSelectedUsers.size > 0 || editSelectedDepts.size > 0) {
           await api(`/courses/${courseId}/assignments`, {
-            method: "DELETE",
-            body: JSON.stringify({ user_ids: prev.user_ids, department_ids: prev.department_ids }),
+            method: "POST",
+            body: JSON.stringify({ user_ids: [...editSelectedUsers], department_ids: [...editSelectedDepts] }),
           });
         }
       }
-      if (editSelectedUsers.size > 0 || editSelectedDepts.size > 0) {
-        await api(`/courses/${courseId}/assignments`, {
-          method: "POST",
-          body: JSON.stringify({ user_ids: [...editSelectedUsers], department_ids: [...editSelectedDepts] }),
-        });
+      // 上传待上传的视频文件
+      if (courseId && pendingFiles.length > 0) {
+        for (let i = 0; i < pendingFiles.length; i++) {
+          const pf = pendingFiles[i];
+          setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: true, progress: 0 } : p));
+          try {
+            const { filename, file_size } = await uploadFileWithProgress<{ filename: string; file_size: number }>(
+              "/videos/upload", pf.file,
+              (progress) => setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, progress } : p)),
+            );
+            setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false, progress: 100 } : p));
+            await api(`/courses/${courseId}/videos`, {
+              method: "POST",
+              body: JSON.stringify({ title: pf.title, obs_key: filename, file_size, duration: pf.duration }),
+            });
+          } catch (e: any) {
+            // 单个视频上传失败不阻塞其余视频，标记状态后继续
+            setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false } : p));
+            console.error("视频上传失败", pf.file.name, e);
+            alert(`视频「${pf.file.name}」上传失败：${e.message || e}，其余内容已保存`);
+          }
+        }
       }
+      setSaving(false);
+      setShowEditModal(false);
+      fetchData();
+    } catch (e: any) {
+      alert(`保存失败：${e.message || e}`);
+      setSaving(false);
     }
-    // 上传待上传的视频文件
-    if (courseId && pendingFiles.length > 0) {
-      for (let i = 0; i < pendingFiles.length; i++) {
-        const pf = pendingFiles[i];
-        setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: true, progress: 0 } : p));
-        const { filename, file_size } = await uploadFileWithProgress<{ filename: string; file_size: number }>(
-          "/videos/upload", pf.file,
-          (progress) => setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, progress } : p)),
-        );
-        setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false, progress: 100 } : p));
-        await api(`/courses/${courseId}/videos`, {
-          method: "POST",
-          body: JSON.stringify({ title: pf.title, obs_key: filename, file_size, duration: pf.duration }),
-        });
-      }
-    }
-    setSaving(false);
-    setShowEditModal(false);
-    fetchData();
   };
 
   const handleFiles = (files: FileList) => {
@@ -474,6 +487,14 @@ export default function CourseManage() {
       return () => document.removeEventListener("mousedown", handleClick);
     }
   }, [showCategoryDropdown]);
+
+  // 关闭编辑弹窗时释放 blob URL
+  useEffect(() => {
+    if (!showEditModal) {
+      blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+      blobUrlsRef.current.clear();
+    }
+  }, [showEditModal]);
 
   const renderTree = (nodes: TreeNode[], depth: number = 0) => {
     return nodes.map(node => {
@@ -1110,7 +1131,7 @@ export default function CourseManage() {
                       </div>
                       {!pf.uploading && (
                         <video
-                          src={URL.createObjectURL(pf.file)}
+                          src={getBlobUrl(pf.file)}
                           controls
                           className="w-full rounded-md max-h-56 bg-black"
                         />

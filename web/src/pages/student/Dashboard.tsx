@@ -59,8 +59,17 @@ function NoticeSection() {
     }
   };
 
-  if (loading) return null;
-  if (notices.length === 0) return null;
+  // 无论公告为空还是加载中，都保留区域占位
+  if (loading) {
+    return (
+      <div className="bg-bg-base rounded-lg border border-border">
+        <div className="px-4 py-3 border-b border-border">
+          <span className="text-sm font-bold text-primary">系统公告</span>
+        </div>
+        <div className="p-4 text-sm text-text-secondary">加载中...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-bg-base rounded-lg border border-border">
@@ -259,6 +268,8 @@ interface DailyPlanCourse {
   id: string;
   title: string;
   description: string | null;
+  start_date: string | null;
+  end_date: string | null;
   completed_count: number;
   total_count: number;
 }
@@ -391,7 +402,7 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
         ) : !hasCourses && !hasTasks ? (
           <p className="text-sm text-text-secondary text-center mt-8">暂无计划</p>
         ) : (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
             {/* 课程卡片 */}
             {courses.map((course) => {
               const pct = course.total_count > 0
@@ -401,26 +412,22 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
                 <Link
                   key={course.id}
                   to={`/student/courses/${course.id}`}
-                  className="border border-primary/30 rounded-lg p-4 hover:shadow-sm transition-shadow block bg-primary/[0.02]"
+                  className="border border-primary/30 rounded-lg p-2 hover:shadow-sm transition-shadow block bg-primary/[0.02]"
                 >
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs text-primary font-bold px-1.5 py-0.5 bg-primary/10 rounded">课程</span>
-                    <span className="text-sm font-medium text-text-base">{course.title}</span>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-[11px] text-primary font-bold px-1 py-0.5 bg-primary/10 rounded">课程</span>
+                    <span className="text-xs font-medium text-text-base truncate">{course.title}</span>
                   </div>
-                  {course.description && (
-                    <p className="text-xs text-text-secondary mb-2 line-clamp-1 ml-7">{course.description}</p>
-                  )}
-                  <div className="ml-7">
-                    <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
-                      <span>学习进度</span>
-                      <span>{course.completed_count}/{course.total_count}</span>
-                    </div>
-                    <div className="w-full bg-bg-layout rounded-full h-1.5">
-                      <div
-                        className="h-1.5 rounded-full transition-all bg-primary"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
+                  <div className="flex items-center gap-2 text-[11px] text-text-secondary">
+                    {course.start_date && course.end_date && (
+                      <span className="shrink-0">{course.start_date} ~ {course.end_date}</span>
+                    )}
+                    <span className="flex-1 flex items-center gap-1">
+                      <span className="flex-1 bg-bg-layout rounded-full h-1 border border-border">
+                        <div className="h-1 rounded-full transition-all bg-primary" style={{ width: `${pct}%` }} />
+                      </span>
+                      <span className="shrink-0 text-primary">进度：{pct}%</span>
+                    </span>
                   </div>
                 </Link>
               );
@@ -437,18 +444,18 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
               return (
                 <div
                   key={task.id}
-                  className="border border-border rounded-lg p-4 hover:shadow-sm transition-shadow"
+                  className="border border-border rounded-lg p-2 hover:shadow-sm transition-shadow"
                 >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
                       <input
                         type="checkbox"
                         checked={task.completed}
                         onChange={() => handleToggle(task)}
-                        className="w-4 h-4 mt-0.5 rounded border-border accent-primary cursor-pointer shrink-0"
+                        className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer shrink-0"
                       />
                       <span
-                        className={`text-sm font-medium truncate ${
+                        className={`text-xs truncate ${
                           task.completed ? "line-through text-text-secondary" : "text-text-base"
                         }`}
                       >
@@ -457,33 +464,19 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
                     </div>
                     <button
                       onClick={() => handleDelete(task.id)}
-                      className="text-xs text-red-400 opacity-0 hover:opacity-100 transition-opacity shrink-0"
+                      className="text-[11px] text-red-400 opacity-0 hover:opacity-100 transition-opacity shrink-0"
                     >
                       删除
                     </button>
                   </div>
-
-                  {task.description && (
-                    <p className="text-xs text-text-secondary ml-6 mb-2 line-clamp-1">
-                      {task.description}
-                    </p>
-                  )}
-
-                  <p className="text-xs text-text-secondary ml-6 mb-2">
-                    {new Date(task.created_at).toLocaleString("zh-CN")}
-                  </p>
-
-                  <div className="ml-6">
-                    <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
-                      <span>进度</span>
-                      <span>{pct}%</span>
-                    </div>
-                    <div className="w-full bg-bg-layout rounded-full h-2">
+                  <div className="ml-5 mt-1 flex items-center gap-1">
+                    <div className="flex-1 bg-bg-layout rounded-full h-1">
                       <div
-                        className="h-2 rounded-full transition-all bg-primary"
+                        className="h-1 rounded-full transition-all bg-primary"
                         style={{ width: `${pct}%` }}
                       />
                     </div>
+                    <span className="text-[11px] text-text-secondary shrink-0">{pct}%</span>
                   </div>
                 </div>
               );

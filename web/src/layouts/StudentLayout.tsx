@@ -1,6 +1,5 @@
 import { Routes, Route, Link, Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import NoticeBell from "../components/NoticeBell";
 import StudentDashboard from "../pages/student/Dashboard";
 import MyCourses from "../pages/student/MyCourses";
 import CourseDetail from "../pages/student/CourseDetail";
@@ -26,8 +25,7 @@ export default function StudentLayout() {
           {user?.role === "admin" && (
             <Link to="/admin" className="text-sm text-white/80 hover:text-white">管理后台</Link>
           )}
-          <NoticeBell />
-          <span className="text-sm text-white/70">{user?.name}</span>
+                    <span className="text-sm text-white/70">{user?.name}</span>
           <button onClick={logout} className="text-sm text-white/60 hover:text-white">退出</button>
         </div>
       </nav>

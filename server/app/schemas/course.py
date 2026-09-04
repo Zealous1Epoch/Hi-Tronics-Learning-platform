@@ -1,7 +1,7 @@
 """课程相关 Pydantic 模型"""
 
 from datetime import datetime, date
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class VideoCreate(BaseModel):
@@ -38,6 +38,12 @@ class CourseCreate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
 
+    @model_validator(mode="after")
+    def check_date_range(self):
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("结束日期不能早于开始日期")
+        return self
+
 
 class CourseUpdate(BaseModel):
     title: str | None = None
@@ -48,6 +54,12 @@ class CourseUpdate(BaseModel):
     status: str | None = None
     start_date: date | None = None
     end_date: date | None = None
+
+    @model_validator(mode="after")
+    def check_date_range(self):
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("结束日期不能早于开始日期")
+        return self
 
 
 class CourseOut(BaseModel):

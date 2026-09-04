@@ -43,6 +43,7 @@ def _courses_with_videos(db: Session, courses: list[Course]) -> list[CourseOut]:
             id=c.id, title=c.title, description=c.description,
             cover_image=c.cover_image, category_id=c.category_id,
             exam_id=c.exam_id, status=c.status,
+            start_date=c.start_date, end_date=c.end_date,
             created_by=c.created_by, created_at=c.created_at,
             updated_at=c.updated_at,
             videos=[VideoOut.model_validate(v) for v in videos_by_course.get(c.id, [])],
@@ -91,6 +92,7 @@ def create_course(data: CourseCreate, db: Session = Depends(get_db), current_use
         id=str(uuid.uuid4()),
         title=data.title, description=data.description, cover_image=data.cover_image,
         category_id=data.category_id, exam_id=data.exam_id,
+        start_date=data.start_date, end_date=data.end_date,
         status=data.status or "draft",
         created_by=current_user.id,
     )
@@ -102,6 +104,7 @@ def create_course(data: CourseCreate, db: Session = Depends(get_db), current_use
         id=course.id, title=course.title, description=course.description,
         cover_image=course.cover_image, category_id=course.category_id,
         exam_id=course.exam_id, status=course.status,
+        start_date=course.start_date, end_date=course.end_date,
         created_by=course.created_by, created_at=course.created_at,
         updated_at=course.updated_at, videos=[], video_count=0,
     )
@@ -213,7 +216,7 @@ def student_courses(
     courses = (
         db.query(Course)
         .filter(Course.id.in_(course_ids), Course.status == "published")
-        .order_by(Course.created_at.desc())
+        .order_by(Course.created_at.asc())
         .all()
     )
     return _courses_with_videos(db, courses)

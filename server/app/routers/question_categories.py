@@ -27,9 +27,9 @@ class CategoryUpdate(BaseModel):
 
 
 def build_tree(categories: list[QuestionCategory], parent_id: str | None = None) -> list[dict]:
-    """递归构建分类树"""
+    """递归构建分类树，子节点按创建时间升序（老的在上，新的在下）"""
     children = [c for c in categories if c.parent_id == parent_id]
-    children.sort(key=lambda c: c.sort_order)
+    children.sort(key=lambda c: (c.sort_order, c.created_at or ""))
     return [
         {
             "id": c.id,

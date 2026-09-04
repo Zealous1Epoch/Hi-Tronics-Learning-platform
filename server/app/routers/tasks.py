@@ -9,6 +9,7 @@ from app.routers.auth import get_current_user
 from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse
 
 router = APIRouter(prefix="/api/student/tasks", tags=["代办任务"])
+plan_router = APIRouter(prefix="/api/student", tags=["每日计划"])
 
 
 @router.get("", response_model=list[TaskResponse])
@@ -87,3 +88,93 @@ def delete_task(
 
     db.delete(task)
     db.commit()
+
+
+# ── 每日计划（课程 + 任务） ──
+
+
+@plan_router.get("/daily-plan")
+def get_daily_plan(
+    date: str = Query(..., description="日期，格式 YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取指定日期的计划：个人任务 + 有效期内课程"""
+    from app.models.course import Course, CourseAssignment
+    from app.models.learning_progress import LearningProgress
+    from app.models.department import Department
+    from sqlalchemy import or_
+
+    # 1. 个人任务
+    tasks = (
+        db.query(Task)
+        .filter(
+            Task.user_id == current_user.id,
+            Task.due_date == date,
+        )
+        .order_by(Task.sort_order, Task.created_at)
+        .all()
+    )
+
+    # 2. 有效期内课程
+    dept_id = None
+    if current_user.department:
+        dept = db.query(Department).filter(Department.name == current_user.department).first()
+        if dept:
+            dept_id = dept.id
+
+    conditions = [CourseAssignment.user_id == current_user.id]
+    if dept_id:
+        conditions.append(CourseAssignment.department_id == dept_id)
+
+    assignments = (
+        db.query(CourseAssignment)
+        .filter(or_(*conditions))
+        .all()
+    )
+    assigned_course_ids = list(set(a.course_id for a in assignments))
+
+    courses = []
+    if assigned_course_ids:
+        course_rows = (
+            db.query(Course)
+            .filter(
+                Course.id.in_(assigned_course_ids),
+                Course.status == "published",
+                Course.start_date.isnot(None),
+                Course.end_date.isnot(None),
+                Course.start_date <= date,
+                Course.end_date >= date,
+            )
+            .all()
+        )
+
+        # 批量查询进度
+        course_ids = [c.id for c in course_rows]
+        progress_records = (
+            db.query(LearningProgress)
+            .filter(
+                LearningProgress.user_id == current_user.id,
+                LearningProgress.course_id.in_(course_ids),
+            )
+            .all()
+        )
+        progress_by_course: dict[str, list] = {}
+        for pr in progress_records:
+            progress_by_course.setdefault(pr.course_id, []).append(pr)
+
+        courses = [
+            {
+                "id": c.id,
+                "title": c.title,
+                "description": c.description,
+                "completed_count": sum(1 for p in progress_by_course.get(c.id, []) if p.completed),
+                "total_count": len(progress_by_course.get(c.id, [])),
+            }
+            for c in course_rows
+        ]
+
+    return {
+        "tasks": tasks,
+        "courses": courses,
+    }

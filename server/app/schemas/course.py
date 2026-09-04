@@ -1,6 +1,6 @@
 """课程相关 Pydantic 模型"""
 
-from datetime import datetime
+from datetime import datetime, date
 from pydantic import BaseModel
 
 
@@ -35,6 +35,8 @@ class CourseCreate(BaseModel):
     category_id: str | None = None
     exam_id: str | None = None
     status: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 class CourseUpdate(BaseModel):
@@ -44,6 +46,8 @@ class CourseUpdate(BaseModel):
     category_id: str | None = None
     exam_id: str | None = None
     status: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 class CourseOut(BaseModel):
@@ -53,6 +57,8 @@ class CourseOut(BaseModel):
     cover_image: str | None = None
     category_id: str | None = None
     exam_id: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
     status: str
     created_by: str | None = None
     created_at: datetime

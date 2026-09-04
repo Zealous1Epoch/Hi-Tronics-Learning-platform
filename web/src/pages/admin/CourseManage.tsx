@@ -20,7 +20,8 @@ interface VideoItem {
 interface CourseDetail {
   id: string; title: string; description: string | null;
   cover_image: string | null; category_id: string | null;
-  exam_id: string | null; status: string;
+  exam_id: string | null; start_date: string | null;
+  end_date: string | null; status: string;
   videos: VideoItem[]; video_count: number;
 }
 interface UserItem {
@@ -82,6 +83,8 @@ export default function CourseManage() {
   const [editCategoryId, setEditCategoryId] = useState<string>("");
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editEndDate, setEditEndDate] = useState("");
   const [editVideos, setEditVideos] = useState<VideoItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
@@ -220,6 +223,8 @@ export default function CourseManage() {
     setEditingCourse(null);
     setEditTitle("");
     setEditDescription("");
+    setEditStartDate("");
+    setEditEndDate("");
     setEditCategoryId(selectedId || "");
     setEditVideos([]);
     setPendingFiles([]);
@@ -250,6 +255,8 @@ export default function CourseManage() {
     setEditingCourse(detail);
     setEditTitle(detail.title);
     setEditDescription(detail.description || "");
+    setEditStartDate(detail.start_date || "");
+    setEditEndDate(detail.end_date || "");
     setEditVideos(detail.videos);
     setPendingFiles([]);
     setEditAssignUsers(users);
@@ -273,6 +280,8 @@ export default function CourseManage() {
       title: editTitle,
       description: editDescription || null,
       category_id: editingCourse ? editingCourse.category_id : (editCategoryId || null),
+      start_date: editStartDate || null,
+      end_date: editEndDate || null,
       status,
     };
     let courseId = editingCourse?.id;
@@ -862,6 +871,28 @@ export default function CourseManage() {
                   rows={3} placeholder="输入课程简介"
                   className="w-full border border-border rounded-md px-3 py-2 text-sm resize-none"
                 />
+              </div>
+
+              {/* 计划日期 */}
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <label className="block text-sm text-text-secondary mb-1">开始日期</label>
+                  <input
+                    type="date"
+                    value={editStartDate}
+                    onChange={e => setEditStartDate(e.target.value)}
+                    className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm text-text-secondary mb-1">结束日期</label>
+                  <input
+                    type="date"
+                    value={editEndDate}
+                    onChange={e => setEditEndDate(e.target.value)}
+                    className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  />
+                </div>
               </div>
 
               {/* 分配学员 */}

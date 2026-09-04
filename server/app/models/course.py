@@ -1,8 +1,8 @@
 """课程相关模型"""
 
 import uuid
-from datetime import datetime
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, func
+from datetime import datetime, date
+from sqlalchemy import String, Integer, Text, Date, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -23,6 +23,12 @@ class Course(Base):
     )
     exam_id: Mapped[str | None] = mapped_column(
         String(36), nullable=True, comment="关联考试"
+    )
+    start_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="计划开始日期"
+    )
+    end_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, comment="计划结束日期"
     )
     status: Mapped[str] = mapped_column(
         String(20), default="draft", nullable=False, index=True, comment="draft / published"

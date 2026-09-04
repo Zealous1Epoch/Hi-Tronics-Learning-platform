@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../../lib/api";
 
@@ -254,20 +255,35 @@ interface TaskItem {
   updated_at: string;
 }
 
+interface DailyPlanCourse {
+  id: string;
+  title: string;
+  description: string | null;
+  completed_count: number;
+  total_count: number;
+}
+
+interface DailyPlan {
+  tasks: TaskItem[];
+  courses: DailyPlanCourse[];
+}
+
 function TodoPanel({ selectedDate }: { selectedDate: string }) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [courses, setCourses] = useState<DailyPlanCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
   const [adding, setAdding] = useState(false);
   const mountedRef = useRef(true);
 
-  const fetchTasks = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const data = await api<TaskItem[]>(
-        `/student/tasks?date=${selectedDate}`
+      const data = await api<DailyPlan>(
+        `/student/daily-plan?date=${selectedDate}`
       );
       if (mountedRef.current) {
-        setTasks(data);
+        setTasks(data.tasks);
+        setCourses(data.courses);
         setLoading(false);
       }
     } catch {
@@ -277,11 +293,11 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchTasks();
+    fetchData();
     return () => {
       mountedRef.current = false;
     };
-  }, [fetchTasks]);
+  }, [fetchData]);
 
   const handleAdd = async () => {
     const title = newTitle.trim();
@@ -293,7 +309,7 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
         body: JSON.stringify({ title, due_date: selectedDate }),
       });
       setNewTitle("");
-      fetchTasks();
+      fetchData();
     } catch (e) {
       console.error("添加任务失败", e);
     } finally {
@@ -307,7 +323,7 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
         method: "PUT",
         body: JSON.stringify({ completed: !task.completed }),
       });
-      fetchTasks();
+      fetchData();
     } catch (e) {
       console.error("更新任务失败", e);
     }
@@ -316,7 +332,7 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
   const handleDelete = async (taskId: string) => {
     try {
       await api(`/student/tasks/${taskId}`, { method: "DELETE" });
-      fetchTasks();
+      fetchData();
     } catch (e) {
       console.error("删除任务失败", e);
     }
@@ -330,13 +346,15 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
 
   const dateObj = new Date(selectedDate + "T00:00:00");
   const dateLabel = `${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
+  const hasCourses = courses.length > 0;
+  const hasTasks = tasks.length > 0;
 
   return (
     <div className="bg-bg-base rounded-lg border border-border h-full flex flex-col">
       {/* 标题行 */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <span className="text-sm font-bold text-primary">
-          {dateLabel} 的任务
+          {dateLabel} 的计划
         </span>
         <span className="text-xs text-text-secondary">
           {tasks.filter((t) => t.completed).length}/{tasks.length} 完成
@@ -366,14 +384,54 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
         </button>
       </div>
 
-      {/* 任务卡片列表 */}
+      {/* 内容列表 */}
       <div className="flex-1 min-h-0 overflow-y-auto p-3">
         {loading ? (
           <p className="text-sm text-text-secondary">加载中...</p>
-        ) : tasks.length === 0 ? (
-          <p className="text-sm text-text-secondary text-center mt-8">暂无任务</p>
+        ) : !hasCourses && !hasTasks ? (
+          <p className="text-sm text-text-secondary text-center mt-8">暂无计划</p>
         ) : (
           <div className="flex flex-col gap-3">
+            {/* 课程卡片 */}
+            {courses.map((course) => {
+              const pct = course.total_count > 0
+                ? Math.round((course.completed_count / course.total_count) * 100)
+                : 0;
+              return (
+                <Link
+                  key={course.id}
+                  to={`/student/courses/${course.id}`}
+                  className="border border-primary/30 rounded-lg p-4 hover:shadow-sm transition-shadow block bg-primary/[0.02]"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs text-primary font-bold px-1.5 py-0.5 bg-primary/10 rounded">课程</span>
+                    <span className="text-sm font-medium text-text-base">{course.title}</span>
+                  </div>
+                  {course.description && (
+                    <p className="text-xs text-text-secondary mb-2 line-clamp-1 ml-7">{course.description}</p>
+                  )}
+                  <div className="ml-7">
+                    <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
+                      <span>学习进度</span>
+                      <span>{course.completed_count}/{course.total_count}</span>
+                    </div>
+                    <div className="w-full bg-bg-layout rounded-full h-1.5">
+                      <div
+                        className="h-1.5 rounded-full transition-all bg-primary"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+
+            {/* 分隔线 */}
+            {hasCourses && hasTasks && (
+              <div className="border-t border-border pt-1" />
+            )}
+
+            {/* 个人任务卡片 */}
             {tasks.map((task) => {
               const pct = task.completed ? 100 : 0;
               return (
@@ -381,7 +439,6 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
                   key={task.id}
                   className="border border-border rounded-lg p-4 hover:shadow-sm transition-shadow"
                 >
-                  {/* 标题行 */}
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <input
@@ -406,19 +463,16 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
                     </button>
                   </div>
 
-                  {/* 描述 */}
                   {task.description && (
                     <p className="text-xs text-text-secondary ml-6 mb-2 line-clamp-1">
                       {task.description}
                     </p>
                   )}
 
-                  {/* 创建时间 */}
                   <p className="text-xs text-text-secondary ml-6 mb-2">
                     {new Date(task.created_at).toLocaleString("zh-CN")}
                   </p>
 
-                  {/* 进度条 */}
                   <div className="ml-6">
                     <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
                       <span>进度</span>

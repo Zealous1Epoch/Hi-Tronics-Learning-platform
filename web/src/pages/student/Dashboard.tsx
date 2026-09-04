@@ -1,135 +1,123 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../../lib/api";
 
-interface NoticeItem {
-  id: string;
-  title: string;
-  content: string;
-  is_pinned: boolean;
-  created_at: string;
-  is_read: boolean;
+// ── 月历组件 ──
+
+const WEEKDAY_CN = ["日", "一", "二", "三", "四", "五", "六"];
+
+function getMonthDays(year: number, month: number): (number | null)[] {
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const days: (number | null)[] = [];
+  for (let i = 0; i < firstDay; i++) days.push(null);
+  for (let d = 1; d <= daysInMonth; d++) days.push(d);
+  while (days.length < 35) days.push(null);
+  return days;
 }
 
-interface NoticeListResponse {
-  notices: NoticeItem[];
-  total: number;
-}
+function Calendar({
+  selectedDate,
+  onSelectDate,
+}: {
+  selectedDate: string;
+  onSelectDate: (date: string) => void;
+}) {
+  const today = new Date();
+  const todayStr = today.toISOString().split("T")[0];
+  const [year, month] = selectedDate.split("-").slice(0, 2).map(Number);
+  const [viewYear, setViewYear] = useState(year);
+  const [viewMonth, setViewMonth] = useState(month - 1); // 0-based
 
-function StudentNoticeCard() {
-  const [notices, setNotices] = useState<NoticeItem[]>([]);
-  const [selectedNotice, setSelectedNotice] = useState<NoticeItem | null>(null);
-  const [loading, setLoading] = useState(true);
-  const mountedRef = useRef(true);
+  const days = getMonthDays(viewYear, viewMonth);
 
-  const unreadCount = notices.filter((n) => !n.is_read).length;
-
-  const fetchData = () => {
-    api<NoticeListResponse>("/notices/published")
-      .then((data) => {
-        if (mountedRef.current) {
-          setNotices(data.notices);
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (mountedRef.current) setLoading(false);
-      });
-  };
-
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchData();
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  const handleRead = async (notice: NoticeItem) => {
-    setSelectedNotice(notice);
-    if (!notice.is_read) {
-      try {
-        await api(`/notices/${notice.id}/read`, { method: "POST" });
-        fetchData();
-      } catch (e) {
-        console.error("标记已读失败", e);
-      }
+  const goPrev = () => {
+    if (viewMonth === 0) {
+      setViewYear(viewYear - 1);
+      setViewMonth(11);
+    } else {
+      setViewMonth(viewMonth - 1);
     }
   };
 
-  if (loading) return null;
-  if (notices.length === 0) return null;
+  const goNext = () => {
+    if (viewMonth === 11) {
+      setViewYear(viewYear + 1);
+      setViewMonth(0);
+    } else {
+      setViewMonth(viewMonth + 1);
+    }
+  };
+
+  const handleDayClick = (day: number | null) => {
+    if (day === null) return;
+    const mm = String(viewMonth + 1).padStart(2, "0");
+    const dd = String(day).padStart(2, "0");
+    onSelectDate(`${viewYear}-${mm}-${dd}`);
+  };
 
   return (
     <div className="bg-bg-base rounded-lg border border-border">
-      {/* 标题行 */}
+      {/* 月份标题 + 切换 */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-primary">系统公告</span>
-          {unreadCount > 0 && (
-            <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-tight">
-              {unreadCount}
-            </span>
-          )}
-        </div>
+        <button onClick={goPrev} className="p-1 text-text-secondary hover:text-primary">
+          <ChevronLeft size={16} />
+        </button>
+        <span className="text-sm font-bold text-primary">
+          {viewYear}年{viewMonth + 1}月
+        </span>
+        <button onClick={goNext} className="p-1 text-text-secondary hover:text-primary">
+          <ChevronRight size={16} />
+        </button>
       </div>
 
-      {/* 固定高度公告列表，卡片样式 */}
-      <div className="max-h-[280px] overflow-y-auto flex flex-col gap-2 p-3">
-        {notices.map((n) => (
-          <div
-            key={n.id}
-            className="border border-border rounded-lg p-3 flex items-center justify-between gap-4 hover:shadow-sm transition-shadow"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                {!n.is_read && (
-                  <span className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
-                )}
-                {n.is_pinned && (
-                  <span className="text-xs text-orange-500 font-bold shrink-0">[置顶]</span>
-                )}
-                <span className={`text-sm truncate ${n.is_read ? "text-text-secondary" : "font-medium"}`}>
-                  {n.title}
-                </span>
-              </div>
-              <span className="text-xs text-text-secondary ml-4">
-                {new Date(n.created_at).toLocaleString("zh-CN")}
-              </span>
-            </div>
-            <button
-              onClick={() => handleRead(n)}
-              className="shrink-0 ml-3 px-3 py-1 text-xs bg-primary text-white rounded-md hover:bg-primary/90"
-            >
-              查看
-            </button>
+      {/* 星期行 */}
+      <div className="grid grid-cols-7 px-2 pt-3 pb-1">
+        {WEEKDAY_CN.map((w) => (
+          <div key={w} className="text-center text-xs text-text-secondary font-medium">
+            {w}
           </div>
         ))}
       </div>
 
-      {/* 详情弹窗 */}
-      {selectedNotice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg w-full max-w-lg mx-4 p-6 shadow-xl">
-            <h3 className="text-lg font-bold text-primary mb-2">{selectedNotice.title}</h3>
-            <p className="text-xs text-text-secondary mb-4">
-              {new Date(selectedNotice.created_at).toLocaleString("zh-CN")}
-            </p>
-            <div className="text-sm text-text-base whitespace-pre-wrap max-h-60 overflow-y-auto">
-              {selectedNotice.content}
-            </div>
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={() => setSelectedNotice(null)}
-                className="px-4 py-2 text-sm bg-primary text-white rounded-md hover:bg-primary/90"
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 日期格子 */}
+      <div className="grid grid-cols-7 px-2 pb-3">
+        {days.map((d, i) => {
+          const dateStr = d !== null
+            ? `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`
+            : null;
+          const isToday = dateStr === todayStr;
+          const isSelected = dateStr === selectedDate && d !== null;
 
+          return (
+            <div key={i} className="aspect-square flex items-center justify-center">
+              {d !== null ? (
+                <button
+                  onClick={() => handleDayClick(d)}
+                  className={`w-8 h-8 flex items-center justify-center rounded-full text-sm transition-colors
+                    ${isToday && isSelected
+                      ? "bg-primary text-white ring-2 ring-primary/30"
+                      : isToday
+                        ? "bg-primary text-white"
+                        : isSelected
+                          ? "bg-primary/10 text-primary font-medium"
+                          : "text-text-base hover:bg-bg-layout"
+                    }`}
+                >
+                  {d}
+                </button>
+              ) : (
+                <span />
+              )}
+            </div>
+          );
+        })}
       </div>
+    </div>
   );
 }
+
+// ── 代办任务组件 ──
 
 interface TaskItem {
   id: string;
@@ -142,11 +130,8 @@ interface TaskItem {
   updated_at: string;
 }
 
-function TodoPanel() {
+function TodoPanel({ selectedDate }: { selectedDate: string }) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [selectedDate, setSelectedDate] = useState(
-    () => new Date().toISOString().split("T")[0]
-  );
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
   const [adding, setAdding] = useState(false);
@@ -219,106 +204,134 @@ function TodoPanel() {
     }
   };
 
+  const dateObj = new Date(selectedDate + "T00:00:00");
+  const dateLabel = `${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
+
   return (
-    <div className="bg-bg-base rounded-lg border border-border">
-      <div className="px-4 py-3 border-b border-border">
-        <span className="text-sm font-bold text-primary">代办任务</span>
+    <div className="bg-bg-base rounded-lg border border-border h-full flex flex-col">
+      {/* 标题行 */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <span className="text-sm font-bold text-primary">
+          {dateLabel} 的任务
+        </span>
+        <span className="text-xs text-text-secondary">
+          {tasks.filter((t) => t.completed).length}/{tasks.length} 完成
+        </span>
       </div>
-      <div className="flex gap-0 p-0">
-        {/* 左侧：日期选择器 */}
-        <div className="w-56 shrink-0 p-4 border-r border-border">
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="w-full px-3 py-2 border border-border rounded-md text-sm
-                       focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
-                       bg-bg-base"
-          />
-          <p className="text-xs text-text-secondary mt-2 text-center">
-            {selectedDate === new Date().toISOString().split("T")[0]
-              ? "今天"
-              : selectedDate}
-          </p>
-        </div>
 
-        {/* 右侧：任务列表 */}
-        <div className="flex-1 min-w-0">
-          {/* 添加任务输入框 */}
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-            <input
-              type="text"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="添加新任务..."
-              className="flex-1 px-3 py-1.5 border border-border rounded-md text-sm
-                         focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
-                         bg-bg-base"
-              disabled={adding}
-            />
-            <button
-              onClick={handleAdd}
-              disabled={adding || !newTitle.trim()}
-              className="px-3 py-1.5 text-sm bg-primary text-white rounded-md
-                         hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {adding ? "添加中..." : "添加"}
-            </button>
-          </div>
+      {/* 添加任务 */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <input
+          type="text"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="添加新任务..."
+          className="flex-1 px-3 py-1.5 border border-border rounded-md text-sm
+                     focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
+                     bg-bg-base"
+          disabled={adding}
+        />
+        <button
+          onClick={handleAdd}
+          disabled={adding || !newTitle.trim()}
+          className="px-3 py-1.5 text-sm bg-primary text-white rounded-md
+                     hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {adding ? "添加中..." : "添加"}
+        </button>
+      </div>
 
-          {/* 任务列表 */}
-          <div className="max-h-[280px] overflow-y-auto">
-            {loading ? (
-              <p className="p-4 text-sm text-text-secondary">加载中...</p>
-            ) : tasks.length === 0 ? (
-              <p className="p-4 text-sm text-text-secondary text-center">
-                暂无任务
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1 p-2">
-                {tasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-bg-layout group"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={task.completed}
-                      onChange={() => handleToggle(task)}
-                      className="w-4 h-4 rounded border-border accent-primary cursor-pointer shrink-0"
-                    />
-                    <span
-                      className={`flex-1 text-sm truncate ${
-                        task.completed
-                          ? "line-through text-text-secondary"
-                          : "text-text-base"
-                      }`}
-                    >
-                      {task.title}
-                    </span>
+      {/* 任务卡片列表 */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-3">
+        {loading ? (
+          <p className="text-sm text-text-secondary">加载中...</p>
+        ) : tasks.length === 0 ? (
+          <p className="text-sm text-text-secondary text-center mt-8">暂无任务</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {tasks.map((task) => {
+              const pct = task.completed ? 100 : 0;
+              return (
+                <div
+                  key={task.id}
+                  className="border border-border rounded-lg p-4 hover:shadow-sm transition-shadow"
+                >
+                  {/* 标题行 */}
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={task.completed}
+                        onChange={() => handleToggle(task)}
+                        className="w-4 h-4 mt-0.5 rounded border-border accent-primary cursor-pointer shrink-0"
+                      />
+                      <span
+                        className={`text-sm font-medium truncate ${
+                          task.completed ? "line-through text-text-secondary" : "text-text-base"
+                        }`}
+                      >
+                        {task.title}
+                      </span>
+                    </div>
                     <button
                       onClick={() => handleDelete(task.id)}
-                      className="text-xs text-red-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                      className="text-xs text-red-400 opacity-0 hover:opacity-100 transition-opacity shrink-0"
                     >
                       删除
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
+
+                  {/* 描述 */}
+                  {task.description && (
+                    <p className="text-xs text-text-secondary ml-6 mb-2 line-clamp-1">
+                      {task.description}
+                    </p>
+                  )}
+
+                  {/* 创建时间 */}
+                  <p className="text-xs text-text-secondary ml-6 mb-2">
+                    {new Date(task.created_at).toLocaleString("zh-CN")}
+                  </p>
+
+                  {/* 进度条 */}
+                  <div className="ml-6">
+                    <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
+                      <span>进度</span>
+                      <span>{pct}%</span>
+                    </div>
+                    <div className="w-full bg-bg-layout rounded-full h-2">
+                      <div
+                        className="h-2 rounded-full transition-all bg-primary"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
 export default function StudentDashboard() {
+  const [selectedDate, setSelectedDate] = useState(
+    () => new Date().toISOString().split("T")[0]
+  );
+
   return (
-    <div className="space-y-4">
-      <StudentNoticeCard />
-      <TodoPanel />
+    <div className="flex gap-4 items-stretch">
+      {/* 左侧 1/3：月历 */}
+      <div className="w-1/3">
+        <Calendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+      </div>
+      {/* 右侧 2/3：当日任务列表 */}
+      <div className="w-2/3">
+        <TodoPanel selectedDate={selectedDate} />
+      </div>
     </div>
   );
 }

@@ -45,9 +45,9 @@ def build_tree(categories: list[QuestionCategory], parent_id: str | None = None)
 @router.get("/question-categories/tree")
 def get_category_tree(
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: User = Depends(get_current_user),
 ):
-    """获取分类树"""
+    """获取分类树（学生端课程分类展示使用）"""
     categories = db.query(QuestionCategory).order_by(QuestionCategory.sort_order).all()
     return build_tree(categories)
 

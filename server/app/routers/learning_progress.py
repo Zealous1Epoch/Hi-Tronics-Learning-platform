@@ -267,6 +267,7 @@ def get_courses_with_progress(
             "title": c.title,
             "description": c.description,
             "cover_image": c.cover_image,
+            "category_id": c.category_id,
             "video_count": total_videos,
             "status": c.status,
             "completed_count": completed_count,

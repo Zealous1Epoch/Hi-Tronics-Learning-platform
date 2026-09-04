@@ -80,6 +80,16 @@ def report_progress(
     )
 
     if existing:
+        # 防刷：根据两次上报的真实时间差限制进度增量（倍速 2x + 网络宽限）
+        elapsed = (datetime.now() - existing.last_accessed).total_seconds() if existing.last_accessed else None
+        if elapsed is not None and elapsed >= 0:
+            max_allowed = existing.watched_seconds + max(elapsed * 2, 10)
+            if data.watched_seconds > max_allowed:
+                data.watched_seconds = int(max_allowed)
+        # 倒退（重看）允许：watched 只增不减的场景按上报值，倒退取较小值避免刷进度
+        if data.watched_seconds < existing.watched_seconds:
+            data.watched_seconds = existing.watched_seconds
+
         # 播放器实测时长比库里的更准确（旧数据 total 可能为 0 或 NULL）
         if data.total_seconds > existing.total_seconds:
             existing.total_seconds = data.total_seconds
@@ -90,14 +100,16 @@ def report_progress(
         if existing.course_id != data.course_id:
             existing.course_id = data.course_id
     else:
+        # 新记录：首次上报限制初始进度（正常从 0 开始播放），防止直接伪造满进度
+        init_watched = min(data.watched_seconds, 10)
         progress = LearningProgress(
             id=str(uuid.uuid4()),
             user_id=current_user.id,
             course_id=data.course_id,
             video_id=data.video_id,
-            watched_seconds=data.watched_seconds,
+            watched_seconds=init_watched,
             total_seconds=data.total_seconds,
-            completed=_is_completed(data.watched_seconds, data.total_seconds),
+            completed=_is_completed(init_watched, data.total_seconds),
         )
         db.add(progress)
 

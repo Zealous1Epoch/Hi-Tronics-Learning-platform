@@ -62,10 +62,10 @@ def get_current_user(
     user_id = payload["sub"]
     now = time.time()
 
-    # 检查缓存
+    # 检查缓存（跨请求复用 User 对象会因 session 关闭导致 detached 错误，用 db.merge 重新绑定）
     cached = _user_cache.get(user_id)
     if cached and (now - cached[1]) < _USER_CACHE_TTL:
-        user = cached[0]
+        user = db.merge(cached[0])
     else:
         user = db.query(User).filter(User.id == user_id).first()
         if user:

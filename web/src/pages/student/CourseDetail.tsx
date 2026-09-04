@@ -14,6 +14,11 @@ interface CourseDetail {
 interface ExamInfo {
   status: string;
 }
+interface CourseProgress {
+  video_progress: Record<string, { watched_seconds: number; total_seconds: number; completed: boolean }>;
+  completed_count: number;
+  total_count: number;
+}
 
 export default function CourseDetail() {
   const { id } = useParams();
@@ -21,6 +26,7 @@ export default function CourseDetail() {
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [examStatus, setExamStatus] = useState<string | null>(null);
+  const [progress, setProgress] = useState<CourseProgress | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const mountedRef = useRef(true);
 
@@ -29,6 +35,10 @@ export default function CourseDetail() {
     api<CourseDetail>(`/courses/${id}`).then(async (data) => {
       if (!mountedRef.current) return;
       setCourse(data);
+      // 获取视频进度（用于考试解锁判断）
+      api<CourseProgress>(`/student/progress/${id}`).then((p) => {
+        if (mountedRef.current) setProgress(p);
+      }).catch(() => {});
       // 检查考试状态
       if (data.exam_id) {
         try {
@@ -79,7 +89,15 @@ export default function CourseDetail() {
         watched_seconds: seconds,
         total_seconds: total,
       }),
-    }).catch(() => {}); // 静默失败，不影响播放体验
+    })
+      .catch(() => {}); // 静默失败，不影响播放体验
+  };
+
+  // 视频播放结束，直接刷新进度解锁考试入口
+  const handleVideoEnded = () => {
+    api<CourseProgress>(`/student/progress/${course.id}`)
+      .then((p) => setProgress(p))
+      .catch(() => {});
   };
 
   return (
@@ -94,6 +112,8 @@ export default function CourseDetail() {
                 key={activeVideo.id}
                 src={playUrl}
                 onProgress={handleProgress}
+                onVideoEnded={handleVideoEnded}
+                disableSeek
               />
             </div>
           ) : activeVideo ? (
@@ -110,12 +130,24 @@ export default function CourseDetail() {
           )}
           {course.exam_id && examStatus === "published" && (
             <div className="mt-4">
-              <Link
-                to={`/student/exams/${course.exam_id}`}
-                className="inline-block px-6 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
-              >
-                开始考试
-              </Link>
+              {/* 课程无视频时直接解锁考试；有视频则需全部看完 */}
+              {course.videos.length > 0 && progress && progress.completed_count < progress.total_count ? (
+                <div>
+                  <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border cursor-not-allowed">
+                    完成所有章节视频后可开始考试
+                  </span>
+                  <p className="mt-1 text-xs text-text-secondary">
+                    观看进度：{progress.completed_count}/{progress.total_count}
+                  </p>
+                </div>
+              ) : (
+                <Link
+                  to={`/student/exams/${course.exam_id}`}
+                  className="inline-block px-6 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
+                >
+                  开始考试
+                </Link>
+              )}
             </div>
           )}
           {course.exam_id && examStatus === "ended" && (

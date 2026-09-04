@@ -10,19 +10,11 @@ interface QuestionItem {
   id: string; type: string; stem: string; options: Record<string, string> | null;
   difficulty: string; category_id?: string;
 }
-interface PaperItem {
-  id: string; title: string; category_id: string | null;
-  paper_type: string; total_score: number; status: string;
-  mandatory_questions: { question_id: string; score: number }[] | null;
-  random_rules: { type: string; difficulty: string; count: number; score: number }[] | null;
-  source_banks?: string[] | null;
-}
 interface FlatCategory {
   id: string; name: string; parent_id: string | null;
 }
 
 interface Props {
-  paper: PaperItem | null;
   defaultCategoryId: string | null;
   onDone: () => void;
   onClose: () => void;
@@ -37,16 +29,14 @@ const STEPS = ["基础信息", "选择题目", "组卷策略", "预览微调"];
 
 const ALL_TYPES = ["single_choice", "multi_choice", "true_false", "fill_blank", "essay"] as const;
 
-export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose }: Props) {
-  const isEdit = paper !== null;
-
+export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Props) {
   const [step, setStep] = useState(0);
 
   // 步骤 1: 基础信息
-  const [title, setTitle] = useState(paper?.title || "");
-  const [paperType, setPaperType] = useState(paper?.paper_type || "fixed");
+  const [title, setTitle] = useState("");
+  const [paperType, setPaperType] = useState("fixed");
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
-  // 试卷类别下拉（新增且未从节点进入时可选）
+  // 试卷内容
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [categorySearch, setCategorySearch] = useState("");
   const [editCategoryId, setEditCategoryId] = useState<string | null>(null);
@@ -65,56 +55,17 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
 
   // 步骤 3: 组卷策略
   const [rules, setRules] = useState<Record<string, { enabled: boolean; difficulties: Record<string, { count: number; score: number }> }>>({
-    single_choice: { enabled: false, difficulties: { easy: { count: 0, score: 10 }, medium: { count: 0, score: 10 }, hard: { count: 0, score: 10 } } },
-    multi_choice: { enabled: false, difficulties: { easy: { count: 0, score: 10 }, medium: { count: 0, score: 10 }, hard: { count: 0, score: 10 } } },
-    true_false: { enabled: false, difficulties: { easy: { count: 0, score: 5 }, medium: { count: 0, score: 5 }, hard: { count: 0, score: 5 } } },
-    fill_blank: { enabled: false, difficulties: { easy: { count: 0, score: 10 }, medium: { count: 0, score: 10 }, hard: { count: 0, score: 10 } } },
-    essay: { enabled: false, difficulties: { easy: { count: 0, score: 20 }, medium: { count: 0, score: 20 }, hard: { count: 0, score: 20 } } },
+    single_choice: { enabled: false, difficulties: { easy: { count: 0, score: 0 }, medium: { count: 0, score: 0 }, hard: { count: 0, score: 0 } } },
+    multi_choice: { enabled: false, difficulties: { easy: { count: 0, score: 0 }, medium: { count: 0, score: 0 }, hard: { count: 0, score: 0 } } },
+    true_false: { enabled: false, difficulties: { easy: { count: 0, score: 0 }, medium: { count: 0, score: 0 }, hard: { count: 0, score: 0 } } },
+    fill_blank: { enabled: false, difficulties: { easy: { count: 0, score: 0 }, medium: { count: 0, score: 0 }, hard: { count: 0, score: 0 } } },
+    essay: { enabled: false, difficulties: { easy: { count: 0, score: 0 }, medium: { count: 0, score: 0 }, hard: { count: 0, score: 0 } } },
   });
 
   // 步骤 4: 预览
   const [previewQuestions, setPreviewQuestions] = useState<(QuestionItem & { score: number })[] | null>(null);
 
   const [saving, setSaving] = useState(false);
-
-  // 初始化编辑数据
-  useEffect(() => {
-    if (paper && paper.mandatory_questions && paper.paper_type === "fixed") {
-      const map = new Map<string, number>();
-      const order: string[] = [];
-      paper.mandatory_questions.forEach(mq => {
-        map.set(mq.question_id, mq.score);
-        order.push(mq.question_id);
-      });
-      setSelectedQuestions(map);
-      setQuestionOrder(order);
-      // 加载已选题目的完整数据，用于预览
-      const ids = paper.mandatory_questions.map(mq => mq.question_id);
-      api<{ items: QuestionItem[] }>(`/questions?page_size=200`).then(data => {
-        const dataMap = new Map<string, QuestionItem>();
-        data.items.filter(q => ids.includes(q.id)).forEach(q => dataMap.set(q.id, q));
-        setSelectedQuestionData(dataMap);
-      });
-    }
-    if (paper && paper.random_rules) {
-      // 加载题库范围
-      if (paper.source_banks) {
-        setSelectedBankIds(new Set(paper.source_banks));
-      }
-      const newRules = { ...rules };
-      paper.random_rules.forEach(r => {
-        if (!newRules[r.type]) return;
-        newRules[r.type] = {
-          enabled: true,
-          difficulties: {
-            ...newRules[r.type].difficulties,
-            [r.difficulty]: { count: r.count, score: r.score },
-          },
-        };
-      });
-      setRules(newRules);
-    }
-  }, [paper]);
 
   // 加载分类树
   useEffect(() => {
@@ -194,7 +145,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
           return nextData;
         });
       } else {
-        next.set(qid, 10);
+        next.set(qid, 0);
         setQuestionOrder(o => [...o, qid]);
         // 存储完整题目数据
         const qData = bankQuestions.find(q => q.id === qid);
@@ -289,7 +240,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
 
     if (paperType === "fixed") {
       questionOrder.forEach(qid => {
-        const score = selectedQuestions.get(qid) || 10;
+        const score = selectedQuestions.get(qid) || 0;
         const qData = selectedQuestionData.get(qid);
         allQuestions.push({
           id: qid,
@@ -404,7 +355,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
         } else {
           body.mandatory_questions = questionOrder.map(qid => ({
             question_id: qid,
-            score: selectedQuestions.get(qid) || 10,
+            score: selectedQuestions.get(qid) || 0,
           }));
         }
         body.random_rules = null;
@@ -420,11 +371,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
         body.source_banks = [...selectedBankIds];
       }
 
-      if (isEdit) {
-        await api(`/papers/${paper.id}`, { method: "PUT", body: JSON.stringify(body) });
-      } else {
-        await api("/papers", { method: "POST", body: JSON.stringify(body) });
-      }
+      await api("/papers", { method: "POST", body: JSON.stringify(body) });
       onDone();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "未知错误";
@@ -436,10 +383,10 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-start justify-center pt-16 z-50" onClick={onClose}>
-      <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-6xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-6xl min-h-[60vh] max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* 头部 */}
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-          <h3 className="font-bold text-lg">{isEdit ? "编辑试卷" : "新增试卷"}</h3>
+          <h3 className="font-bold text-lg">新增试卷</h3>
           <button onClick={onClose} className="text-text-secondary hover:text-text-base text-lg">&times;</button>
         </div>
 
@@ -485,10 +432,10 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">试卷类别</label>
-                {isEdit || defaultCategoryId ? (
+                <label className="block text-sm text-text-secondary mb-1">试卷内容</label>
+                {defaultCategoryId ? (
                   <input
-                    type="text" value={getCategoryPath(isEdit ? (paper?.category_id ?? null) : defaultCategoryId)}
+                    type="text" value={getCategoryPath(defaultCategoryId)}
                     readOnly
                     className="w-full border border-border rounded-md px-3 py-2 text-sm bg-bg-layout text-text-secondary"
                   />
@@ -499,7 +446,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                       className="w-full border border-border rounded-md px-3 py-2 text-sm cursor-pointer hover:border-primary/40 flex items-center justify-between"
                     >
                       <span className={editCategoryId ? "text-text-base" : "text-text-secondary"}>
-                        {editCategoryId ? getCategoryPath(editCategoryId) : "请选择试卷类别"}
+                        {editCategoryId ? getCategoryPath(editCategoryId) : "请选择试卷内容"}
                       </span>
                       <ChevronDown size={14} className={`text-text-secondary transition-transform ${showCategoryDropdown ? "rotate-180" : ""}`} />
                     </div>
@@ -514,7 +461,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                           autoFocus
                         />
                         <div className="flex gap-2">
-                          <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
+                          <div className="flex-1 border border-border rounded-md max-h-[40vh] overflow-y-auto">
                             {tree
                               .filter(n => !n.parent_id && (!categorySearch || n.name.toLowerCase().includes(categorySearch.toLowerCase())))
                               .map(root => (
@@ -542,7 +489,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                               ? selectedRoot.children.filter(c => c.name.toLowerCase().includes(categorySearch.toLowerCase()))
                               : selectedRoot.children;
                             return (
-                              <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
+                              <div className="flex-1 border border-border rounded-md max-h-[40vh] overflow-y-auto">
                                 {filteredChildren.map(child => (
                                   <div
                                     key={child.id}
@@ -615,7 +562,6 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                           <th className="text-left px-3 py-2 text-text-secondary font-normal">题干</th>
                           <th className="text-center px-3 py-2 text-text-secondary font-normal w-16">题型</th>
                           <th className="text-center px-3 py-2 text-text-secondary font-normal w-16">难度</th>
-                          <th className="text-center px-3 py-2 text-text-secondary font-normal w-20">分值</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -627,13 +573,6 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                             <td className="px-3 py-2 truncate max-w-xs">{q.stem}</td>
                             <td className="px-3 py-2 text-center text-text-secondary text-xs whitespace-nowrap">{TYPE_LABELS[q.type]}</td>
                             <td className="px-3 py-2 text-center text-text-secondary text-xs whitespace-nowrap">{DIFF_LABELS[q.difficulty]}</td>
-                            <td className="px-3 py-2 text-center">
-                              {selectedQuestions.has(q.id) && (
-                                <input type="number" value={selectedQuestions.get(q.id) || 10}
-                                  onChange={e => setQuestionScore(q.id, (parseInt(e.target.value) || 0))}
-                                  className="w-14 border border-border rounded-md px-1.5 py-0.5 text-xs text-center" min={1} />
-                              )}
-                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -650,7 +589,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                       <span className="text-sm font-bold">已选题</span>
                       <span className="text-xs text-primary font-bold">{totalScore} 分</span>
                     </div>
-                    <div className="space-y-1 max-h-[45vh] overflow-y-auto">
+                    <div className="space-y-1 max-h-[50vh] overflow-y-auto">
                       {questionOrder.map((qid, i) => (
                         <div key={qid} className="flex items-center gap-2 py-1 px-2 bg-bg-layout rounded text-xs">
                           <span className="text-text-secondary w-5">{i + 1}.</span>
@@ -718,9 +657,9 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
           {/* 步骤 3: 组卷策略（随机试卷） */}
           {step === 2 && (
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-3 sticky -top-4 bg-bg-base z-10 pb-2 pt-4 -mx-6 px-6">
                 <span className="text-sm font-bold">组卷策略</span>
-                <span className="text-sm text-text-secondary">总分：{totalScore} 分</span>
+                <span className="text-sm font-bold text-primary">总分：{totalScore} 分</span>
               </div>
               <div className="space-y-3">
                 {ALL_TYPES.map(type => (
@@ -758,7 +697,7 @@ export default function PaperCreate({ paper, defaultCategoryId, onDone, onClose 
                             />
                             <span className="text-xs text-text-secondary">题，每题</span>
                             <input
-                              type="number" value={rules[type].difficulties[diffKey].score}
+                              type="number" value={rules[type].difficulties[diffKey].score || ""}
                               onChange={e => setRules(prev => ({
                                 ...prev,
                                 [type]: {

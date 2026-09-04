@@ -10,6 +10,7 @@ import QuestionBank from "../pages/admin/QuestionBank";
 import PaperManage from "../pages/admin/PaperManage";
 import ExamManage from "../pages/admin/ExamManage";
 import ExamPaper from "../pages/admin/ExamPaper";
+import PaperDetail from "../pages/admin/PaperDetail";
 import ExamResults from "../pages/admin/ExamResults";
 import UserProgress from "../pages/admin/UserProgress";
 import DepartmentUserManage from "../pages/admin/DepartmentUserManage";
@@ -62,7 +63,18 @@ export default function AdminLayout() {
 
   const isActive = (path: string) => {
     if (path === "/admin") return location.pathname === "/admin";
-    return location.pathname.startsWith(path);
+    const p = location.pathname;
+    if (p === path) return true;
+    if (!p.startsWith(path + "/")) return false;
+    // 检查是否有其他菜单项路径更长且更匹配
+    for (const group of menuGroups) {
+      for (const item of group.items) {
+        if (item.path !== path && (p === item.path || p.startsWith(item.path + "/")) && item.path.length > path.length) {
+          return false;
+        }
+      }
+    }
+    return true;
   };
 
   return (
@@ -115,6 +127,7 @@ export default function AdminLayout() {
             <Route path="question-bank" element={<QuestionBank />} />
             <Route path="knowledge" element={<KnowledgeManage />} />
             <Route path="papers" element={<PaperManage />} />
+            <Route path="papers/:id" element={<PaperDetail />} />
             <Route path="exams" element={<ExamManage />} />
             <Route path="exams/:id/paper" element={<ExamPaper />} />
             <Route path="exams/:id/results" element={<ExamResults />} />

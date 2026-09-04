@@ -25,8 +25,10 @@ class SubmitRequest(BaseModel):
     answers: list[SubmitAnswer]
 
 
-def grade_question(question: Question, student_answer: str | list[str] | bool | None) -> tuple[int, int]:
-    """自动打分，返回 (得分, 满分)"""
+def grade_question(question: Question, student_answer: str | list[str] | bool | None, total_points: int = 10) -> tuple[int, int]:
+    """自动打分，返回 (得分, 满分)
+    total_points: 该题在试卷中的配置分数（用于 essay 按关键词拆分）
+    """
     q_type = question.type
     correct = question.answer
 
@@ -58,15 +60,28 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
         return (0, full_score)
 
     elif q_type == "essay":
-        full_score = 20
+        full_score = total_points
         keywords: list[str] = question.keywords or []
         if not keywords:
             return (0, full_score)  # 无关键词无法自动评分，需人工批阅
         if not student_answer:
             return (0, full_score)
+        # 兼容旧数据：关键词可能存为 ["关键词1，关键词2"]（单元素含逗号）
+        # 按逗号展开后去重
+        import re
+        expanded = []
+        for kw in keywords:
+            for sub in re.split(r"[,，]", kw):
+                s = sub.strip()
+                if s and s not in expanded:
+                    expanded.append(s)
+        if not expanded:
+            return (0, full_score)
         answer_lower = str(student_answer).lower()
-        matched = sum(1 for kw in keywords if kw.lower() in answer_lower)
-        score = round(full_score * matched / len(keywords))
+        matched = sum(1 for kw in expanded if kw.lower() in answer_lower)
+        # 每命中一个关键词得 floor(总分 / 关键词数)，向下去整
+        per_keyword = full_score // len(expanded)
+        score = matched * per_keyword
         return (score, full_score)
 
     return (0, 10)
@@ -95,6 +110,37 @@ def start_exam(
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
+
+    # 校验课程视频已全部看完（每章节视频 100% 才能考试）
+    from app.models.course import Course, Video
+    from app.models.learning_progress import LearningProgress
+
+    course = db.query(Course).filter(Course.exam_id == exam_id).first()
+    if course:
+        videos = db.query(Video).filter(Video.course_id == course.id).all()
+        if videos:
+            video_ids = [v.id for v in videos]
+            records = (
+                db.query(LearningProgress)
+                .filter(
+                    LearningProgress.user_id == current_user.id,
+                    LearningProgress.course_id == course.id,
+                    LearningProgress.video_id.in_(video_ids),
+                )
+                .all()
+            )
+            # 已完成 = completed 为 True，或旧数据有记录但总时长为 0（历史兼容，视为已看完）
+            done_ids = {
+                r.video_id
+                for r in records
+                if r.completed or (r.total_seconds or 0) <= 0
+            }
+            remaining = len(video_ids) - len(done_ids & set(video_ids))
+            if remaining > 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"还有 {remaining} 个章节视频未看完，完成后才能开始考试",
+                )
 
     # 检查是否已参加过（达到最大次数）
     if exam.max_attempts:
@@ -266,6 +312,13 @@ def submit_exam(
     questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
     question_map = {q.id: q for q in questions}
 
+    # 获取试卷中每道题的配置分数
+    score_map: dict[str, int] = {}
+    if paper and paper.questions:
+        for qc in paper.questions:
+            if isinstance(qc, dict) and "question_id" in qc:
+                score_map[qc["question_id"]] = qc.get("score", 10)
+
     # 打分
     total_score = 0
     max_score = 0
@@ -275,7 +328,7 @@ def submit_exam(
         q = question_map.get(ans.question_id)
         if not q:
             continue
-        score, full = grade_question(q, ans.answer)
+        score, full = grade_question(q, ans.answer, total_points=score_map.get(ans.question_id, 10))
         total_score += score
         max_score += full
         grading_details.append({

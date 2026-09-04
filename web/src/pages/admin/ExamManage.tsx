@@ -427,7 +427,7 @@ export default function ExamManage() {
                         {e.status === "draft" && (
                           <button onClick={() => handlePublish(e.id)} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1">发布</button>
                         )}
-                        <Link to={`/admin/exams/${e.id}/paper`} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1">组卷</Link>
+                        <Link to={`/admin/exams/${e.id}/paper`} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1">查看组卷</Link>
                         <button onClick={() => openEdit(e)} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1">编辑</button>
                         <button onClick={() => handleDelete(e.id)} className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50">删除</button>
                       </td>

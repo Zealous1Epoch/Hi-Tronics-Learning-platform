@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import PaperCreate from "./PaperCreate";
-import { ChevronRight, ChevronDown, Plus, Search, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronDown, Plus, Search } from "lucide-react";
 
 interface TreeNode {
   id: string; name: string; parent_id: string | null;
@@ -27,7 +28,6 @@ export default function PaperManage() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [searchText, setSearchText] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [editingPaper, setEditingPaper] = useState<PaperItem | null>(null);
 
   const fetchData = async () => {
     const [treeData, papersData, flatData] = await Promise.all([
@@ -63,17 +63,10 @@ export default function PaperManage() {
 
   const handleCreateDone = () => {
     setShowCreate(false);
-    setEditingPaper(null);
     fetchData();
   };
 
-  const openEdit = (paper: PaperItem) => {
-    setEditingPaper(paper);
-    setShowCreate(true);
-  };
-
   const openCreate = () => {
-    setEditingPaper(null);
     setShowCreate(true);
   };
 
@@ -256,7 +249,7 @@ export default function PaperManage() {
                         </span>
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
-                        <button onClick={() => openEdit(p)} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1">编辑</button>
+                        <Link to={`/admin/papers/${p.id}`} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1 inline-block">编辑</Link>
                         <button onClick={() => handleDeletePaper(p.id)} className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50">删除</button>
                       </td>
                     </tr>
@@ -270,10 +263,9 @@ export default function PaperManage() {
 
       {showCreate && (
         <PaperCreate
-          paper={editingPaper}
           defaultCategoryId={selectedId}
           onDone={handleCreateDone}
-          onClose={() => { setShowCreate(false); setEditingPaper(null); }}
+          onClose={() => setShowCreate(false)}
         />
       )}
     </div>

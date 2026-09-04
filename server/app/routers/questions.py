@@ -280,7 +280,8 @@ async def import_questions(
             # 关键词
             keywords = None
             if row[7] and str(row[7]).strip():
-                keywords = [k.strip() for k in str(row[7]).split(",") if k.strip()]
+                import re
+                keywords = [k.strip() for k in re.split(r"[,，]", str(row[7])) if k.strip()]
 
             # 标签
             tags = None

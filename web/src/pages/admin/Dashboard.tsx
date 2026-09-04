@@ -1,5 +1,23 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
+
+// ── 类型 ──
+
+interface DashboardStats {
+  total_students: number;
+  total_courses: number;
+  in_progress: number;
+  completed: number;
+}
+
+interface ActivityItem {
+  time: string;
+  user_name: string;
+  action: string;
+  target: string;
+  type: "course" | "exam";
+}
 
 interface NoticeItem {
   id: string;
@@ -18,6 +36,8 @@ interface NoticeListResponse {
   notices: NoticeItem[];
   total: number;
 }
+
+// ── 公告编辑弹窗 ──
 
 function NoticeModal({
   open,
@@ -151,6 +171,8 @@ function NoticeModal({
   );
 }
 
+// ── 公告面板 ──
+
 function AdminNoticePanel() {
   const [notices, setNotices] = useState<NoticeItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -210,7 +232,7 @@ function AdminNoticePanel() {
     );
 
   return (
-    <div className="bg-bg-base rounded-lg border border-border p-4 mt-6">
+    <div className="bg-bg-base rounded-lg border border-border p-4">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-base font-bold text-primary">公告管理</h3>
         <button
@@ -276,19 +298,147 @@ function AdminNoticePanel() {
   );
 }
 
+// ── 快捷操作 ──
+
+const QUICK_ACTIONS = [
+  { label: "创建课程", path: "/admin/courses", desc: "添加新课程及视频章节" },
+  { label: "发布考试", path: "/admin/exams", desc: "创建试卷并关联课程" },
+  { label: "导入学员", path: "/admin/users", desc: "批量导入学员账号" },
+];
+
+function QuickActions() {
+  const navigate = useNavigate();
+
+  return (
+    <div className="bg-bg-base rounded-lg border border-border p-4">
+      <h3 className="text-base font-bold text-primary mb-4">快捷操作</h3>
+      <div className="flex flex-col gap-3">
+        {QUICK_ACTIONS.map((a) => (
+          <button
+            key={a.path}
+            onClick={() => navigate(a.path)}
+            className="w-full text-left px-4 py-3 rounded-md border border-border hover:bg-bg-layout hover:border-primary transition-colors"
+          >
+            <div className="text-sm font-medium text-primary">{a.label}</div>
+            <div className="text-xs text-text-secondary mt-0.5">{a.desc}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── 最近动态 ──
+
+function RecentActivities() {
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    api<ActivityItem[]>("/admin/recent-activities")
+      .then((data) => {
+        if (mountedRef.current) {
+          setActivities(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) setLoading(false);
+      });
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  return (
+    <div className="bg-bg-base rounded-lg border border-border p-4">
+      <h3 className="text-base font-bold text-primary mb-4">最近动态</h3>
+      {loading ? (
+        <p className="text-sm text-text-secondary">加载中...</p>
+      ) : activities.length === 0 ? (
+        <p className="text-sm text-text-secondary">暂无动态</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {activities.map((a, i) => (
+            <li key={i} className="py-2.5 flex items-start gap-3">
+              <span
+                className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                  a.type === "exam" ? "bg-green-500" : "bg-blue-500"
+                }`}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm">
+                  <span className="font-medium">{a.user_name}</span>
+                  <span className="text-text-secondary"> {a.action} </span>
+                  <span>{a.target}</span>
+                </div>
+                <div className="text-xs text-text-secondary mt-0.5">
+                  {new Date(a.time).toLocaleString("zh-CN")}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ── 主页面 ──
+
 export default function AdminDashboard() {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    api<DashboardStats>("/admin/dashboard-stats")
+      .then((data) => {
+        if (mountedRef.current) {
+          setStats(data);
+          setStatsLoading(false);
+        }
+      })
+      .catch(() => {
+        if (mountedRef.current) setStatsLoading(false);
+      });
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const statCards = [
+    { label: "总学员", value: stats?.total_students ?? 0 },
+    { label: "总课程", value: stats?.total_courses ?? 0 },
+    { label: "进行中", value: stats?.in_progress ?? 0 },
+    { label: "已完成", value: stats?.completed ?? 0 },
+  ];
+
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">管理后台首页</h2>
+
+      {/* 统计卡片 */}
       <div className="grid grid-cols-4 gap-4 mb-6">
-        {["总学员", "总课程", "进行中", "已完成"].map((label) => (
-          <div key={label} className="bg-bg-base rounded-lg p-4 border border-border text-center">
-            <div className="text-2xl font-bold text-primary">0</div>
-            <div className="text-sm text-text-secondary">{label}</div>
+        {statCards.map((s) => (
+          <div key={s.label} className="bg-bg-base rounded-lg p-4 border border-border text-center">
+            <div className="text-2xl font-bold text-primary">
+              {statsLoading ? "-" : s.value}
+            </div>
+            <div className="text-sm text-text-secondary">{s.label}</div>
           </div>
         ))}
       </div>
-      <AdminNoticePanel />
+
+      {/* 两列布局：左侧公告 + 动态，右侧快捷操作 */}
+      <div className="grid grid-cols-3 gap-6">
+        <div className="col-span-2 space-y-6">
+          <AdminNoticePanel />
+          <RecentActivities />
+        </div>
+        <div className="col-span-1">
+          <QuickActions />
+        </div>
+      </div>
     </div>
   );
 }

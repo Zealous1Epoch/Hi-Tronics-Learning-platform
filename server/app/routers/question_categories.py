@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.question_category import QuestionCategory
 from app.models.question import Question
-from app.routers.auth import require_admin
+from app.routers.auth import get_current_user, require_admin
 from app.services.log_service import write_log
 
 router = APIRouter(prefix="/api", tags=["题库分类"])
@@ -55,9 +55,9 @@ def get_category_tree(
 @router.get("/question-categories/flat")
 def get_category_flat(
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: User = Depends(get_current_user),
 ):
-    """获取扁平分类列表（用于下拉选择）"""
+    """获取扁平分类列表（学生端课程分类使用）"""
     categories = db.query(QuestionCategory).order_by(QuestionCategory.sort_order).all()
     return [
         {

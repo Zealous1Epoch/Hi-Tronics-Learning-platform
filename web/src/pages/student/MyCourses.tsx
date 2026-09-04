@@ -9,21 +9,8 @@ interface CourseWithProgress {
   completed_count: number; total_count: number; exam_passed: boolean;
 }
 
-interface CategoryNode {
+interface FlatCategory {
   id: string; name: string; parent_id: string | null;
-  sort_order: number; children: CategoryNode[];
-}
-
-function flattenCategories(
-  nodes: CategoryNode[],
-  depth: number = 0,
-  result: { id: string; name: string; depth: number }[] = []
-) {
-  for (const n of nodes) {
-    result.push({ id: n.id, name: n.name, depth });
-    if (n.children) flattenCategories(n.children, depth + 1, result);
-  }
-  return result;
 }
 
 export default function MyCourses() {
@@ -37,13 +24,12 @@ export default function MyCourses() {
     mountedRef.current = true;
     Promise.all([
       api<CourseWithProgress[]>("/student/courses-with-progress"),
-      api<CategoryNode[]>("/question-categories"),
+      api<FlatCategory[]>("/question-categories/flat"),
     ])
       .then(([courseData, catData]) => {
         if (mountedRef.current) {
           setCourses(courseData);
-          const flat = flattenCategories(catData);
-          setCategories(flat.map((c) => ({ id: c.id, name: c.name })));
+          setCategories(catData.map((c) => ({ id: c.id, name: c.name })));
           setLoading(false);
         }
       })

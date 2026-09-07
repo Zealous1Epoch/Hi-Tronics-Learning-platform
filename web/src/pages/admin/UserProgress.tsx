@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { api } from "../../lib/api";
+import { api, BASE } from "../../lib/api";
 import { Search, ChevronRight, ChevronDown } from "lucide-react";
 
 // 部门树
@@ -356,7 +356,7 @@ export default function UserProgress() {
             <button
               onClick={() => {
                 const token = localStorage.getItem("token");
-                fetch("/api/admin/progress/export", {
+                fetch(`${BASE}/admin/progress/export`, {
                   headers: token ? { Authorization: `Bearer ${token}` } : {},
                 })
                   .then(res => {

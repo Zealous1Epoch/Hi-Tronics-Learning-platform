@@ -5,7 +5,7 @@ export interface QuestionManageHandle {
   handleExport: () => void;
   openImport: () => void;
 }
-import { api } from "../../lib/api";
+import { api, BASE } from "../../lib/api";
 
 interface QuestionItem {
   id: string; type: string; stem: string; options: Record<string, string> | null;
@@ -263,7 +263,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
 
   const handleDownloadTemplate = async () => {
     const token = localStorage.getItem("token");
-    const res = await fetch("/api/questions/template", {
+    const res = await fetch(`${BASE}/questions/template`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const blob = await res.blob();
@@ -284,7 +284,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
     if (propCategoryId) formData.append("category_id", propCategoryId);
     const token = localStorage.getItem("token");
     try {
-      const res = await fetch("/api/questions/import", {
+      const res = await fetch(`${BASE}/questions/import`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,

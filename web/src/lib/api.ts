@@ -17,6 +17,8 @@
 const BASE = import.meta.env.VITE_API_BASE || "/api";
 const BASE_URL = import.meta.env.BASE_URL || "/";
 
+export { BASE, BASE_URL };
+
 function getToken(): string | null {
   return localStorage.getItem("token");
 }

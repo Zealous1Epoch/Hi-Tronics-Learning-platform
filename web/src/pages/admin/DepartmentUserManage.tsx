@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { api } from "../../lib/api";
+import { api, BASE } from "../../lib/api";
 import type { UserInfo } from "../../lib/api";
 import { ChevronRight, ChevronDown, Plus, Search, Pencil, Trash2 } from "lucide-react";
 
@@ -560,7 +560,7 @@ export default function DepartmentUserManage() {
                   <button
                     onClick={() => {
                       const token = localStorage.getItem("token");
-                      fetch("/api/users/batch-import/template", {
+                      fetch(`${BASE}/users/batch-import/template`, {
                         headers: token ? { Authorization: `Bearer ${token}` } : {},
                       })
                         .then(res => {

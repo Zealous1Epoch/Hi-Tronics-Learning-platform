@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  base: "/learning-platform/",
   plugins: [react(), tailwindcss()],
   server: {
     port: 5178,

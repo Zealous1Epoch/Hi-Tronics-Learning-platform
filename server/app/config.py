@@ -31,6 +31,15 @@ class Settings:
     WECHAT_AGENT_ID: str = os.getenv("WECHAT_AGENT_ID", "")
     WECHAT_SECRET: str = os.getenv("WECHAT_SECRET", "")
 
+    # SSO 配置
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://hr.hi-tronics.com/learning-platform")
+    SSO_TIME_WINDOW: int = int(os.getenv("SSO_TIME_WINDOW", "30"))
+
+    # OA 系统 API 配置
+    OA_API_BASE_URL: str = os.getenv("OA_API_BASE_URL", "")
+    OA_SYSTEM_ID: str = os.getenv("OA_SYSTEM_ID", "")
+    OA_PASSWORD: str = os.getenv("OA_PASSWORD", "")
+
     # 华为云 OBS 配置
     OBS_ACCESS_KEY: str = os.getenv("OBS_ACCESS_KEY", "")
     OBS_SECRET_KEY: str = os.getenv("OBS_SECRET_KEY", "")

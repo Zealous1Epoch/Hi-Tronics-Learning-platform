@@ -14,7 +14,8 @@
  * - 实现 refresh token 机制，缩短 access token 有效期
  */
 
-const BASE = "/api";
+const BASE = import.meta.env.VITE_API_BASE || "/api";
+const BASE_URL = import.meta.env.BASE_URL || "/";
 
 function getToken(): string | null {
   return localStorage.getItem("token");
@@ -38,7 +39,7 @@ export async function api<T extends object = Record<string, unknown>>(
   if (res.status === 401) {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    window.location.href = "/login";
+    window.location.href = `${BASE_URL}login`;
     throw new Error("认证已过期");
   }
 
@@ -93,7 +94,7 @@ export async function uploadFile<T extends object = Record<string, unknown>>(pat
   if (res.status === 401) {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-    window.location.href = "/login";
+    window.location.href = `${BASE_URL}login`;
     throw new Error("认证已过期");
   }
 
@@ -133,7 +134,7 @@ export async function uploadFileWithProgress<T extends object = Record<string, u
       if (xhr.status === 401) {
         localStorage.removeItem("token");
         localStorage.removeItem("user");
-        window.location.href = "/login";
+        window.location.href = `${BASE_URL}login`;
         reject(new Error("认证已过期"));
         return;
       }

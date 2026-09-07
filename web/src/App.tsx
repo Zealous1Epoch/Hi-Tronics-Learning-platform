@@ -4,14 +4,16 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import StudentLayout from "./layouts/StudentLayout";
 import AdminLayout from "./layouts/AdminLayout";
 import Login from "./pages/Login";
+import SsoCallback from "./pages/SsoCallback";
 
 function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <BrowserRouter>
+        <BrowserRouter basename="/learning-platform">
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/sso/callback" element={<SsoCallback />} />
             <Route path="/student/*" element={<StudentLayout />} />
             <Route path="/admin/*" element={<AdminLayout />} />
             <Route path="*" element={<Navigate to="/login" replace />} />

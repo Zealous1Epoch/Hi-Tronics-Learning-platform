@@ -247,8 +247,8 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
   const handleExport = async () => {
     const token = localStorage.getItem("token");
     const exportUrl = propCategoryId
-      ? `/api/questions/export?category_id=${propCategoryId}`
-      : "/api/questions/export";
+      ? `${BASE}/questions/export?category_id=${propCategoryId}`
+      : `${BASE}/questions/export`;
     const res = await fetch(exportUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });

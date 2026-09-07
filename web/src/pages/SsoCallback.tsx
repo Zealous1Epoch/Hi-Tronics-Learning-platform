@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { getMe } from "../lib/api";
+import { getMe, BASE_URL } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 
 export default function SsoCallback() {
@@ -10,22 +10,31 @@ export default function SsoCallback() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const token = searchParams.get("token");
-    if (!token) {
-      setError("缺少 token 参数");
+    const code = searchParams.get("code");
+    if (!code) {
+      setError("缺少 code 参数");
       return;
     }
 
-    localStorage.setItem("token", token);
-
-    getMe()
+    // 用一次性 code 换取 JWT token（避免 token 暴露在 URL 中）
+    fetch(BASE_URL + "sso/exchange?code=" + encodeURIComponent(code))
+      .then((res) => {
+        if (!res.ok) throw new Error("code 无效或已过期");
+        return res.json();
+      })
+      .then((data) => {
+        const token = data.token;
+        if (!token) throw new Error("token 为空");
+        localStorage.setItem("lp_token", token);
+        return getMe();
+      })
       .then((user) => {
-        localStorage.setItem("user", JSON.stringify(user));
+        localStorage.setItem("lp_user", JSON.stringify(user));
         setUser(user);
         navigate(user.role === "admin" ? "/admin" : "/student", { replace: true });
       })
       .catch(() => {
-        localStorage.removeItem("token");
+        localStorage.removeItem("lp_token");
         setError("SSO 登录验证失败，请重试");
       });
   }, [searchParams, navigate, setUser]);

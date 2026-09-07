@@ -1064,7 +1064,7 @@ export default function CourseManage() {
                           <button onClick={() => handleDeleteVideo(v.id)} className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50 shrink-0 ml-2">删除</button>
                         </div>
                         <video
-                          src={`/api/videos/stream/${v.obs_key}?token=${localStorage.getItem("token") || ""}`}
+                          src={`/api/videos/stream/${v.obs_key}?token=${localStorage.getItem("lp_token") || ""}`}
                           controls
                           className="w-full rounded-md max-h-56 bg-black"
                           preload="metadata"

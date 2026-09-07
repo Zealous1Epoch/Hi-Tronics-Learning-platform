@@ -89,7 +89,7 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 @router.post("/login", response_model=TokenResponse)
 def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     """用户名密码登录"""
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
     _check_login_rate(client_ip)
 
     user = db.query(User).filter(User.username == req.username).first()

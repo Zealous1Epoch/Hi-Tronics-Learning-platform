@@ -1,10 +1,11 @@
 """学员端考试路由"""
 
 import uuid
-import random
+import secrets
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func as sa_func, String as SAString, cast as sa_cast
 from pydantic import BaseModel
 from app.database import get_db
@@ -176,7 +177,7 @@ def start_exam(
                         bank_ids.add(child.id)
                 pool_query = pool_query.filter(Question.category_id.in_(bank_ids))
             pool = pool_query.all()
-            selected = random.sample(pool, min(rule["count"], len(pool)))
+            selected = secrets.SystemRandom().sample(pool, min(rule["count"], len(pool)))
             for q in selected:
                 result.append({
                     "id": q.id,
@@ -185,7 +186,7 @@ def start_exam(
                     "options": q.options,
                     "score": rule["score"],
                 })
-        random.shuffle(result)
+        secrets.SystemRandom().shuffle(result)
     else:
         raise HTTPException(status_code=400, detail="试卷配置无效")
 
@@ -206,25 +207,31 @@ def start_exam(
         db.commit()
         exam_result = existing_incomplete
     else:
-        # 新建考试记录
-        attempt_number = (
-            db.query(ExamResult)
-            .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
-            .count()
-        ) + 1
+        # 新建考试记录（含并发安全处理）
+        for _ in range(3):
+            attempt_number = (
+                db.query(ExamResult)
+                .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+                .count()
+            ) + 1
 
-        exam_result = ExamResult(
-            id=str(uuid.uuid4()),
-            exam_id=exam_id,
-            user_id=current_user.id,
-            answers={},
-            score=0,
-            passed=False,
-            attempt_number=attempt_number,
-            started_at=datetime.now(),
-        )
-        db.add(exam_result)
-        db.commit()
+            exam_result = ExamResult(
+                id=str(uuid.uuid4()),
+                exam_id=exam_id,
+                user_id=current_user.id,
+                answers={},
+                score=0,
+                passed=False,
+                attempt_number=attempt_number,
+                started_at=datetime.now(),
+            )
+            db.add(exam_result)
+            try:
+                db.commit()
+                break
+            except IntegrityError:
+                db.rollback()
+                continue
 
     return {
         "result_id": exam_result.id,

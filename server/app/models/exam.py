@@ -1,6 +1,7 @@
 """考试相关模型"""
 
 import uuid
+from sqlalchemy import UniqueConstraint
 from datetime import datetime
 from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.dialects.mysql import JSON
@@ -69,6 +70,7 @@ class ExamPaper(Base):
 
 class ExamResult(Base):
     __tablename__ = "exam_results"
+    __table_args__ = (UniqueConstraint("exam_id", "user_id", "attempt_number", name="uq_exam_result_attempt"),)
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())

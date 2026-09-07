@@ -355,7 +355,7 @@ export default function UserProgress() {
             </div>
             <button
               onClick={() => {
-                const token = localStorage.getItem("token");
+                const token = localStorage.getItem("lp_token");
                 fetch(`${BASE}/admin/progress/export`, {
                   headers: token ? { Authorization: `Bearer ${token}` } : {},
                 })

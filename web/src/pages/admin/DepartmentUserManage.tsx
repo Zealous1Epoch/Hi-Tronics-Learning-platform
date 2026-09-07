@@ -189,7 +189,7 @@ export default function DepartmentUserManage() {
     const formData = new FormData();
     formData.append("file", importFile);
     const url = `/api/users/batch-import${selectedId ? `?department_id=${selectedId}` : ""}`;
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("lp_token");
     const res = await fetch(url, {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -559,7 +559,7 @@ export default function DepartmentUserManage() {
                   <p className="text-xs text-text-secondary mb-2">按模板格式填写用户信息</p>
                   <button
                     onClick={() => {
-                      const token = localStorage.getItem("token");
+                      const token = localStorage.getItem("lp_token");
                       fetch(`${BASE}/users/batch-import/template`, {
                         headers: token ? { Authorization: `Bearer ${token}` } : {},
                       })

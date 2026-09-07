@@ -14,13 +14,13 @@
  * - 实现 refresh token 机制，缩短 access token 有效期
  */
 
-const BASE = import.meta.env.VITE_API_BASE || "/api";
+const BASE = import.meta.env.VITE_API_BASE || "/api/learning-platform";
 const BASE_URL = import.meta.env.BASE_URL || "/";
 
 export { BASE, BASE_URL };
 
 function getToken(): string | null {
-  return localStorage.getItem("token");
+  return localStorage.getItem("lp_token");
 }
 
 export async function api<T extends object = Record<string, unknown>>(
@@ -39,8 +39,8 @@ export async function api<T extends object = Record<string, unknown>>(
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    localStorage.removeItem("lp_token");
+    localStorage.removeItem("lp_user");
     window.location.href = `${BASE_URL}login`;
     throw new Error("认证已过期");
   }
@@ -94,8 +94,8 @@ export async function uploadFile<T extends object = Record<string, unknown>>(pat
   });
 
   if (res.status === 401) {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    localStorage.removeItem("lp_token");
+    localStorage.removeItem("lp_user");
     window.location.href = `${BASE_URL}login`;
     throw new Error("认证已过期");
   }
@@ -134,8 +134,8 @@ export async function uploadFileWithProgress<T extends object = Record<string, u
 
     xhr.onload = () => {
       if (xhr.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
+        localStorage.removeItem("lp_token");
+        localStorage.removeItem("lp_user");
         window.location.href = `${BASE_URL}login`;
         reject(new Error("认证已过期"));
         return;

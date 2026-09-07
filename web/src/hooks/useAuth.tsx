@@ -21,13 +21,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("lp_token");
     if (token) {
       getMe()
         .then((u) => setUser(u))
         .catch(() => {
-          localStorage.removeItem("token");
-          localStorage.removeItem("user");
+          localStorage.removeItem("lp_token");
+          localStorage.removeItem("lp_user");
         })
         .finally(() => setLoading(false));
     } else {
@@ -36,8 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    localStorage.removeItem("lp_token");
+    localStorage.removeItem("lp_user");
     setUser(null);
     window.location.href = `${import.meta.env.BASE_URL}login`;
   };

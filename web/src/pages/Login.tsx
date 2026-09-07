@@ -17,8 +17,8 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await login(username, password);
-      localStorage.setItem("token", res.access_token);
-      localStorage.setItem("user", JSON.stringify(res.user));
+      localStorage.setItem("lp_token", res.access_token);
+      localStorage.setItem("lp_user", JSON.stringify(res.user));
       setUser(res.user);
       navigate(res.user.role === "admin" ? "/admin" : "/student");
     } catch (err) {

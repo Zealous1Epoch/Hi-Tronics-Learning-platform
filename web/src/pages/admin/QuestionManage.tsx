@@ -245,7 +245,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
   };
 
   const handleExport = async () => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("lp_token");
     const exportUrl = propCategoryId
       ? `${BASE}/questions/export?category_id=${propCategoryId}`
       : `${BASE}/questions/export`;
@@ -262,7 +262,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
   };
 
   const handleDownloadTemplate = async () => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("lp_token");
     const res = await fetch(`${BASE}/questions/template`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -282,7 +282,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
     const formData = new FormData();
     formData.append("file", importFile);
     if (propCategoryId) formData.append("category_id", propCategoryId);
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("lp_token");
     try {
       const res = await fetch(`${BASE}/questions/import`, {
         method: "POST",

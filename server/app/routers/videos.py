@@ -16,6 +16,9 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 500MB
 
+# API 前缀，由 nginx 统一配置，不依赖客户端请求头
+API_PREFIX = "/api/learning-platform"
+
 router = APIRouter(prefix="/api", tags=["视频"])
 
 
@@ -44,12 +47,11 @@ async def upload_video(
                 os.remove(filepath)
                 raise HTTPException(status_code=400, detail=f"视频文件过大，最大支持 {MAX_VIDEO_SIZE // 1024 // 1024}MB")
 
-    prefix = request.headers.get("X-Forwarded-Prefix", "/api") if request else "/api"
     return {
         "filename": filename,
         "original_name": file.filename,
         "file_size": file_size,
-        "url": f"{prefix}/videos/stream/{filename}",
+        "url": f"{API_PREFIX}/videos/stream/{filename}",
     }
 
 
@@ -64,8 +66,7 @@ def get_play_url(
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="视频不存在")
     video_token = create_video_token(current_user.id, obs_key)
-    prefix = request.headers.get("X-Forwarded-Prefix", "/api") if request else "/api"
-    return {"url": f"{prefix}/videos/stream/{obs_key}?token={video_token}"}
+    return {"url": f"{API_PREFIX}/videos/stream/{obs_key}?token={video_token}"}
 
 
 @router.get("/videos/stream/{filename}")
@@ -80,6 +81,11 @@ async def stream_video(
     if not payload:
         raise HTTPException(status_code=401, detail="token 无效或已过期")
 
+    # 验证 token 中的文件名与请求的文件名匹配
+    token_filename = payload.get("filename")
+    if token_filename and token_filename != filename:
+        raise HTTPException(status_code=403, detail="无权访问该视频")
+
     filepath = os.path.join(UPLOAD_DIR, filename)
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="视频不存在")
@@ -91,9 +97,10 @@ async def stream_video(
         return FileResponse(filepath, media_type="video/mp4")
 
     # 支持 Range 请求（拖动进度条）
-    start_bytes, end_bytes = range_header.replace("bytes=", "").split("-")
-    start = int(start_bytes)
-    end = int(end_bytes) if end_bytes else file_size - 1
+    range_val = range_header.replace("bytes=", "")
+    parts = range_val.split("-")
+    start = int(parts[0])
+    end = int(parts[1]) if parts[1] else file_size - 1
     chunk_size = end - start + 1
 
     def iterfile():

@@ -6,6 +6,7 @@ import MyCourses from "../pages/student/MyCourses";
 import CourseDetail from "../pages/student/CourseDetail";
 import ExamPage from "../pages/student/ExamPage";
 import StudentProfile from "../pages/student/Profile";
+import logoImg from "../assets/logo.png";
 
 export default function StudentLayout() {
   const { user, logout, loading } = useAuth();
@@ -17,7 +18,7 @@ export default function StudentLayout() {
     <div className="min-h-screen bg-bg-layout">
       <nav className="bg-primary text-white px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <h1 className="text-lg font-bold">海创光电在线学堂</h1>
+          <img src={logoImg} alt="海创光电" className="h-8" />
           <Link to="/student" className="text-white/80 hover:text-white text-sm">首页</Link>
           <Link to="/student/tasks" className="text-white/80 hover:text-white text-sm">代办任务</Link>
           <Link to="/student/courses" className="text-white/80 hover:text-white text-sm">我的课程</Link>

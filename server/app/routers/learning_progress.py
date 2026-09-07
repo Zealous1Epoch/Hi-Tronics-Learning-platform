@@ -241,20 +241,31 @@ def get_courses_with_progress(
         if c.exam_id:
             course_exam_map[c.exam_id] = c.id
     exam_passed_map: dict[str, bool] = {}
+    exam_score_map: dict[str, int | None] = {}
+    exam_date_map: dict[str, str | None] = {}
+    exam_attempted_map: dict[str, bool] = {}
     if course_exam_map:
-        passed_exams = (
+        all_results = (
             db.query(ExamResult)
             .filter(
                 ExamResult.user_id == current_user.id,
                 ExamResult.exam_id.in_(course_exam_map.keys()),
-                ExamResult.passed == True,
             )
+            .order_by(ExamResult.started_at.desc())
             .all()
         )
-        for pe in passed_exams:
-            cid = course_exam_map.get(pe.exam_id)
-            if cid:
+        seen_exams: set[str] = set()
+        for r in all_results:
+            cid = course_exam_map.get(r.exam_id)
+            if not cid:
+                continue
+            if r.passed:
                 exam_passed_map[cid] = True
+            if cid not in seen_exams:
+                seen_exams.add(cid)
+                exam_score_map[cid] = r.score
+                exam_date_map[cid] = r.started_at.date().isoformat() if r.started_at else None
+                exam_attempted_map[cid] = True
 
     result = []
     for c in courses:
@@ -275,6 +286,9 @@ def get_courses_with_progress(
             "completed_count": completed_count,
             "total_count": total_videos,
             "exam_passed": exam_passed,
+            "exam_score": exam_score_map.get(c.id),
+            "exam_attempted": exam_attempted_map.get(c.id, False),
+            "exam_date": exam_date_map.get(c.id),
         })
     return result
 

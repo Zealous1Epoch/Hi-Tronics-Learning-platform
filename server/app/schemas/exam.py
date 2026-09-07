@@ -15,6 +15,7 @@ class ExamCreate(BaseModel):
     max_attempts: int | None = Field(None, description="最大重考次数，NULL 表示不限")
     start_time: str | None = Field(None, description="开放时间 ISO 格式")
     end_time: str | None = Field(None, description="截止时间 ISO 格式")
+    status: str = Field("published", description="draft / published / ended")
 
 
 class ExamUpdate(BaseModel):

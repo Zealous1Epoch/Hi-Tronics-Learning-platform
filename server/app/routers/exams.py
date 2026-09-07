@@ -66,6 +66,7 @@ def create_exam(
         max_attempts=data.max_attempts,
         start_time=start_time,
         end_time=end_time,
+        status=data.status,
         created_by=current_user.id,
     )
     db.add(exam)

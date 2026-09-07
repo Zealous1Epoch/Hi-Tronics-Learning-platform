@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api", tags=["视频"])
 @router.post("/videos/upload")
 async def upload_video(
     file: UploadFile = File(...),
+    request: Request = None,
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
@@ -43,17 +44,19 @@ async def upload_video(
                 os.remove(filepath)
                 raise HTTPException(status_code=400, detail=f"视频文件过大，最大支持 {MAX_VIDEO_SIZE // 1024 // 1024}MB")
 
+    prefix = request.headers.get("X-Forwarded-Prefix", "/api") if request else "/api"
     return {
         "filename": filename,
         "original_name": file.filename,
         "file_size": file_size,
-        "url": f"/api/videos/stream/{filename}",
+        "url": f"{prefix}/videos/stream/{filename}",
     }
 
 
 @router.get("/videos/play-url/{obs_key}")
 def get_play_url(
     obs_key: str,
+    request: Request = None,
     current_user: User = Depends(get_current_user),
 ):
     """获取视频播放 URL（含短期专用 token，避免主 token 暴露在 URL 中）"""
@@ -61,7 +64,8 @@ def get_play_url(
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="视频不存在")
     video_token = create_video_token(current_user.id, obs_key)
-    return {"url": f"/api/videos/stream/{obs_key}?token={video_token}"}
+    prefix = request.headers.get("X-Forwarded-Prefix", "/api") if request else "/api"
+    return {"url": f"{prefix}/videos/stream/{obs_key}?token={video_token}"}
 
 
 @router.get("/videos/stream/{filename}")

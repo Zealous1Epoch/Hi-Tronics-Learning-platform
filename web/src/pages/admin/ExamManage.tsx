@@ -145,6 +145,10 @@ export default function ExamManage() {
     return papers.find((p) => p.id === selectedPaperId) || null;
   }, [papers, selectedPaperId]);
 
+  const createCourseId = useMemo(() => {
+    return selectedCourseId || (matchedCourses.length === 1 ? matchedCourses[0].id : "");
+  }, [selectedCourseId, matchedCourses]);
+
   const resetModalForm = () => {
     setModalCategoryId(null);
     setSelectedPaperId("");
@@ -204,10 +208,19 @@ export default function ExamManage() {
   };
 
   const handleCreate = async () => {
-    const courseId = selectedCourseId || (matchedCourses.length === 1 ? matchedCourses[0].id : "");
-    if (!modalCategoryId || !selectedPaperId || !courseId) return;
+    const courseId = createCourseId;
+    if (!modalCategoryId) { alert("请先选择课程分类"); return; }
+    if (!selectedPaperId) { alert("请先选择试卷"); return; }
+    if (!courseId) {
+      if (matchedCourses.length === 0) {
+        alert("所选分类下没有关联课程，无法创建考试");
+      } else {
+        alert("请选择关联课程");
+      }
+      return;
+    }
     const paper = selectedPaper;
-    if (!paper) return;
+    if (!paper) { alert("试卷信息加载失败，请重新选择"); return; }
 
     setSaving(true);
     try {
@@ -532,7 +545,7 @@ export default function ExamManage() {
 
             <div className="flex gap-3 justify-end px-6 py-3 border-t border-border">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">取消</button>
-              <button onClick={handleCreate} disabled={saving || !selectedPaperId}
+              <button onClick={handleCreate} disabled={saving || !selectedPaperId || !createCourseId}
                 className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light disabled:opacity-50">
                 {saving ? "创建中..." : "创建考试"}
               </button>

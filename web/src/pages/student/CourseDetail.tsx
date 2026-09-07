@@ -13,10 +13,6 @@ interface CourseDetail {
 }
 interface ExamInfo {
   status: string;
-  exam_passed: boolean;
-  exam_score: number | null;
-  exam_attempted: boolean;
-  exam_date: string | null;
 }
 interface CourseProgress {
   video_progress: Record<string, { watched_seconds: number; total_seconds: number; completed: boolean }>;
@@ -29,7 +25,7 @@ export default function CourseDetail() {
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [examStatus, setExamStatus] = useState<ExamInfo | null>(null);
+  const [examStatus, setExamStatus] = useState<string | null>(null);
   const [progress, setProgress] = useState<CourseProgress | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const [currentVideoWatched, setCurrentVideoWatched] = useState(false);
@@ -115,53 +111,9 @@ export default function CourseDetail() {
       .catch(() => {});
   };
 
-  // 考试状态文字
-  let examLabel: string;
-  let examLabelColor: string;
-  if (examStatus && course.exam_id) {
-    if (!examStatus.exam_attempted) {
-      examLabel = "未开始";
-      examLabelColor = "text-text-secondary";
-    } else if (examStatus.exam_passed) {
-      examLabel = `已通过（${examStatus.exam_score}分）`;
-      examLabelColor = "text-green-600";
-    } else {
-      examLabel = `未通过（${examStatus.exam_score}分）`;
-      examLabelColor = "text-red-500";
-    }
-  } else {
-    examLabel = "";
-    examLabelColor = "";
-  }
-
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">{course.title}</h2>
-      {/* 进度卡片 */}
-      <div className="bg-bg-base rounded-lg border border-border p-3 mb-4 flex items-center gap-6">
-        <div className="flex-1">
-          <div className="text-xs text-text-secondary mb-0.5">
-            视频进度：{progress?.completed_count ?? 0}/{progress?.total_count ?? 0}
-          </div>
-          <div className="w-full bg-bg-layout rounded-full h-2 border border-border">
-            <div
-              className="h-2 rounded-full transition-all bg-primary"
-              style={{
-                width: `${progress && progress.total_count > 0 ? Math.round((progress.completed_count / progress.total_count) * 100) : 0}%`,
-              }}
-            />
-          </div>
-        </div>
-        {examLabel && (
-          <div className="text-xs text-right shrink-0">
-            <div className="text-text-secondary">考试状态</div>
-            <div className={`font-medium ${examLabelColor}`}>{examLabel}</div>
-            {examStatus?.exam_date && (
-              <div className="text-text-secondary">上次：{examStatus.exam_date}</div>
-            )}
-          </div>
-        )}
-      </div>
       <div className="flex gap-4">
         {/* 播放器 */}
         <div className="flex-1 min-w-0">
@@ -188,7 +140,7 @@ export default function CourseDetail() {
           {course.description && (
             <p className="mt-4 text-sm text-text-secondary">{course.description}</p>
           )}
-          {course.exam_id && examStatus?.status === "published" && (
+          {course.exam_id && examStatus === "published" && (
             <div className="mt-4">
               {/* 课程无视频时直接解锁考试；有视频则需全部看完 */}
               {course.videos.length > 0 && !examEnabled ? (
@@ -207,7 +159,7 @@ export default function CourseDetail() {
               )}
             </div>
           )}
-          {course.exam_id && examStatus?.status === "ended" && (
+          {course.exam_id && examStatus === "ended" && (
             <div className="mt-4">
               <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border">
                 考试已结束

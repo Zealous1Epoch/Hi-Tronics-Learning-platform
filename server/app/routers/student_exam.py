@@ -93,24 +93,11 @@ def get_exam_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取考试状态（含最新成绩）"""
+    """获取考试状态"""
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
-    # 查询最新考试结果
-    last_result = (
-        db.query(ExamResult)
-        .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
-        .order_by(ExamResult.started_at.desc())
-        .first()
-    )
-    return {
-        "status": exam.status,
-        "exam_passed": last_result.passed if last_result else False,
-        "exam_score": last_result.score if last_result else None,
-        "exam_attempted": last_result is not None,
-        "exam_date": last_result.started_at.date().isoformat() if last_result and last_result.started_at else None,
-    }
+    return {"status": exam.status}
 
 
 @router.get("/exams/{exam_id}/start")

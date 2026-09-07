@@ -9,7 +9,6 @@ interface CourseWithProgress {
   video_count: number; status: string;
   start_date: string | null; end_date: string | null;
   completed_count: number; total_count: number; exam_passed: boolean;
-  exam_score: number | null; exam_attempted: boolean; exam_date: string | null;
 }
 
 interface TreeNode {
@@ -117,24 +116,10 @@ function TreeSidebar({
 }
 
 function CourseCard({ course }: { course: CourseWithProgress }) {
-  const videoPct = course.total_count > 0
+  const isDone = (course.total_count > 0 && course.completed_count >= course.total_count) && course.exam_passed;
+  const pct = isDone ? 100 : (course.total_count > 0
     ? Math.round((course.completed_count / course.total_count) * 100)
-    : 0;
-  const allVideosDone = course.total_count > 0 && course.completed_count >= course.total_count;
-  const isDone = allVideosDone && course.exam_passed;
-
-  let examLabel: string;
-  let examColor: string;
-  if (!course.exam_attempted) {
-    examLabel = "未开始";
-    examColor = "text-text-secondary";
-  } else if (course.exam_passed) {
-    examLabel = `已通过（${course.exam_score}分）`;
-    examColor = "text-green-600";
-  } else {
-    examLabel = `未通过（${course.exam_score}分）`;
-    examColor = "text-red-500";
-  }
+    : 0);
 
   return (
     <Link
@@ -145,27 +130,27 @@ function CourseCard({ course }: { course: CourseWithProgress }) {
       {course.description && (
         <p className="text-[11px] text-text-secondary mb-1.5 line-clamp-1">{course.description}</p>
       )}
-      <div className="mb-1">
+      <div className="mb-1.5">
         <div className="flex items-center justify-between text-[11px] text-text-secondary mb-0.5">
-          <span>视频：{course.completed_count}/{course.total_count}</span>
-          <span className="text-primary">{videoPct}%</span>
+          <span>{course.total_count} 个视频</span>
+          <span className="text-primary">
+            {course.exam_passed && course.total_count === 0
+              ? "考试已通过"
+              : `${course.completed_count}/${course.total_count} 完成`}
+          </span>
         </div>
         <div className="w-full bg-bg-layout rounded-full h-1">
           <div
             className="h-1 rounded-full transition-all bg-primary"
-            style={{ width: `${videoPct}%` }}
+            style={{ width: `${pct}%` }}
           />
         </div>
-      </div>
-      <div className="text-[11px] mb-1">
-        <span className="text-text-secondary">考试：</span>
-        <span className={examColor}>{examLabel}</span>
       </div>
       {course.start_date && course.end_date && (
         <p className="text-[11px] text-text-secondary text-right">{course.start_date} ~ {course.end_date}</p>
       )}
       <div className="text-[11px] text-primary">
-        {isDone ? "已完成" : videoPct > 0 ? "继续学习" : "开始学习"}
+        {isDone ? "已完成" : pct > 0 ? "继续学习" : "开始学习"}
       </div>
     </Link>
   );

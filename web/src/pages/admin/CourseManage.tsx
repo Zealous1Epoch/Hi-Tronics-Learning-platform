@@ -208,7 +208,7 @@ export default function CourseManage() {
     let current = flatCategories.find(c => c.id === catId);
     while (current) {
       parts.unshift(current.name);
-      current = current.parent_id ? flatCategories.find(c => c.id === current.parent_id) : undefined;
+      current = current!.parent_id ? flatCategories.find(c => c.id === current!.parent_id) : undefined;
     }
     return parts.join(" - ");
   };

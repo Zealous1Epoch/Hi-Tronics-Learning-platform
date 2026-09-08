@@ -47,7 +47,7 @@ export default function VideoPlayer({ src, onProgress, startTime = 0, disableSee
       }
       // 禁用进度条交互（点击和拖动），仅保留视觉进度展示
       if (disableSeekRef.current) {
-        const pc = player.controlBar.progressControl;
+        const pc = (player as any).controlBar?.progressControl;
         if (pc && pc.el()) {
           pc.el().style.pointerEvents = "none";
         }
@@ -58,7 +58,7 @@ export default function VideoPlayer({ src, onProgress, startTime = 0, disableSee
     const onSeeking = () => {
       if (!disableSeekRef.current) return;
       const target = player.currentTime();
-      if (target > maxWatchedRef.current + 1) {
+      if (target !== undefined && target !== null && target > maxWatchedRef.current + 1) {
         player.currentTime(maxWatchedRef.current);
       }
     };
@@ -67,7 +67,7 @@ export default function VideoPlayer({ src, onProgress, startTime = 0, disableSee
     // 播放过程中持续更新最远已看位置
     const onTimeUpdate = () => {
       const t = player.currentTime();
-      if (t > maxWatchedRef.current) {
+      if (t !== undefined && t !== null && t > maxWatchedRef.current) {
         maxWatchedRef.current = t;
       }
     };

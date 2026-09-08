@@ -161,21 +161,13 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
     });
   };
 
-  const setQuestionScore = (qid: string, score: number) => {
-    setSelectedQuestions(prev => {
-      const next = new Map(prev);
-      next.set(qid, score);
-      return next;
-    });
-  };
-
   const getCategoryPath = (catId: string | null): string => {
     if (!catId) return "-";
     const parts: string[] = [];
     let current = flatCategories.find(c => c.id === catId);
     while (current) {
       parts.unshift(current.name);
-      current = current.parent_id ? flatCategories.find(c => c.id === current.parent_id) : undefined;
+      current = current!.parent_id ? flatCategories.find(c => c.id === current!.parent_id) : undefined;
     }
     return parts.join(" - ");
   };

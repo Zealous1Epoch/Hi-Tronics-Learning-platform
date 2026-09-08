@@ -68,7 +68,7 @@ function formatSeconds(seconds: number): string {
 export default function UserProgress() {
   // 部门
   const [deptTree, setDeptTree] = useState<DeptNode[]>([]);
-  const [flatDepts, setFlatDepts] = useState<FlatDept[]>([]);
+  const [, setFlatDepts] = useState<FlatDept[]>([]);
   const [expandedDeptIds, setExpandedDeptIds] = useState<Set<string>>(new Set());
   const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
   const [deptSearch, setDeptSearch] = useState("");

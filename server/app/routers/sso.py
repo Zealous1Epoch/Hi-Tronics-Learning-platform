@@ -1,4 +1,4 @@
-"""SSO 单点登录路由：处理 OA 系统 302 重定向登录"""
+"""SSO 单点登录路由：OA 系统 302 重定向登录 + 企业微信 OAuth 登录"""
 
 import hashlib
 import uuid as _uuid
@@ -13,6 +13,7 @@ from app.database import get_db, engine
 from app.models.user import User
 from app.services.auth_service import create_access_token, decode_access_token
 from app.services.oa_client import fetch_employee_by_workcode
+from app.services.wechat_service import get_user_info, get_user_detail
 from app.routers.auth import require_admin
 from app.logger import get_logger
 
@@ -174,3 +175,133 @@ def set_sso_timeout(timeout: int, _: User = Depends(require_admin)):
     _sso_time_window = timeout
     logger.info("SSO 时间窗口已调整为 %d 秒", timeout)
     return {"timeout_seconds": _sso_time_window, "message": "更新成功"}
+
+
+# =============================================================================
+# 企业微信 OAuth 登录
+# =============================================================================
+
+# 存储 state 用于 CSRF 校验（state -> timestamp）
+_wechat_states: dict[str, float] = {}
+_WECHAT_STATE_TTL = 300  # 秒
+
+
+@router.get("/sso/wechat/login")
+async def wechat_login():
+    """跳转到企业微信 OAuth 授权页"""
+    if not settings.WECHAT_CORP_ID or not settings.WECHAT_AGENT_ID or not settings.WECHAT_SECRET:
+        logger.warning("企微 SSO 配置不完整，请检查 WECHAT_CORP_ID / WECHAT_AGENT_ID / WECHAT_SECRET")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
+
+    callback_url = f"{settings.FRONTEND_URL}/sso/wechat/callback"
+    state = str(_uuid.uuid4())
+    _wechat_states[state] = datetime.now().timestamp()
+
+    # 清理过期 state
+    now = datetime.now().timestamp()
+    expired = [s for s, t in _wechat_states.items() if now - t > _WECHAT_STATE_TTL]
+    for s in expired:
+        _wechat_states.pop(s, None)
+
+    # 构建企微 OAuth URL
+    # 文档: https://developer.work.weixin.qq.com/document/path/91335
+    from urllib.parse import quote
+    redirect_uri = quote(callback_url, safe="")
+    oauth_url = (
+        f"https://open.weixin.qq.com/connect/oauth2/authorize"
+        f"?appid={settings.WECHAT_CORP_ID}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+        f"&scope=snsapi_privateinfo"
+        f"&agentid={settings.WECHAT_AGENT_ID}"
+        f"&state={state}"
+        f"#wechat_redirect"
+    )
+    logger.info("跳转企微 OAuth 授权页")
+    return RedirectResponse(url=oauth_url)
+
+
+@router.get("/sso/wechat/callback")
+async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_db)):
+    """企业微信 OAuth 回调：用 code 换取用户信息，创建/查找用户，签发 JWT
+
+    支持两种入口：
+    1. 网页端点击"企业微信登录"按钮（state 由后端生成，用于 CSRF 校验）
+    2. 企微客户端内点击应用直接打开（state 由企微客户端提供，不做 CSRF 校验）
+    """
+    # 步骤 1: 校验 state（CSRF 防护）
+    # 只有 state 在我们缓存中时才做校验，否则忽略（来自企微客户端直接打开）
+    if state and state in _wechat_states:
+        _wechat_states.pop(state, None)
+    elif state:
+        logger.warning("企微回调 state 不在缓存中，跳过 CSRF 校验（可能是企微客户端直接打开）")
+
+    if not code:
+        logger.warning("企微回调缺少 code 参数")
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
+
+    # 步骤 2: 用 code 换取 user_ticket 和 userid
+    try:
+        user_info = await get_user_info(code)
+    except Exception as e:
+        logger.error("企微 getuserinfo 失败: %s", str(e))
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
+
+    user_ticket = user_info.get("user_ticket")
+    userid = user_info.get("userid")
+    if not user_ticket or not userid:
+        logger.warning("企微 getuserinfo 返回缺少 user_ticket 或 userid: %s", user_info)
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
+
+    # 步骤 3: 用 user_ticket 获取用户详细信息
+    try:
+        detail = await get_user_detail(user_ticket)
+    except Exception as e:
+        logger.error("企微 getuserdetail 失败: %s", str(e))
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
+
+    wechat_name = detail.get("name", "")
+    wechat_avatar = detail.get("avatar", "")
+
+    # 步骤 4: 查找或创建用户
+    user = db.query(User).filter(User.wechat_user_id == userid).first()
+
+    if not user:
+        # 用户不存在，创建新用户
+        username = f"wx_{userid}"
+        user = User(
+            username=username,
+            name=wechat_name or userid,
+            wechat_user_id=userid,
+            wechat_avatar=wechat_avatar,
+            role="student",
+            status="active",
+            password_hash=None,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        logger.info("企微 SSO 自动创建用户: username=%s, name=%s", username, wechat_name or userid)
+    else:
+        # 更新头像
+        if wechat_avatar:
+            user.wechat_avatar = wechat_avatar
+        if wechat_name:
+            user.name = wechat_name
+        db.commit()
+        logger.info("企微 SSO 登录成功: username=%s, name=%s", user.username, user.name)
+
+    # 步骤 5: 检查用户状态
+    if user.status != "active":
+        logger.warning("企微 SSO 用户已被禁用: username=%s", user.username)
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
+
+    # 步骤 6: 生成 JWT 和一次性 code
+    token = create_access_token(user.id, user.role)
+    code_value = str(_uuid.uuid4())
+    _sso_codes[code_value] = {
+        "token": token,
+        "expires_at": datetime.now() + timedelta(seconds=_SSO_CODE_TTL),
+    }
+    logger.info("企微 SSO 登录成功: username=%s, role=%s", user.username, user.role)
+    return RedirectResponse(url=f"{settings.FRONTEND_URL}/sso/callback?code={code_value}")

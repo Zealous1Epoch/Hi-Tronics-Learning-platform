@@ -8,7 +8,16 @@ export default defineConfig({
   server: {
     port: 5178,
     proxy: {
+      "/api/learning-platform": {
+        target: "http://localhost:8002",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/learning-platform/, "/api"),
+      },
       "/api": {
+        target: "http://localhost:8002",
+        changeOrigin: true,
+      },
+      "/sso": {
         target: "http://localhost:8002",
         changeOrigin: true,
       },

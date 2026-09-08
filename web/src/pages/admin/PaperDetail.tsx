@@ -119,7 +119,6 @@ export default function PaperDetail() {
 
   const toggleQuestion = useCallback((qid: string) => {
     const isAdding = !selectedQuestions.has(qid);
-    const newScore = isAdding ? 10 : 0;
 
     setSelectedQuestions(prev => {
       const next = new Map(prev);
@@ -190,7 +189,7 @@ export default function PaperDetail() {
     let current = flatCategories.find(c => c.id === catId);
     while (current) {
       parts.unshift(current.name);
-      current = current.parent_id ? flatCategories.find(c => c.id === current.parent_id) : undefined;
+      current = current!.parent_id ? flatCategories.find(c => c.id === current!.parent_id) : undefined;
     }
     return parts.join(" - ");
   };

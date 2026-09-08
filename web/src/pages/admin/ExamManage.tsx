@@ -200,11 +200,16 @@ export default function ExamManage() {
 
   const handlePublish = async (id: string) => {
     if (!confirm("发布后考试将对学员开放，确定？")) return;
-    await api(`/exams/${id}`, {
-      method: "PUT",
-      body: JSON.stringify({ status: "published" }),
-    });
-    fetchData();
+    try {
+      await api(`/exams/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: "published" }),
+      });
+      fetchData();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "未知错误";
+      alert(`发布失败：${msg}`);
+    }
   };
 
   const handleCreate = async () => {

@@ -82,6 +82,9 @@ class ExamResult(Base):
         String(36), ForeignKey("users.id"), nullable=False, index=True, comment="考生"
     )
     answers: Mapped[dict] = mapped_column(JSON, nullable=False, comment="作答记录")
+    questions: Mapped[list | None] = mapped_column(
+        JSON, nullable=True, comment="题目快照 [{question_id, score}]"
+    )
     score: Mapped[int] = mapped_column(Integer, nullable=False, comment="得分")
     passed: Mapped[bool] = mapped_column(Boolean, nullable=False, comment="是否及格")
     attempt_number: Mapped[int] = mapped_column(

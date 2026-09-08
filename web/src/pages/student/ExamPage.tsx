@@ -14,6 +14,18 @@ interface GradingResult {
   score: number; total_score: number; passed: boolean; pass_score: number;
   grading_details: { question_id: string; score: number; max_score: number }[];
 }
+interface ReviewQuestion {
+  id: string; type: string; stem: string; options: Record<string, string> | null;
+  score: number; student_answer: any; correct_answer: Record<string, any>;
+  keywords: string[] | null;
+  is_correct: boolean; got_score: number; max_score: number;
+}
+interface ReviewData {
+  exam_title: string; total_score: number; score: number;
+  passed: boolean; pass_score: number; attempt_number: number;
+  submitted_at: string;
+  questions: ReviewQuestion[];
+}
 
 const TYPE_LABELS: Record<string, string> = {
   single_choice: "单选题", multi_choice: "多选题", true_false: "判断题",
@@ -25,11 +37,13 @@ export default function ExamPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const courseId = searchParams.get("courseId");
+  const reviewId = searchParams.get("review");
   const [examData, setExamData] = useState<ExamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState<GradingResult | null>(null);
+  const [reviewData, setReviewData] = useState<ReviewData | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -40,6 +54,32 @@ export default function ExamPage() {
   const [multiSelect, setMultiSelect] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
+    if (reviewId) {
+      // 回顾模式：直接拉取 review 数据，跳过开始考试
+      api<ReviewData>(`/student/exams/${id}/review/${reviewId}`)
+        .then((data) => {
+          setReviewData(data);
+          setSubmitted(true);
+          setResult({
+            score: data.score,
+            total_score: data.total_score,
+            passed: data.passed,
+            pass_score: data.pass_score,
+            grading_details: data.questions.map(q => ({
+              question_id: q.id,
+              score: q.got_score,
+              max_score: q.max_score,
+            })),
+          });
+          setLoading(false);
+        })
+        .catch((err) => {
+          setError(err.message);
+          setLoading(false);
+        });
+      return;
+    }
+
     api<ExamData>(`/student/exams/${id}/start`)
       .then((data) => {
         setExamData(data);
@@ -50,7 +90,7 @@ export default function ExamPage() {
         setError(err.message);
         setLoading(false);
       });
-  }, [id]);
+  }, [id, reviewId]);
 
   // 倒计时（使用 ref 避免闭包陷阱）
   useEffect(() => {
@@ -73,6 +113,15 @@ export default function ExamPage() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [examData, submitted]);
+
+  // 交卷后拉取错题回顾
+  useEffect(() => {
+    if (submitted && examData) {
+      api<ReviewData>(`/student/exams/${id}/review/${examData.result_id}`)
+        .then(setReviewData)
+        .catch(() => {});
+    }
+  }, [submitted, id, examData]);
 
   const handleSingleChoice = (qid: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [qid]: value }));
@@ -135,22 +184,89 @@ export default function ExamPage() {
     </div>
   );
 
+  const formatAnswer = (q: ReviewQuestion, answer: any): string => {
+    if (answer === null || answer === undefined || answer === '') return '未作答';
+    if (q.type === 'true_false') return answer ? '正确' : '错误';
+    if (q.type === 'single_choice' && q.options && typeof answer === 'string') {
+      const optText = q.options[answer];
+      return optText ? `${answer}. ${optText}` : answer;
+    }
+    if (q.type === 'multi_choice' && Array.isArray(answer) && q.options) {
+      return answer.map(a => {
+        const optText = q.options[a];
+        return optText ? `${a}. ${optText}` : a;
+      }).join('、');
+    }
+    return String(answer);
+  };
+
+  const formatCorrectAnswer = (q: ReviewQuestion): string => {
+    if (q.type === 'true_false') {
+      return q.correct_answer?.answer ? '正确' : '错误';
+    }
+    if (q.type === 'single_choice') {
+      const ans = q.correct_answer?.answer;
+      if (ans === null || ans === undefined) return '';
+      if (typeof ans === 'string') {
+        // 普通单选题：答案是单个选项字母
+        if (q.options) {
+          const optText = q.options[ans];
+          return optText ? `${ans}. ${optText}` : ans;
+        }
+        return ans;
+      }
+      if (typeof ans === 'object') {
+        // 兼容：答案存为 {A: true, B: true, ...} 格式（全选类题目）
+        const correctKeys = Object.entries(ans)
+          .filter(([, v]) => v)
+          .map(([k]) => k);
+        if (q.options) {
+          return correctKeys.map(k => {
+            const optText = q.options[k];
+            return optText ? `${k}. ${optText}` : k;
+          }).join('、');
+        }
+        return correctKeys.join('、');
+      }
+      return String(ans);
+    }
+    if (q.type === 'multi_choice') {
+      const correctKeys = Object.entries(q.correct_answer || {})
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      if (q.options) {
+        return correctKeys.map(k => {
+          const optText = q.options[k];
+          return optText ? `${k}. ${optText}` : k;
+        }).join('、');
+      }
+      return correctKeys.join('、');
+    }
+    if (q.type === 'fill_blank') return String(q.correct_answer?.answer ?? '');
+    if (q.type === 'essay') {
+      const kws = q.keywords || [];
+      return kws.length ? `关键词：${kws.join('、')}` : '（关键词评分）';
+    }
+    return '';
+  };
+
   if (submitted && result) {
     return (
-      <div className="max-w-lg mx-auto">
+      <div className="max-w-3xl mx-auto space-y-6">
+        {/* 分数摘要 */}
         <div className="bg-bg-base rounded-lg border border-border p-8 text-center">
           <h2 className="text-xl font-bold text-primary mb-4">考试结束</h2>
           <div className="text-4xl font-bold text-primary mb-2">
             {result.score} <span className="text-lg text-text-secondary">/ {result.total_score}</span>
           </div>
-          <p className={`text-sm mb-6 ${result.passed ? "text-green-600" : "text-red-500"}`}>
+          <p className={`text-sm mb-6 ${result.passed ? "text-green-600" : "text-primary"}`}>
             {result.passed ? "恭喜通过!" : `未通过（及格线: ${result.pass_score}分）`}
           </p>
           <div className="text-left text-sm text-text-secondary space-y-1 mb-6">
             {result.grading_details.map((g, i) => (
               <div key={i} className="flex justify-between">
                 <span>第 {i + 1} 题</span>
-                <span className={g.score >= g.max_score ? "text-green-600" : "text-red-500"}>
+                <span className={g.score >= g.max_score ? "text-green-600" : "text-primary"}>
                   {g.score} / {g.max_score} 分
                 </span>
               </div>
@@ -160,6 +276,52 @@ export default function ExamPage() {
             返回课程
           </button>
         </div>
+
+        {/* 错题回顾 */}
+        {reviewData && (
+          <div>
+            <h3 className="text-lg font-bold text-primary mb-3">答题回顾</h3>
+            <div className="space-y-3">
+              {reviewData.questions.map((q, i) => (
+                <div
+                  key={q.id}
+                  className={`border-l-4 rounded-lg border-border bg-bg-base p-4 ${
+                    q.is_correct ? "border-l-green-500" : "border-l-primary"
+                  }`}
+                >
+                  <div className="flex items-start gap-2 mb-2">
+                    <span className="text-sm font-bold text-primary whitespace-nowrap mt-0.5">
+                      {i + 1}. [{TYPE_LABELS[q.type] || q.type}]
+                    </span>
+                    <span className="text-sm flex-1">{q.stem}</span>
+                    <span className="text-xs text-text-secondary whitespace-nowrap">{q.score}分</span>
+                  </div>
+
+                  {/* 学员答案 */}
+                  <div className="ml-8 text-sm">
+                    <span className="text-text-secondary">你的答案：</span>
+                    <span className={q.is_correct ? "text-green-600" : "text-primary"}>
+                      {formatAnswer(q, q.student_answer)}
+                    </span>
+                  </div>
+
+                  {/* 正确答案（答错时显示） */}
+                  {!q.is_correct && (
+                    <div className="ml-8 text-sm mt-1">
+                      <span className="text-text-secondary">正确答案：</span>
+                      <span className="text-green-600">{formatCorrectAnswer(q)}</span>
+                    </div>
+                  )}
+
+                  {/* 得分 */}
+                  <div className="ml-8 text-xs text-text-secondary mt-1">
+                    得分：{q.got_score} / {q.max_score}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }

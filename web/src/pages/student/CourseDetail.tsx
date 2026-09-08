@@ -19,6 +19,10 @@ interface CourseProgress {
   completed_count: number;
   total_count: number;
 }
+interface ExamResultItem {
+  id: string; score: number; passed: boolean;
+  attempt_number: number; submitted_at: string | null;
+}
 
 export default function CourseDetail() {
   const { id } = useParams();
@@ -26,6 +30,7 @@ export default function CourseDetail() {
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [examStatus, setExamStatus] = useState<string | null>(null);
+  const [examResults, setExamResults] = useState<ExamResultItem[]>([]);
   const [progress, setProgress] = useState<CourseProgress | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const [currentVideoWatched, setCurrentVideoWatched] = useState(false);
@@ -48,6 +53,10 @@ export default function CourseDetail() {
         } catch {
           if (mountedRef.current) setExamStatus(null);
         }
+        // 获取考试记录
+        api<ExamResultItem[]>(`/student/exams/${data.exam_id}/results`).then((r) => {
+          if (mountedRef.current) setExamResults(r);
+        }).catch(() => {});
       }
       setLoading(false);
     });
@@ -164,6 +173,30 @@ export default function CourseDetail() {
               <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border">
                 考试已结束
               </span>
+            </div>
+          )}
+          {/* 考试记录 */}
+          {examResults.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-sm font-bold text-primary mb-3">考试记录</h3>
+              <div className="space-y-2">
+                {examResults.map((r) => (
+                  <div key={r.id} className="bg-bg-base rounded-lg border border-border p-3 flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-medium">第 {r.attempt_number} 次</span>
+                      <span className={`ml-3 text-sm font-medium ${r.passed ? "text-green-600" : "text-primary"}`}>
+                        {r.score} 分 {r.passed ? "(通过)" : "(未通过)"}
+                      </span>
+                    </div>
+                    <Link
+                      to={`/student/exams/${course.exam_id}?courseId=${course.id}&review=${r.id}`}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      查看详情
+                    </Link>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

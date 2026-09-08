@@ -139,7 +139,14 @@ def delete_course(course_id: str, db: Session = Depends(get_db), current_user: U
     write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="course", action="delete", resource_type="课程", resource_name=course.title if hasattr(course, 'title') else "", description=f"{current_user.name} 删除了课程「{course.title}」", level="warning")
     from app.models.course import CourseAssignment
     from app.models.learning_progress import LearningProgress
+    from app.models.exam import Exam, ExamPaper, ExamResult
     db.query(LearningProgress).filter(LearningProgress.course_id == course_id).delete()
+    # 删除关联考试及考试结果、试卷
+    exam_ids = [e.id for e in db.query(Exam).filter(Exam.course_id == course_id).all()]
+    if exam_ids:
+        db.query(ExamResult).filter(ExamResult.exam_id.in_(exam_ids)).delete()
+        db.query(ExamPaper).filter(ExamPaper.exam_id.in_(exam_ids)).delete()
+        db.query(Exam).filter(Exam.course_id == course_id).delete()
     db.query(CourseAssignment).filter(CourseAssignment.course_id == course_id).delete()
     db.query(Video).filter(Video.course_id == course_id).delete()
     db.delete(course)

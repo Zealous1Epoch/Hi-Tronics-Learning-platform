@@ -36,13 +36,15 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
     if q_type == "single_choice":
         full_score = 10
         if student_answer and isinstance(correct, dict):
-            return (full_score if str(student_answer) == str(correct.get("correct")) else 0, full_score)
+            correct_answer = correct.get("answer")
+            return (full_score if correct_answer is not None and str(student_answer) == str(correct_answer) else 0, full_score)
         return (0, full_score)
 
     elif q_type == "multi_choice":
         full_score = 10
         if student_answer and isinstance(correct, dict):
-            correct_list = sorted(correct.get("correct", []))
+            # 格式：{"A": True, "B": True, ...}，提取值为 True 的 key
+            correct_list = sorted([k for k, v in correct.items() if v])
             student_list = sorted(student_answer) if isinstance(student_answer, list) else []
             return (full_score if correct_list == student_list else 0, full_score)
         return (0, full_score)
@@ -51,13 +53,15 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
         full_score = 10
         if student_answer is not None and isinstance(correct, dict):
             student_bool = student_answer if isinstance(student_answer, bool) else str(student_answer).lower() == "true"
-            return (full_score if student_bool == correct.get("correct") else 0, full_score)
+            correct_answer = correct.get("answer")
+            return (full_score if correct_answer is not None and student_bool == correct_answer else 0, full_score)
         return (0, full_score)
 
     elif q_type == "fill_blank":
         full_score = 10
         if student_answer and isinstance(correct, dict):
-            return (full_score if str(student_answer).strip().lower() == str(correct.get("correct")).strip().lower() else 0, full_score)
+            correct_answer = correct.get("answer")
+            return (full_score if correct_answer is not None and str(student_answer).strip().lower() == str(correct_answer).strip().lower() else 0, full_score)
         return (0, full_score)
 
     elif q_type == "essay":
@@ -185,10 +189,23 @@ def start_exam(
                     "stem": q.stem,
                     "options": q.options,
                     "score": rule["score"],
+                    "difficulty": q.difficulty,
                 })
-        secrets.SystemRandom().shuffle(result)
+        # 按题型分组（单选→多选→判断→填空→问答），组内按难度升序
+        TYPE_ORDER = {
+            "single_choice": 0,
+            "multi_choice": 1,
+            "true_false": 2,
+            "fill_blank": 3,
+            "essay": 4,
+        }
+        DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2}
+        result.sort(key=lambda q: (TYPE_ORDER.get(q["type"], 99), DIFFICULTY_ORDER.get(q["difficulty"], 99)))
     else:
         raise HTTPException(status_code=400, detail="试卷配置无效")
+
+    # 构建题目快照（写回 ExamResult，供后续查看错题用）
+    question_snapshot = [{"question_id": q["id"], "score": q["score"]} for q in result]
 
     # 检查是否有未提交的考试记录（刷新/断网恢复场景），有则复用
     existing_incomplete = (
@@ -202,8 +219,9 @@ def start_exam(
     )
 
     if existing_incomplete:
-        # 复用未完成的记录，刷新开始时间
+        # 复用未完成的记录，刷新开始时间，同步更新题目快照
         existing_incomplete.started_at = datetime.now()
+        existing_incomplete.questions = question_snapshot
         db.commit()
         exam_result = existing_incomplete
     else:
@@ -220,6 +238,7 @@ def start_exam(
                 exam_id=exam_id,
                 user_id=current_user.id,
                 answers={},
+                questions=question_snapshot,
                 score=0,
                 passed=False,
                 attempt_number=attempt_number,
@@ -382,3 +401,80 @@ def get_results(
         }
         for r in results
     ]
+
+
+@router.get("/exams/{exam_id}/review/{result_id}")
+def review_exam(
+    exam_id: str,
+    result_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """查看考试回顾：错题 + 正确答案"""
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="考试不存在")
+
+    result = (
+        db.query(ExamResult)
+        .filter(ExamResult.id == result_id, ExamResult.user_id == current_user.id)
+        .first()
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="考试记录不存在")
+
+    if not result.submitted_at:
+        raise HTTPException(status_code=400, detail="考试尚未提交，无法查看回顾")
+
+    if not result.questions:
+        raise HTTPException(status_code=400, detail="该考试记录缺少题目快照，无法查看回顾")
+
+    # 获取题目详情
+    question_ids = [q["question_id"] for q in result.questions]
+    score_map = {q["question_id"]: q["score"] for q in result.questions}
+    questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
+    question_map = {q.id: q for q in questions}
+
+    # 构建学生答案映射
+    answers_map: dict[str, dict] = {}
+    if isinstance(result.answers, list):
+        for ans in result.answers:
+            if isinstance(ans, dict) and "question_id" in ans:
+                answers_map[ans["question_id"]] = ans
+
+    # 逐题比对
+    review_questions = []
+    for qc in result.questions:
+        qid = qc["question_id"]
+        question = question_map.get(qid)
+        if not question:
+            continue
+
+        student_ans = answers_map.get(qid, {}).get("answer")
+        total_points = score_map.get(qid, 10)
+        got_score, max_score = grade_question(question, student_ans, total_points=total_points)
+
+        review_questions.append({
+            "id": question.id,
+            "type": question.type,
+            "stem": question.stem,
+            "options": question.options,
+            "score": total_points,
+            "student_answer": student_ans,
+            "correct_answer": question.answer,
+            "keywords": question.keywords,
+            "is_correct": got_score >= max_score,
+            "got_score": got_score,
+            "max_score": max_score,
+        })
+
+    return {
+        "exam_title": exam.title,
+        "total_score": exam.total_score,
+        "score": result.score,
+        "passed": result.passed,
+        "pass_score": exam.pass_score,
+        "attempt_number": result.attempt_number,
+        "submitted_at": result.submitted_at.isoformat() if result.submitted_at else None,
+        "questions": review_questions,
+    }

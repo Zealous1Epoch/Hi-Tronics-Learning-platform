@@ -187,13 +187,14 @@ export default function ExamPage() {
   const formatAnswer = (q: ReviewQuestion, answer: any): string => {
     if (answer === null || answer === undefined || answer === '') return '未作答';
     if (q.type === 'true_false') return answer ? '正确' : '错误';
-    if (q.type === 'single_choice' && q.options && typeof answer === 'string') {
-      const optText = q.options[answer];
+    const opts = q.options;
+    if (q.type === 'single_choice' && opts && typeof answer === 'string') {
+      const optText = opts[answer];
       return optText ? `${answer}. ${optText}` : answer;
     }
-    if (q.type === 'multi_choice' && Array.isArray(answer) && q.options) {
+    if (q.type === 'multi_choice' && Array.isArray(answer) && opts) {
       return answer.map(a => {
-        const optText = q.options[a];
+        const optText = opts[a];
         return optText ? `${a}. ${optText}` : a;
       }).join('、');
     }
@@ -201,6 +202,7 @@ export default function ExamPage() {
   };
 
   const formatCorrectAnswer = (q: ReviewQuestion): string => {
+    const opts = q.options;
     if (q.type === 'true_false') {
       return q.correct_answer?.answer ? '正确' : '错误';
     }
@@ -208,21 +210,19 @@ export default function ExamPage() {
       const ans = q.correct_answer?.answer;
       if (ans === null || ans === undefined) return '';
       if (typeof ans === 'string') {
-        // 普通单选题：答案是单个选项字母
-        if (q.options) {
-          const optText = q.options[ans];
+        if (opts) {
+          const optText = opts[ans];
           return optText ? `${ans}. ${optText}` : ans;
         }
         return ans;
       }
       if (typeof ans === 'object') {
-        // 兼容：答案存为 {A: true, B: true, ...} 格式（全选类题目）
         const correctKeys = Object.entries(ans)
           .filter(([, v]) => v)
           .map(([k]) => k);
-        if (q.options) {
+        if (opts) {
           return correctKeys.map(k => {
-            const optText = q.options[k];
+            const optText = opts[k];
             return optText ? `${k}. ${optText}` : k;
           }).join('、');
         }
@@ -234,9 +234,9 @@ export default function ExamPage() {
       const correctKeys = Object.entries(q.correct_answer || {})
         .filter(([, v]) => v)
         .map(([k]) => k);
-      if (q.options) {
+      if (opts) {
         return correctKeys.map(k => {
-          const optText = q.options[k];
+          const optText = opts[k];
           return optText ? `${k}. ${optText}` : k;
         }).join('、');
       }

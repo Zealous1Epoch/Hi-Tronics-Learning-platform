@@ -9,6 +9,7 @@ interface CourseWithProgress {
   video_count: number; status: string;
   start_date: string | null; end_date: string | null;
   completed_count: number; total_count: number; exam_passed: boolean;
+  has_exam: boolean;
 }
 
 interface TreeNode {
@@ -116,10 +117,12 @@ function TreeSidebar({
 }
 
 function CourseCard({ course }: { course: CourseWithProgress }) {
-  const isDone = (course.total_count > 0 && course.completed_count >= course.total_count) && course.exam_passed;
-  const pct = isDone ? 100 : (course.total_count > 0
-    ? Math.round((course.completed_count / course.total_count) * 100)
-    : 0);
+  const isDone = (course.total_count > 0 && course.completed_count >= course.total_count) && (!course.has_exam || course.exam_passed);
+  const videoPct = course.has_exam
+    ? (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 80) : 0)
+    : (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 100) : 0);
+  const examPct = course.has_exam && course.exam_passed ? 20 : 0;
+  const totalPct = isDone ? 100 : videoPct + examPct;
 
   return (
     <Link
@@ -139,18 +142,22 @@ function CourseCard({ course }: { course: CourseWithProgress }) {
               : `${course.completed_count}/${course.total_count} 完成`}
           </span>
         </div>
-        <div className="w-full bg-bg-layout rounded-full h-1">
-          <div
-            className="h-1 rounded-full transition-all bg-primary"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
+        {course.has_exam ? (
+          <div className="flex w-full bg-bg-layout rounded-full h-1 overflow-hidden">
+            <div className="bg-primary transition-all" style={{ width: `${videoPct}%` }} />
+            {examPct > 0 && <div className="bg-[#4CAF50] transition-all" style={{ width: `${examPct}%` }} />}
+          </div>
+        ) : (
+          <div className="w-full bg-bg-layout rounded-full h-1">
+            <div className="h-1 rounded-full transition-all bg-primary" style={{ width: `${totalPct}%` }} />
+          </div>
+        )}
       </div>
       {course.start_date && course.end_date && (
         <p className="text-[11px] text-text-secondary text-right">{course.start_date} ~ {course.end_date}</p>
       )}
       <div className="text-[11px] text-primary">
-        {isDone ? "已完成" : pct > 0 ? "继续学习" : "开始学习"}
+        {isDone ? "已完成" : totalPct > 0 ? "继续学习" : "开始学习"}
       </div>
     </Link>
   );
@@ -214,11 +221,11 @@ export default function MyCourses() {
   const filteredByStatus = courses.filter((c) => {
     if (tab === "in_progress") {
       const hasProgress = c.completed_count > 0 || c.exam_passed;
-      const isComplete = (c.total_count > 0 && c.completed_count >= c.total_count) && c.exam_passed;
+      const isComplete = (c.total_count > 0 && c.completed_count >= c.total_count) && (!c.has_exam || c.exam_passed);
       return hasProgress && !isComplete;
     }
     if (tab === "done") {
-      return (c.total_count > 0 && c.completed_count >= c.total_count) && c.exam_passed;
+      return (c.total_count > 0 && c.completed_count >= c.total_count) && (!c.has_exam || c.exam_passed);
     }
     if (tab === "not_started") {
       return c.completed_count === 0 && !c.exam_passed;

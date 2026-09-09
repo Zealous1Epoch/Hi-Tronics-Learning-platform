@@ -280,6 +280,8 @@ interface DailyPlanCourse {
   end_date: string | null;
   completed_count: number;
   total_count: number;
+  exam_passed: boolean;
+  has_exam: boolean;
 }
 
 interface DailyPlan {
@@ -413,9 +415,11 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
           <div className="flex flex-col gap-1.5">
             {/* 课程卡片 */}
             {courses.map((course) => {
-              const pct = course.total_count > 0
-                ? Math.round((course.completed_count / course.total_count) * 100)
-                : 0;
+              const videoPct = course.has_exam
+                ? (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 80) : 0)
+                : (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 100) : 0);
+              const examPct = course.has_exam && course.exam_passed ? 20 : 0;
+              const totalPct = videoPct + examPct;
               return (
                 <Link
                   key={course.id}
@@ -431,10 +435,17 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
                       <span className="shrink-0">{course.start_date} ~ {course.end_date}</span>
                     )}
                     <span className="flex-1 flex items-center gap-1">
-                      <span className="flex-1 bg-bg-layout rounded-full h-1 border border-border">
-                        <div className="h-1 rounded-full transition-all bg-primary" style={{ width: `${pct}%` }} />
-                      </span>
-                      <span className="shrink-0 text-primary">进度：{pct}%</span>
+                      {course.has_exam ? (
+                        <span className="flex flex-1 bg-bg-layout rounded-full h-1 border border-border overflow-hidden">
+                          <div className="bg-primary transition-all" style={{ width: `${videoPct}%` }} />
+                          {examPct > 0 && <div className="bg-[#4CAF50] transition-all" style={{ width: `${examPct}%` }} />}
+                        </span>
+                      ) : (
+                        <span className="flex-1 bg-bg-layout rounded-full h-1 border border-border">
+                          <div className="h-1 rounded-full transition-all bg-primary" style={{ width: `${totalPct}%` }} />
+                        </span>
+                      )}
+                      <span className="shrink-0 text-primary">进度：{totalPct}%</span>
                     </span>
                   </div>
                 </Link>

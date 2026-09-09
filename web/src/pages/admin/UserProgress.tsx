@@ -18,6 +18,7 @@ interface CourseOverview {
   video_completed: number;
   video_total: number;
   exam_passed: boolean;
+  has_exam: boolean;
   exam_best_score: number | null;
   exam_attempts: number;
 }
@@ -159,16 +160,22 @@ export default function UserProgress() {
     return data;
   }, [overviewData, selectedDeptId, deptNameMap, courseFilter, studentSearch]);
 
-  // 获取用户总体进度
+  // 计算单门课程的进度百分比（80%视频 + 20%考试）
+  const getCoursePct = (c: CourseOverview) => {
+    if (c.has_exam) {
+      const videoPct = c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 80) : 0;
+      const examPct = c.exam_passed ? 20 : 0;
+      return videoPct + examPct;
+    } else {
+      return c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 100) : 0;
+    }
+  };
+
+  // 获取用户总体进度（各课程进度平均值）
   const getUserOverallPct = (user: UserProgressOverview) => {
     if (user.courses.length === 0) return 0;
-    const totalVideos = user.courses.reduce((s, c) => s + c.video_total, 0);
-    const completedVideos = user.courses.reduce((s, c) => s + c.video_completed, 0);
-    // 考试通过的课程也算完成
-    const examPassedCourses = user.courses.filter((c) => c.exam_passed && c.video_total === 0).length;
-    return totalVideos > 0
-      ? Math.round((completedVideos / totalVideos) * 100)
-      : examPassedCourses > 0 ? 100 : 0;
+    const totalPct = user.courses.reduce((s, c) => s + getCoursePct(c), 0);
+    return Math.round(totalPct / user.courses.length);
   };
 
   // 加载详情
@@ -393,7 +400,7 @@ export default function UserProgress() {
                 const isUserExpanded = expandedUserIds.has(user.user_id);
                 const totalCourses = user.courses.length;
                 const completedCourses = user.courses.filter(
-                  (c) => (c.video_total > 0 && c.video_completed >= c.video_total) || c.exam_passed
+                  (c) => (c.video_total > 0 && c.video_completed >= c.video_total) && (!c.has_exam || c.exam_passed)
                 ).length;
 
                 return (
@@ -436,10 +443,12 @@ export default function UserProgress() {
                       <div className="px-4 pb-1 border-t border-border">
                         {user.courses.map((c) => {
                           const isDetailOpen = expandedKey === `${user.user_id}|${c.course_id}`;
-                          const pct = c.video_total > 0
-                            ? Math.round((c.video_completed / c.video_total) * 100)
-                            : c.exam_passed ? 100 : 0;
-                          const isDone = (c.video_total > 0 && c.video_completed >= c.video_total) && c.exam_passed;
+                          const cVideoPct = c.has_exam
+                            ? (c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 80) : 0)
+                            : (c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 100) : 0);
+                          const cExamPct = c.has_exam && c.exam_passed ? 20 : 0;
+                          const cPct = cVideoPct + cExamPct;
+                          const isDone = (c.video_total > 0 && c.video_completed >= c.video_total) && (!c.has_exam || c.exam_passed);
 
                           let statusLabel = "";
                           let statusClass = "";
@@ -465,13 +474,17 @@ export default function UserProgress() {
                               <div className="flex items-center gap-3 py-2 border-t border-border/50">
                                 <span className="text-sm flex-1 min-w-0 truncate">{c.course_title}</span>
                                 <div className="flex items-center gap-2 shrink-0">
-                                  <div className="w-24 bg-bg-layout rounded-full h-1.5">
-                                    <div
-                                      className="h-1.5 rounded-full bg-primary"
-                                      style={{ width: `${pct}%` }}
-                                    />
-                                  </div>
-                                  <span className="text-xs text-primary w-8 text-right">{pct}%</span>
+                                  {c.has_exam ? (
+                                    <div className="flex w-24 bg-bg-layout rounded-full h-1.5 overflow-hidden">
+                                      <div className="bg-primary transition-all" style={{ width: `${cVideoPct}%` }} />
+                                      {cExamPct > 0 && <div className="bg-[#4CAF50] transition-all" style={{ width: `${cExamPct}%` }} />}
+                                    </div>
+                                  ) : (
+                                    <div className="w-24 bg-bg-layout rounded-full h-1.5">
+                                      <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${cPct}%` }} />
+                                    </div>
+                                  )}
+                                  <span className="text-xs text-primary w-8 text-right">{cPct}%</span>
                                 </div>
                                 <span className={`text-xs shrink-0 w-20 text-right ${statusClass}`}>
                                   {statusLabel}

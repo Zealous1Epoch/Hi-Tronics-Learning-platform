@@ -30,6 +30,7 @@ interface UserItem {
 }
 interface DeptItem {
   id: string; name: string;
+  parent_id: string | null;
   children?: DeptItem[];
 }
 interface PendingFile {
@@ -117,6 +118,7 @@ export default function CourseManage() {
   const [userSearch, setUserSearch] = useState("");
   const [deptSearch, setDeptSearch] = useState("");
   const [activeDeptId, setActiveDeptId] = useState<string | null>(null);
+  const [expandedDeptIds, setExpandedDeptIds] = useState<Set<string>>(new Set());
 
   // 编辑弹窗内分配
   const [editAssignUsers, setEditAssignUsers] = useState<UserItem[]>([]);
@@ -126,6 +128,7 @@ export default function CourseManage() {
   const [editUserSearch, setEditUserSearch] = useState("");
   const [editDeptSearch, setEditDeptSearch] = useState("");
   const [editActiveDeptId, setEditActiveDeptId] = useState<string | null>(null);
+  const [editExpandedDeptIds, setEditExpandedDeptIds] = useState<Set<string>>(new Set());
   const editExistingAssignments = useRef<{ user_ids: string[]; department_ids: string[] }>({ user_ids: [], department_ids: [] });
 
   const fetchData = async () => {
@@ -145,6 +148,24 @@ export default function CourseManage() {
   // 树操作
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // 分配弹窗 - 部门树展开/折叠
+  const toggleDeptExpand = (id: string) => {
+    setExpandedDeptIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // 编辑弹窗 - 部门树展开/折叠
+  const toggleEditDeptExpand = (id: string) => {
+    setEditExpandedDeptIds(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
@@ -234,16 +255,17 @@ export default function CourseManage() {
     setShowCategoryDropdown(false);
     const [users, depts] = await Promise.all([
       api<UserItem[]>("/users"),
-      api<DeptItem[]>("/departments?flat=true"),
+      api<DeptItem[]>("/departments"),
     ]);
     editExistingAssignments.current = { user_ids: [], department_ids: [] };
     setEditAssignUsers(users);
-    setEditAssignDepts(flattenDepts(depts));
+    setEditAssignDepts(depts);
     setEditSelectedUsers(new Set());
     setEditSelectedDepts(new Set());
     setEditUserSearch("");
     setEditDeptSearch("");
     setEditActiveDeptId(null);
+    setEditExpandedDeptIds(new Set());
     setShowEditModal(true);
   };
 
@@ -251,7 +273,7 @@ export default function CourseManage() {
     const [detail, users, depts, assignments] = await Promise.all([
       api<CourseDetail>(`/courses/${courseId}`),
       api<UserItem[]>("/users"),
-      api<DeptItem[]>("/departments?flat=true"),
+      api<DeptItem[]>("/departments"),
       api<{ users: UserItem[]; departments: DeptItem[] }>(`/courses/${courseId}/assignments`),
     ]);
     setEditingCourse(detail);
@@ -262,7 +284,7 @@ export default function CourseManage() {
     setEditVideos(detail.videos);
     setPendingFiles([]);
     setEditAssignUsers(users);
-    setEditAssignDepts(flattenDepts(depts));
+    setEditAssignDepts(depts);
     editExistingAssignments.current = {
       user_ids: assignments.users.map(u => u.id),
       department_ids: assignments.departments.map(d => d.id),
@@ -386,11 +408,11 @@ export default function CourseManage() {
     setAssigningTitle(course.title);
     const [users, depts, assignments] = await Promise.all([
       api<UserItem[]>("/users"),
-      api<DeptItem[]>("/departments?flat=true"),
+      api<DeptItem[]>("/departments"),
       api<{ users: UserItem[]; departments: DeptItem[] }>(`/courses/${course.id}/assignments`),
     ]);
     setAllUsers(users);
-    setAllDepts(flattenDepts(depts));
+    setAllDepts(depts);
     setAssignedUsers(assignments.users);
     setAssignedDepts(assignments.departments);
     setSelectedUsers(new Set());
@@ -398,15 +420,58 @@ export default function CourseManage() {
     setUserSearch("");
     setDeptSearch("");
     setActiveDeptId(null);
+    setExpandedDeptIds(new Set());
     setShowAssignModal(true);
   };
 
-  const flattenDepts = (depts: DeptItem[]): DeptItem[] => {
-    return depts.flatMap(d => [
-      { id: d.id, name: d.name },
-      ...flattenDepts(d.children || []),
-    ]);
+  // 在部门树中按 ID 查找节点
+  const findDeptNode = (nodes: DeptItem[], id: string): DeptItem | null => {
+    for (const node of nodes) {
+      if (node.id === id) return node;
+      if (node.children) {
+        const found = findDeptNode(node.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
   };
+
+  // 收集节点及其所有后代的部门名称
+  const collectDescendantNames = (node: DeptItem): string[] => {
+    const names = [node.name];
+    for (const child of node.children || []) {
+      names.push(...collectDescendantNames(child));
+    }
+    return names;
+  };
+
+  // 按部门名称在树中查找节点（兼容路径格式，如 "行政人事部-人事部" 中的 "人事部"）
+  const findDeptByName = (nodes: DeptItem[], name: string | null): DeptItem | null => {
+    if (!name) return null;
+    for (const node of nodes) {
+      if (node.name === name) return node;
+      if (node.children) {
+        const found = findDeptByName(node.children, name);
+        if (found) return found;
+      }
+    }
+    // 兼容路径格式：用户的 department 可能是 "行政人事部-人事部"，匹配叶子名 "人事部"
+    const parts = name.split("-");
+    for (const part of parts) {
+      for (const node of nodes) {
+        if (node.name === part) return node;
+        if (node.children) {
+          const found = findDeptByName(node.children, part);
+          if (found) return found;
+        }
+      }
+    }
+    return null;
+  };
+
+  // 匹配部门：精确匹配 或 路径分段匹配（如 "行政人事部-人事部" 匹配 "行政人事部" 或 "人事部"）
+  const matchDept = (userDept: string | null, deptName: string) =>
+    userDept === deptName || (userDept || "").split("-").includes(deptName);
 
   const handleAssign = async () => {
     if (!assigningCourseId) return;
@@ -431,7 +496,7 @@ export default function CourseManage() {
     } else {
       body.department_ids = [targetId];
       // 移除部门时，同时清理该部门下的用户分配（避免孤儿记录）
-      const deptName = allDepts.find(d => d.id === targetId)?.name;
+      const deptName = findDeptNode(allDepts, targetId)?.name;
       if (deptName) {
         body.user_ids = assignedUsers.filter(u => u.department === deptName).map(u => u.id);
       }
@@ -939,34 +1004,52 @@ export default function CourseManage() {
                       className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5"
                     />
                     <div className="max-h-28 overflow-y-auto space-y-0.5">
-                      {editAssignDepts.filter(d => d.name.includes(editDeptSearch)).map(d => {
-                        const isActive = editActiveDeptId === d.id;
-                        return (
-                          <div key={d.id} className={`flex items-center gap-1.5 py-0.5 px-1 rounded text-xs ${
-                            isActive ? "bg-primary/10" : "hover:bg-bg-layout"
-                          }`}>
-                            <input
-                              type="checkbox"
-                              checked={editSelectedDepts.has(d.id)}
-                              onChange={() => {
-                                const nextDepts = new Set(editSelectedDepts);
-                                if (nextDepts.has(d.id)) {
-                                  nextDepts.delete(d.id);
-                                } else {
-                                  nextDepts.add(d.id);
-                                }
-                                setEditSelectedDepts(nextDepts);
-                              }}
-                            />
-                            <span
-                              className="truncate flex-1 cursor-pointer"
-                              onClick={() => setEditActiveDeptId(isActive ? null : d.id)}
-                            >
-                              {d.name}
-                            </span>
-                          </div>
-                        );
-                      })}
+                      {(() => {
+                        // 过滤树：保留匹配节点及其祖先
+                        const filterTree = (nodes: DeptItem[], term: string): DeptItem[] => {
+                          if (!term) return nodes;
+                          const lower = term.toLowerCase();
+                          const result: DeptItem[] = [];
+                          for (const node of nodes) {
+                            const filteredChildren = node.children ? filterTree(node.children, term) : [];
+                            if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
+                              result.push({ ...node, children: filteredChildren });
+                            }
+                          }
+                          return result;
+                        };
+                        const filteredTree = filterTree(editAssignDepts, editDeptSearch);
+                        const renderNode = (nodes: DeptItem[], depth: number): React.ReactNode[] =>
+                          nodes.map(node => {
+                            const hasChildren = (node.children || []).length > 0;
+                            const isExpanded = editExpandedDeptIds.has(node.id);
+                            const isActive = editActiveDeptId === node.id;
+                            return (
+                              <div key={node.id}>
+                                <div className={`flex items-center gap-1.5 py-0.5 px-1 rounded text-xs ${isActive ? "bg-primary/10" : "hover:bg-bg-layout"}`}
+                                  style={{ paddingLeft: `${4 + depth * 14}px` }}>
+                                  {hasChildren ? (
+                                    <button onClick={(e) => { e.stopPropagation(); toggleEditDeptExpand(node.id); }} className="text-text-secondary shrink-0">
+                                      {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                                    </button>
+                                  ) : (
+                                    <span className="w-2.5 shrink-0" />
+                                  )}
+                                  <input type="checkbox" checked={editSelectedDepts.has(node.id)} onChange={() => {
+                                    const next = new Set(editSelectedDepts);
+                                    next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+                                    setEditSelectedDepts(next);
+                                  }} className="shrink-0" />
+                                  <span className="truncate flex-1 cursor-pointer" onClick={() => setEditActiveDeptId(isActive ? null : node.id)}>
+                                    {node.name}
+                                  </span>
+                                </div>
+                                {isExpanded && hasChildren && renderNode(node.children!, depth + 1)}
+                              </div>
+                            );
+                          });
+                        return renderNode(filteredTree, 0);
+                      })()}
                     </div>
                   </div>
                   {/* 学员 */}
@@ -978,9 +1061,11 @@ export default function CourseManage() {
                     />
                     <div className="max-h-28 overflow-y-auto space-y-0.5">
                       {(() => {
-                        const activeDept = editActiveDeptId ? editAssignDepts.find(d => d.id === editActiveDeptId) : null;
+                        const activeDept = editActiveDeptId ? findDeptNode(editAssignDepts, editActiveDeptId) : null;
+                        // 收集该部门及其所有子部门的名称，用于匹配用户
+                        const activeDeptNames = activeDept ? collectDescendantNames(activeDept) : [];
                         const filtered = editAssignUsers.filter(u => {
-                          if (activeDept && u.department !== activeDept.name) return false;
+                          if (activeDeptNames.length > 0 && !activeDeptNames.some(name => matchDept(u.department, name))) return false;
                           if (editUserSearch && !u.name.includes(editUserSearch) && !(u.department && u.department.includes(editUserSearch))) return false;
                           return true;
                         });
@@ -1031,7 +1116,7 @@ export default function CourseManage() {
                 {(editSelectedDepts.size > 0 || editSelectedUsers.size > 0) && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {[...editSelectedDepts].map(id => {
-                      const d = editAssignDepts.find(dep => dep.id === id);
+                      const d = findDeptNode(editAssignDepts, id);
                       return d ? (
                         <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
                           {d.name}（部门）
@@ -1039,7 +1124,7 @@ export default function CourseManage() {
                       ) : null;
                     })}
                     {editAssignUsers.filter(u => editSelectedUsers.has(u.id) && !editSelectedDepts.has(
-                      editAssignDepts.find(d => d.name === u.department)?.id || ""
+                      findDeptByName(editAssignDepts, u.department)?.id || ""
                     )).map(u => (
                       <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">
                         {u.name}
@@ -1199,35 +1284,53 @@ export default function CourseManage() {
                     value={deptSearch} onChange={e => setDeptSearch(e.target.value)}
                     className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2"
                   />
-                  <div className="max-h-52 overflow-y-auto space-y-1 mb-2">
-                    {allDepts.filter(d => d.name.includes(deptSearch)).map(d => {
-                      const isActive = activeDeptId === d.id;
-                      return (
-                        <div key={d.id} className={`flex items-center gap-2 py-1 px-2 rounded text-sm ${
-                          isActive ? "bg-primary/10" : "hover:bg-bg-layout"
-                        }`}>
-                          <input
-                            type="checkbox"
-                            checked={selectedDepts.has(d.id)}
-                            onChange={() => {
-                              const nextDepts = new Set(selectedDepts);
-                              if (nextDepts.has(d.id)) {
-                                nextDepts.delete(d.id);
-                              } else {
-                                nextDepts.add(d.id);
-                              }
-                              setSelectedDepts(nextDepts);
-                            }}
-                          />
-                          <span
-                            className="flex-1 cursor-pointer"
-                            onClick={() => setActiveDeptId(isActive ? null : d.id)}
-                          >
-                            {d.name}
-                          </span>
-                        </div>
-                      );
-                    })}
+                  <div className="max-h-52 overflow-y-auto space-y-0.5 mb-2">
+                    {(() => {
+                      // 过滤树：保留匹配节点及其祖先
+                      const filterTree = (nodes: DeptItem[], term: string): DeptItem[] => {
+                        if (!term) return nodes;
+                        const lower = term.toLowerCase();
+                        const result: DeptItem[] = [];
+                        for (const node of nodes) {
+                          const filteredChildren = node.children ? filterTree(node.children, term) : [];
+                          if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
+                            result.push({ ...node, children: filteredChildren });
+                          }
+                        }
+                        return result;
+                      };
+                      const filteredTree = filterTree(allDepts, deptSearch);
+                      const renderNode = (nodes: DeptItem[], depth: number): React.ReactNode[] =>
+                        nodes.map(node => {
+                          const hasChildren = (node.children || []).length > 0;
+                          const isExpanded = expandedDeptIds.has(node.id);
+                          const isActive = activeDeptId === node.id;
+                          return (
+                            <div key={node.id}>
+                              <div className={`flex items-center gap-2 py-1 px-2 rounded text-sm ${isActive ? "bg-primary/10" : "hover:bg-bg-layout"}`}
+                                style={{ paddingLeft: `${8 + depth * 16}px` }}>
+                                {hasChildren ? (
+                                  <button onClick={(e) => { e.stopPropagation(); toggleDeptExpand(node.id); }} className="text-text-secondary shrink-0">
+                                    {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                  </button>
+                                ) : (
+                                  <span className="w-3 shrink-0" />
+                                )}
+                                <input type="checkbox" checked={selectedDepts.has(node.id)} onChange={() => {
+                                  const next = new Set(selectedDepts);
+                                  next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+                                  setSelectedDepts(next);
+                                }} className="shrink-0" />
+                                <span className="flex-1 cursor-pointer truncate" onClick={() => setActiveDeptId(isActive ? null : node.id)}>
+                                  {node.name}
+                                </span>
+                              </div>
+                              {isExpanded && hasChildren && renderNode(node.children!, depth + 1)}
+                            </div>
+                          );
+                        });
+                      return renderNode(filteredTree, 0);
+                    })()}
                   </div>
                 </div>
 
@@ -1237,7 +1340,7 @@ export default function CourseManage() {
                     选择学员
                     {activeDeptId && (
                       <span className="text-text-secondary font-normal ml-1">
-                        ({allDepts.find(d => d.id === activeDeptId)?.name || ""})
+                        ({findDeptNode(allDepts, activeDeptId)?.name || ""})
                       </span>
                     )}
                   </h4>
@@ -1248,9 +1351,11 @@ export default function CourseManage() {
                   />
                   <div className="max-h-52 overflow-y-auto space-y-1 mb-2">
                     {(() => {
-                      const activeDept = activeDeptId ? allDepts.find(d => d.id === activeDeptId) : null;
+                      const activeDept = activeDeptId ? findDeptNode(allDepts, activeDeptId) : null;
+                      // 收集该部门及其所有子部门的名称，用于匹配用户
+                      const activeDeptNames = activeDept ? collectDescendantNames(activeDept) : [];
                       const filtered = allUsers.filter(u => {
-                        if (activeDept && u.department !== activeDept.name) return false;
+                        if (activeDeptNames.length > 0 && !activeDeptNames.some(name => matchDept(u.department, name))) return false;
                         if (userSearch && !u.name.includes(userSearch) && !(u.department && u.department.includes(userSearch))) return false;
                         return true;
                       });
@@ -1306,7 +1411,7 @@ export default function CourseManage() {
               {(selectedDepts.size > 0 || selectedUsers.size > 0) && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {[...selectedDepts].map(id => {
-                    const d = allDepts.find(dep => dep.id === id);
+                    const d = findDeptNode(allDepts, id);
                     return d ? (
                       <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
                         {d.name}（部门）
@@ -1314,7 +1419,7 @@ export default function CourseManage() {
                     ) : null;
                   })}
                   {allUsers.filter(u => selectedUsers.has(u.id) && !selectedDepts.has(
-                    allDepts.find(d => d.name === u.department)?.id || ""
+                    findDeptByName(allDepts, u.department)?.id || ""
                   )).map(u => (
                     <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">
                       {u.name}

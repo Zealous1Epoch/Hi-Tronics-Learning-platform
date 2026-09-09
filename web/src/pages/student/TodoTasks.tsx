@@ -13,6 +13,7 @@ interface ActiveCourse {
   completed_count: number;
   total_count: number;
   exam_passed: boolean;
+  has_exam: boolean;
 }
 
 interface OverviewResponse {
@@ -23,10 +24,11 @@ interface OverviewResponse {
 // ── 课程卡片 ──
 
 function CourseCard({ course }: { course: ActiveCourse }) {
-  const pct =
-    course.total_count > 0
-      ? Math.round((course.completed_count / course.total_count) * 100)
-      : 0;
+  const videoPct = course.has_exam
+    ? (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 80) : 0)
+    : (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 100) : 0);
+  const examPct = course.has_exam && course.exam_passed ? 20 : 0;
+  const totalPct = videoPct + examPct;
 
   return (
     <Link
@@ -47,13 +49,17 @@ function CourseCard({ course }: { course: ActiveCourse }) {
         </p>
       )}
       <div className="flex items-center gap-2">
-        <div className="flex-1 bg-bg-layout rounded-full h-2 border border-border">
-          <div
-            className="h-2 rounded-full transition-all bg-primary"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <span className="text-xs text-primary shrink-0">进度：{pct}%</span>
+        {course.has_exam ? (
+          <div className="flex flex-1 bg-bg-layout rounded-full h-2 border border-border overflow-hidden">
+            <div className="bg-primary transition-all" style={{ width: `${videoPct}%` }} />
+            {examPct > 0 && <div className="bg-[#4CAF50] transition-all" style={{ width: `${examPct}%` }} />}
+          </div>
+        ) : (
+          <div className="flex-1 bg-bg-layout rounded-full h-2 border border-border">
+            <div className="h-2 rounded-full transition-all bg-primary" style={{ width: `${totalPct}%` }} />
+          </div>
+        )}
+        <span className="text-xs text-primary shrink-0">进度：{totalPct}%</span>
       </div>
     </Link>
   );

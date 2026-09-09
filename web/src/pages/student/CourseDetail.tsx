@@ -18,6 +18,8 @@ interface CourseProgress {
   video_progress: Record<string, { watched_seconds: number; total_seconds: number; completed: boolean }>;
   completed_count: number;
   total_count: number;
+  exam_passed: boolean;
+  has_exam: boolean;
 }
 interface ExamResultItem {
   id: string; score: number; passed: boolean;
@@ -34,31 +36,36 @@ export default function CourseDetail() {
   const [progress, setProgress] = useState<CourseProgress | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const [currentVideoWatched, setCurrentVideoWatched] = useState(false);
+  const [currentWatchSec, setCurrentWatchSec] = useState(0);
+  const [currentTotalSec, setCurrentTotalSec] = useState(0);
   const mountedRef = useRef(true);
+  const genRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
+    const gen = ++genRef.current;
+
     api<CourseDetail>(`/courses/${id}`).then(async (data) => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || gen !== genRef.current) return;
       setCourse(data);
       // 获取视频进度（用于考试解锁判断）
       api<CourseProgress>(`/student/progress/${id}`).then((p) => {
-        if (mountedRef.current) setProgress(p);
+        if (mountedRef.current && gen === genRef.current) setProgress(p);
       }).catch(() => {});
       // 检查考试状态
       if (data.exam_id) {
         try {
           const exam = await api<ExamInfo>(`/student/exams/${data.exam_id}/status`);
-          if (mountedRef.current) setExamStatus(exam.status);
+          if (mountedRef.current && gen === genRef.current) setExamStatus(exam.status);
         } catch {
-          if (mountedRef.current) setExamStatus(null);
+          if (mountedRef.current && gen === genRef.current) setExamStatus(null);
         }
         // 获取考试记录
         api<ExamResultItem[]>(`/student/exams/${data.exam_id}/results`).then((r) => {
-          if (mountedRef.current) setExamResults(r);
+          if (mountedRef.current && gen === genRef.current) setExamResults(r);
         }).catch(() => {});
       }
-      setLoading(false);
+      if (gen === genRef.current) setLoading(false);
     });
 
     return () => { mountedRef.current = false; };
@@ -97,6 +104,8 @@ export default function CourseDetail() {
   const examEnabled = currentVideoWatched || isCurrentVideoCompleted;
 
   const handleProgress = (seconds: number, duration: number) => {
+    setCurrentWatchSec(seconds);
+    setCurrentTotalSec(duration);
     if (!activeVideo) return;
     // 优先用播放器实测时长，videos 表的 duration 可能为空
     const total = duration > 0 ? duration : (activeVideo.duration || 0);
@@ -120,9 +129,49 @@ export default function CourseDetail() {
       .catch(() => {});
   };
 
+  // 计算课程整体进度（80%视频 + 20%考试）
+  const totalVideos = course.videos.length;
+  const hasExam = progress?.has_exam ?? (course.exam_id != null);
+  const videoWeight = hasExam ? 80 : 100;
+  const perVideoWeight = totalVideos > 0 ? videoWeight / totalVideos : 0;
+  const isActiveDone = isCurrentVideoCompleted || currentVideoWatched;
+
+  let videoProgress: number;
+  if (totalVideos === 0) {
+    videoProgress = 0;
+  } else if (isActiveDone) {
+    // 当前视频已看完，直接用服务器返回的完成数
+    videoProgress = (progress?.completed_count || 0) * perVideoWeight;
+  } else {
+    // 当前视频正在观看，用服务器完成数 + 当前视频的局部进度
+    const ratio = currentTotalSec > 0 ? Math.min(currentWatchSec / currentTotalSec, 1) : 0;
+    videoProgress = ((progress?.completed_count || 0) + ratio) * perVideoWeight;
+  }
+  const examProgress = hasExam && progress?.exam_passed ? 20 : 0;
+  const totalProgress = Math.round(videoProgress + examProgress);
+
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">{course.title}</h2>
+
+      {/* 课程整体进度条 */}
+      <div className="mb-3 px-1">
+        <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
+          <span>课程进度</span>
+          <span className="text-primary font-medium">{totalProgress || 0}%</span>
+        </div>
+        {hasExam ? (
+          <div className="flex w-full bg-bg-layout rounded-full h-1.5 overflow-hidden">
+            <div className="bg-primary transition-all" style={{ width: `${videoProgress || 0}%` }} />
+            {examProgress > 0 && <div className="bg-[#4CAF50] transition-all" style={{ width: `${examProgress}%` }} />}
+          </div>
+        ) : (
+          <div className="w-full bg-bg-layout rounded-full h-1.5">
+            <div className="h-1.5 rounded-full transition-all bg-primary" style={{ width: `${totalProgress || 0}%` }} />
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-4">
         {/* 播放器 */}
         <div className="flex-1 min-w-0">

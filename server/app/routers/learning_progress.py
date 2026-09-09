@@ -176,6 +176,7 @@ def get_course_progress(
         "completed_count": sum(1 for r in records if r.completed),
         "total_count": total_video_count,  # 使用课程实际视频数
         "exam_passed": exam_passed,
+        "has_exam": course.exam_id is not None if course else False,
     }
 
 
@@ -276,6 +277,7 @@ def get_courses_with_progress(
             "completed_count": completed_count,
             "total_count": total_videos,
             "exam_passed": exam_passed,
+            "has_exam": c.exam_id is not None,
         })
     return result
 
@@ -585,6 +587,7 @@ def admin_progress_overview(
                 "video_completed": completed,
                 "video_total": video_count,
                 "exam_passed": exam_info.get("passed", False),
+                "has_exam": c.exam_id is not None,
                 "exam_best_score": exam_info.get("best_score"),
                 "exam_attempts": exam_info.get("attempts", 0),
             })
@@ -725,7 +728,13 @@ def admin_progress_export(
                 continue
             completed = user_video_progress.get(student.id, {}).get(cid, 0)
             exam_info = user_exam_info.get(student.id, {}).get(cid, {})
-            pct = round(completed / video_count * 100) if video_count > 0 else (100 if exam_info.get("passed") else 0)
+            has_exam = c.exam_id is not None
+            if has_exam:
+                video_pct = round(completed / video_count * 80) if video_count > 0 else 0
+                exam_pct = 20 if exam_info.get("passed") else 0
+                pct = video_pct + exam_pct
+            else:
+                pct = round(completed / video_count * 100) if video_count > 0 else (100 if exam_info.get("passed") else 0)
             exam_passed = exam_info.get("passed", False)
             exam_score = exam_info.get("best_score")
             exam_attempts = exam_info.get("attempts", 0)

@@ -85,6 +85,7 @@ def get_tasks_overview(
     from app.models.course import Course, CourseAssignment, Video
     from app.models.learning_progress import LearningProgress
     from app.models.department import Department
+    from app.models.exam import Exam, ExamResult
     from sqlalchemy import or_, and_, and_, func
 
     today = date.today()
@@ -188,11 +189,30 @@ def get_tasks_overview(
             .all()
         )
 
+        # 批量查询考试结果（避免 N+1）
+        course_exam_map: dict[str, str] = {c.id: c.exam_id for c in course_rows if c.exam_id}
+        exam_passed_map: dict[str, bool] = {}
+        if course_exam_map:
+            passed_exams = (
+                db.query(ExamResult)
+                .filter(
+                    ExamResult.exam_id.in_(course_exam_map.values()),
+                    ExamResult.user_id == current_user.id,
+                    ExamResult.passed == True,
+                )
+                .all()
+            )
+            passed_exam_ids = set(r.exam_id for r in passed_exams)
+            for cid, eid in course_exam_map.items():
+                exam_passed_map[cid] = eid in passed_exam_ids
+
         for c in course_rows:
             total = video_counts.get(c.id, 0)
             completed = sum(1 for p in progress_by_course.get(c.id, []) if p.completed)
-            # 检查是否已完成（考试通过 + 进度满）
-            if total > 0 and completed >= total:
+            exam_passed = exam_passed_map.get(c.id, False)
+
+            # 检查是否已完成（视频看完 + 无考试或考试通过）
+            if total > 0 and completed >= total and (not c.exam_id or exam_passed):
                 continue  # 已完成的课程不展示
 
             course_dict = {
@@ -203,7 +223,8 @@ def get_tasks_overview(
                 "end_date": c.end_date.isoformat() if c.end_date else None,
                 "completed_count": completed,
                 "total_count": total,
-                "exam_passed": False,
+                "exam_passed": exam_passed,
+                "has_exam": c.exam_id is not None,
             }
 
             # 3天内到期 → 即将到期
@@ -261,6 +282,7 @@ def get_daily_plan(
     from app.models.course import Course, CourseAssignment
     from app.models.learning_progress import LearningProgress
     from app.models.department import Department
+    from app.models.exam import ExamResult
     from sqlalchemy import or_, and_
 
     # 1. 个人任务
@@ -347,6 +369,23 @@ def get_daily_plan(
             .all()
         )
 
+        # 批量查询考试结果
+        course_exam_map: dict[str, str] = {c.id: c.exam_id for c in course_rows if c.exam_id}
+        exam_passed_map: dict[str, bool] = {}
+        if course_exam_map:
+            passed_exams = (
+                db.query(ExamResult)
+                .filter(
+                    ExamResult.exam_id.in_(course_exam_map.values()),
+                    ExamResult.user_id == current_user.id,
+                    ExamResult.passed == True,
+                )
+                .all()
+            )
+            passed_exam_ids = set(r.exam_id for r in passed_exams)
+            for cid, eid in course_exam_map.items():
+                exam_passed_map[cid] = eid in passed_exam_ids
+
         courses = [
             {
                 "id": c.id,
@@ -356,6 +395,8 @@ def get_daily_plan(
                 "end_date": c.end_date.isoformat() if c.end_date else None,
                 "completed_count": sum(1 for p in progress_by_course.get(c.id, []) if p.completed),
                 "total_count": video_counts.get(c.id, 0),
+                "exam_passed": exam_passed_map.get(c.id, False),
+                "has_exam": c.exam_id is not None,
             }
             for c in course_rows
         ]

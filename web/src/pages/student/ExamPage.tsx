@@ -201,13 +201,19 @@ export default function ExamPage() {
     return String(answer);
   };
 
+  // 从 correct_answer JSON 中提取值，兼容 {"answer": ...} 和 {"correct": ...} 两种 key
+  const getCorrectVal = (ca: Record<string, any> | null) =>
+    ca ? (ca.answer ?? ca.correct) : undefined;
+
   const formatCorrectAnswer = (q: ReviewQuestion): string => {
     const opts = q.options;
+    const ca = q.correct_answer as Record<string, any> | null;
     if (q.type === 'true_false') {
-      return q.correct_answer?.answer ? '正确' : '错误';
+      const val = getCorrectVal(ca);
+      return val === true || val === 'true' ? '正确' : '错误';
     }
     if (q.type === 'single_choice') {
-      const ans = q.correct_answer?.answer;
+      const ans = getCorrectVal(ca);
       if (ans === null || ans === undefined) return '';
       if (typeof ans === 'string') {
         if (opts) {
@@ -216,24 +222,18 @@ export default function ExamPage() {
         }
         return ans;
       }
-      if (typeof ans === 'object') {
-        const correctKeys = Object.entries(ans)
-          .filter(([, v]) => v)
-          .map(([k]) => k);
-        if (opts) {
-          return correctKeys.map(k => {
-            const optText = opts[k];
-            return optText ? `${k}. ${optText}` : k;
-          }).join('、');
-        }
-        return correctKeys.join('、');
-      }
       return String(ans);
     }
     if (q.type === 'multi_choice') {
-      const correctKeys = Object.entries(q.correct_answer || {})
-        .filter(([, v]) => v)
-        .map(([k]) => k);
+      // 兼容两种格式：{"correct": ["A", "B"]} 或 {"A": True, "B": False, ...}
+      let correctKeys: string[];
+      if (ca && Array.isArray(ca.correct)) {
+        correctKeys = ca.correct;
+      } else {
+        correctKeys = Object.entries(ca || {})
+          .filter(([, v]) => v)
+          .map(([k]) => k);
+      }
       if (opts) {
         return correctKeys.map(k => {
           const optText = opts[k];
@@ -242,7 +242,7 @@ export default function ExamPage() {
       }
       return correctKeys.join('、');
     }
-    if (q.type === 'fill_blank') return String(q.correct_answer?.answer ?? '');
+    if (q.type === 'fill_blank') return String(getCorrectVal(ca) ?? '');
     if (q.type === 'essay') {
       const kws = q.keywords || [];
       return kws.length ? `关键词：${kws.join('、')}` : '（关键词评分）';

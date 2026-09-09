@@ -3,6 +3,7 @@
 import uuid
 import secrets
 from datetime import datetime
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -26,25 +27,45 @@ class SubmitRequest(BaseModel):
     answers: list[SubmitAnswer]
 
 
-def grade_question(question: Question, student_answer: str | list[str] | bool | None, total_points: int = 10) -> tuple[int, int]:
-    """自动打分，返回 (得分, 满分)
-    total_points: 该题在试卷中的配置分数（用于 essay 按关键词拆分）
+def _get_answer_value(correct: dict) -> Any:
+    """从正确答案 JSON 中提取值，兼容 {"answer": ...} 和 {"correct": ...} 两种 key"""
+    if not isinstance(correct, dict):
+        return None
+    return correct.get("answer") if "answer" in correct else correct.get("correct")
+
+
+def _get_multi_correct_list(correct: dict) -> list[str] | None:
+    """从多选题正确答案中提取选项列表，兼容两种格式：
+    A) {"A": True, "B": False, "C": True} → ["A", "C"]
+    B) {"correct": ["A", "C"]} → ["A", "C"]
     """
+    if not isinstance(correct, dict):
+        return None
+    # 格式 B：{"correct": ["A", "B"]}
+    if "correct" in correct and isinstance(correct["correct"], list):
+        return sorted(correct["correct"])
+    # 格式 A：{"A": True, "B": False, ...}
+    return sorted([k for k, v in correct.items() if v])
+
+
+def grade_question(question: Question, student_answer: str | list[str] | bool | None, total_points: int = 10) -> tuple[int, int]:
+    """自动打分，返回 (得分, 满分)"""
     q_type = question.type
     correct = question.answer
 
     if q_type == "single_choice":
         full_score = 10
         if student_answer and isinstance(correct, dict):
-            correct_answer = correct.get("answer")
+            correct_answer = _get_answer_value(correct)
             return (full_score if correct_answer is not None and str(student_answer) == str(correct_answer) else 0, full_score)
         return (0, full_score)
 
     elif q_type == "multi_choice":
         full_score = 10
         if student_answer and isinstance(correct, dict):
-            # 格式：{"A": True, "B": True, ...}，提取值为 True 的 key
-            correct_list = sorted([k for k, v in correct.items() if v])
+            correct_list = _get_multi_correct_list(correct)
+            if correct_list is None:
+                return (0, full_score)
             student_list = sorted(student_answer) if isinstance(student_answer, list) else []
             return (full_score if correct_list == student_list else 0, full_score)
         return (0, full_score)
@@ -53,14 +74,14 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
         full_score = 10
         if student_answer is not None and isinstance(correct, dict):
             student_bool = student_answer if isinstance(student_answer, bool) else str(student_answer).lower() == "true"
-            correct_answer = correct.get("answer")
+            correct_answer = _get_answer_value(correct)
             return (full_score if correct_answer is not None and student_bool == correct_answer else 0, full_score)
         return (0, full_score)
 
     elif q_type == "fill_blank":
         full_score = 10
         if student_answer and isinstance(correct, dict):
-            correct_answer = correct.get("answer")
+            correct_answer = _get_answer_value(correct)
             return (full_score if correct_answer is not None and str(student_answer).strip().lower() == str(correct_answer).strip().lower() else 0, full_score)
         return (0, full_score)
 
@@ -68,11 +89,9 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
         full_score = total_points
         keywords: list[str] = question.keywords or []
         if not keywords:
-            return (0, full_score)  # 无关键词无法自动评分，需人工批阅
+            return (0, full_score)
         if not student_answer:
             return (0, full_score)
-        # 兼容旧数据：关键词可能存为 ["关键词1，关键词2"]（单元素含逗号）
-        # 按逗号展开后去重
         import re
         expanded = []
         for kw in keywords:
@@ -84,7 +103,6 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
             return (0, full_score)
         answer_lower = str(student_answer).lower()
         matched = sum(1 for kw in expanded if kw.lower() in answer_lower)
-        # 每命中一个关键词得 floor(总分 / 关键词数)，向下去整
         per_keyword = full_score // len(expanded)
         score = matched * per_keyword
         return (score, full_score)

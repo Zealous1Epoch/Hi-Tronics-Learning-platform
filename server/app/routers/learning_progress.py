@@ -40,7 +40,8 @@ def _get_user_dept_id(user: User, db: Session) -> str | None:
     """根据用户 department 名称查找部门 ID"""
     if not user.department:
         return None
-    dept = db.query(Department).filter(Department.name == user.department).first()
+    _dept = user.department.split("-")[-1]  # 从完整路径中取叶子名
+    dept = db.query(Department).filter(Department.name == _dept).first()
     return dept.id if dept else None
 
 

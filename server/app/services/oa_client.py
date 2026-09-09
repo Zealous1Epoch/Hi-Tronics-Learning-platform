@@ -12,6 +12,14 @@ from app.logger import get_logger
 
 logger = get_logger(__name__)
 
+# 已知部门路径映射（id -> 完整路径，OA 管理员加上 supdepid 后可删除）
+DEPARTMENT_PATH_MAP: dict[str, str] = {
+    "287": "行政人事部-人事部",
+    "628": "IT部-实施组",
+    "629": "IT部-开发组",
+    "630": "IT部-硬件网络组",
+}
+
 
 class OAEmployeeInfo(TypedDict, total=False):
     workcode: str
@@ -125,6 +133,11 @@ async def fetch_full_department_path(department_id: str, operator: str | None = 
         department_id: 部门 ID
         operator: 操作员工号，传有效工号避免 OA 的 OperatorError
     """
+    # 1. 先查手动映射（OA 管理员加上 supdepid 后可删除此分支）
+    if department_id in DEPARTMENT_PATH_MAP:
+        return DEPARTMENT_PATH_MAP[department_id]
+
+    # 2. 通过 API 递归查询（需要 OA 管理员配置了 supdepid 返回字段）
     parts = []
     seen: set[str] = set()
     current = department_id

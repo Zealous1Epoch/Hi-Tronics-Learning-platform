@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from app.database import get_db
 from app.models.department import Department
 from app.models.user import User
@@ -160,7 +161,11 @@ def get_department_users(
 
     dept_names = [dept.name] + collect_names_in_memory(dept_id)
 
-    q = db.query(User).filter(User.department.in_(dept_names))
+    # 兼容：精确匹配叶子名 / 后缀匹配完整路径（父-子）
+    dept_conditions = [User.department.in_(dept_names)]
+    for name in dept_names:
+        dept_conditions.append(User.department.like(f"%-{name}"))
+    q = db.query(User).filter(or_(*dept_conditions))
     if search:
         q = q.filter(
             User.name.contains(search)

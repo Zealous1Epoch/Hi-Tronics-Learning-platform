@@ -205,7 +205,8 @@ def student_courses(
     # 查找用户所属部门的 ID（user.department 存的是名称，需转换为 ID）
     dept_id = None
     if current_user.department:
-        dept = db.query(Department).filter(Department.name == current_user.department).first()
+        _dept = current_user.department.split("-")[-1]  # 从完整路径中取叶子名
+        dept = db.query(Department).filter(Department.name == _dept).first()
         if dept:
             dept_id = dept.id
 

@@ -122,9 +122,10 @@ def get_tasks_overview(
     else:
         dept_id = None
         if current_user.department:
+            _dept = current_user.department.split("-")[-1]  # 从完整路径中取叶子名
             dept = (
                 db.query(Department)
-                .filter(Department.name == current_user.department)
+                .filter(Department.name == _dept)
                 .first()
             )
             if dept:
@@ -283,7 +284,8 @@ def get_daily_plan(
     else:
         dept_id = None
         if current_user.department:
-            dept = db.query(Department).filter(Department.name == current_user.department).first()
+            _dept = current_user.department.split("-")[-1]
+            dept = db.query(Department).filter(Department.name == _dept).first()
             if dept:
                 dept_id = dept.id
 

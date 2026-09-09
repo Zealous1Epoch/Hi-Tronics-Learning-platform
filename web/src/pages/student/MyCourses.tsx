@@ -118,6 +118,8 @@ function TreeSidebar({
 
 function CourseCard({ course }: { course: CourseWithProgress }) {
   const isDone = (course.total_count > 0 && course.completed_count >= course.total_count) && (!course.has_exam || course.exam_passed);
+  const videosDone = course.total_count > 0 && course.completed_count >= course.total_count;
+  const needExam = course.has_exam && videosDone && !course.exam_passed;
   const videoPct = course.has_exam
     ? (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 80) : 0)
     : (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 100) : 0);
@@ -157,7 +159,8 @@ function CourseCard({ course }: { course: CourseWithProgress }) {
         <p className="text-[11px] text-text-secondary text-right">{course.start_date} ~ {course.end_date}</p>
       )}
       <div className="text-[11px] text-primary">
-        {isDone ? "已完成" : totalPct > 0 ? "继续学习" : "开始学习"}
+        {isDone ? "已完成" : needExam ? "继续考试" : totalPct > 0 ? "继续学习" : "开始学习"}
+        <span className="ml-1 text-text-secondary">({totalPct}%)</span>
       </div>
     </Link>
   );

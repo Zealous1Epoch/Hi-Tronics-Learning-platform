@@ -32,8 +32,8 @@ class ProgressReport(BaseModel):
 
 
 def _is_completed(watched: int, total: int) -> bool:
-    """判断视频是否已看完（100% 才算完成）"""
-    return total > 0 and watched >= total
+    """判断视频是否已看完（>= 95% 即算完成，容忍播放器进度事件误差）"""
+    return total > 0 and watched >= total * 0.95
 
 
 def _get_user_dept_id(user: User, db: Session) -> str | None:

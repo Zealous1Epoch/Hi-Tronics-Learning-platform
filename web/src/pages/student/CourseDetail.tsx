@@ -124,6 +124,21 @@ export default function CourseDetail() {
   // 视频播放结束，当前视频已看完，解锁考试按钮
   const handleVideoEnded = () => {
     setCurrentVideoWatched(true);
+    // 强制发送完成状态到后端（播放器最后一次 onProgress 可能不到 100%）
+    if (activeVideo) {
+      const total = currentTotalSec > 0 ? currentTotalSec : (activeVideo.duration || 0);
+      if (total > 0) {
+        api("/student/progress", {
+          method: "POST",
+          body: JSON.stringify({
+            video_id: activeVideo.id,
+            course_id: course.id,
+            watched_seconds: total,
+            total_seconds: total,
+          }),
+        }).catch(() => {});
+      }
+    }
     api<CourseProgress>(`/student/progress/${course.id}`)
       .then((p) => setProgress(p))
       .catch(() => {});

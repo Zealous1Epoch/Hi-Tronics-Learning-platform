@@ -85,7 +85,7 @@ def get_tasks_overview(
     from app.models.course import Course, CourseAssignment, Video
     from app.models.learning_progress import LearningProgress
     from app.models.department import Department
-    from sqlalchemy import or_, func
+    from sqlalchemy import or_, and_, and_, func
 
     today = date.today()
 
@@ -147,10 +147,20 @@ def get_tasks_overview(
             .filter(
                 Course.id.in_(assigned_course_ids),
                 Course.status == "published",
-                Course.start_date.isnot(None),
-                Course.end_date.isnot(None),
-                Course.start_date <= today,
-                Course.end_date >= today,
+                or_(
+                    # 没有设置时间范围的课程始终在代办中显示
+                    and_(
+                        Course.start_date.is_(None),
+                        Course.end_date.is_(None),
+                    ),
+                    # 设置了时间范围的需在有效期内
+                    and_(
+                        Course.start_date.isnot(None),
+                        Course.end_date.isnot(None),
+                        Course.start_date <= today,
+                        Course.end_date >= today,
+                    ),
+                ),
             )
             .order_by(Course.end_date.asc())
             .all()
@@ -250,7 +260,7 @@ def get_daily_plan(
     from app.models.course import Course, CourseAssignment
     from app.models.learning_progress import LearningProgress
     from app.models.department import Department
-    from sqlalchemy import or_
+    from sqlalchemy import or_, and_
 
     # 1. 个人任务
     tasks = (
@@ -295,10 +305,18 @@ def get_daily_plan(
             .filter(
                 Course.id.in_(assigned_course_ids),
                 Course.status == "published",
-                Course.start_date.isnot(None),
-                Course.end_date.isnot(None),
-                Course.start_date <= date,
-                Course.end_date >= date,
+                or_(
+                    and_(
+                        Course.start_date.is_(None),
+                        Course.end_date.is_(None),
+                    ),
+                    and_(
+                        Course.start_date.isnot(None),
+                        Course.end_date.isnot(None),
+                        Course.start_date <= date,
+                        Course.end_date >= date,
+                    ),
+                ),
             )
             .all()
         )

@@ -12,7 +12,7 @@ from app.config import settings
 from app.database import get_db, engine
 from app.models.user import User
 from app.services.auth_service import create_access_token, decode_access_token
-from app.services.oa_client import fetch_employee_by_workcode
+from app.services.oa_client import fetch_employee_by_workcode, fetch_full_department_path
 from app.services.wechat_service import get_user_info, get_user_detail
 from app.routers.auth import require_admin
 from app.logger import get_logger
@@ -263,31 +263,89 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
     wechat_name = detail.get("name", "")
     wechat_avatar = detail.get("avatar", "")
 
-    # 步骤 4: 查找或创建用户
+    # 步骤 4: 查找或创建用户（优先按 wechat_user_id，其次按 employee_id，最后从 OA 同步）
+    workcode = userid  # 企微 userid 即工号
     user = db.query(User).filter(User.wechat_user_id == userid).first()
 
     if not user:
-        # 用户不存在，创建新用户
-        username = f"wx_{userid}"
-        user = User(
-            username=username,
-            name=wechat_name or userid,
-            wechat_user_id=userid,
-            wechat_avatar=wechat_avatar,
-            role="student",
-            status="active",
-            password_hash=None,
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        logger.info("企微 SSO 自动创建用户: username=%s, name=%s", username, wechat_name or userid)
+        # 尝试按工号匹配已有用户（可能之前通过 OA SSO 创建过）
+        user = db.query(User).filter(User.employee_id == workcode).first()
+        if user:
+            # 关联企微账号
+            user.wechat_user_id = userid
+            user.wechat_avatar = wechat_avatar or user.wechat_avatar
+            if wechat_name:
+                user.name = wechat_name
+            db.commit()
+            logger.info("企微 SSO 关联已有用户: username=%s, name=%s", user.username, user.name)
+
+    if not user:
+        # 从 OA 系统同步员工信息
+        try:
+            oa_info = await fetch_employee_by_workcode(workcode)
+            if oa_info and oa_info.get("departmentid"):
+                dept_path = await fetch_full_department_path(oa_info["departmentid"], operator=workcode)
+                if dept_path:
+                    oa_info["departmentid"] = dept_path
+        except Exception as e:
+            logger.error("OA API 查询失败: workcode=%s, error=%s", workcode, str(e))
+            oa_info = None
+
+        if oa_info:
+            username = workcode
+            user = User(
+                username=username,
+                name=oa_info.get("lastname", workcode),
+                employee_id=workcode,
+                department=str(oa_info.get("departmentid", "")),
+                wechat_user_id=userid,
+                wechat_avatar=wechat_avatar,
+                role="student",
+                status="active",
+                password_hash=None,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            logger.info(
+                "企微 SSO 从 OA 同步创建用户: username=%s, name=%s, dept=%s",
+                username, oa_info.get("lastname"), oa_info.get("departmentid"),
+            )
+        else:
+            # OA 不可用，用企微信息创建
+            username = f"wx_{userid}"
+            user = User(
+                username=username,
+                name=wechat_name or userid,
+                employee_id=workcode,
+                wechat_user_id=userid,
+                wechat_avatar=wechat_avatar,
+                role="student",
+                status="active",
+                password_hash=None,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            logger.info("企微 SSO 直接创建用户: username=%s, name=%s", username, wechat_name or userid)
     else:
-        # 更新头像
+        # 更新信息
         if wechat_avatar:
             user.wechat_avatar = wechat_avatar
         if wechat_name:
             user.name = wechat_name
+        # 每次登录尝试从 OA 同步最新信息
+        try:
+            oa_info = await fetch_employee_by_workcode(workcode)
+            if oa_info:
+                user.name = oa_info.get("lastname", user.name)
+                user.employee_id = workcode
+                dept_id = oa_info.get("departmentid", "")
+                if dept_id:
+                    dept_path = await fetch_full_department_path(dept_id, operator=workcode)
+                    user.department = dept_path or dept_id
+        except Exception:
+            pass
         db.commit()
         logger.info("企微 SSO 登录成功: username=%s, name=%s", user.username, user.name)
 

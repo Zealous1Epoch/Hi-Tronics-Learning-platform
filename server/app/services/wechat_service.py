@@ -47,11 +47,12 @@ async def get_user_info(code: str) -> dict:
     """用授权 code 换取 user_ticket 和 userid
 
     企微文档: https://developer.work.weixin.qq.com/document/path/91335
+    注意：该接口使用 GET 请求，code 作为查询参数，不是 POST
     """
     token = await get_access_token()
     url = f"{WECHAT_API_BASE}/cgi-bin/auth/getuserinfo"
     async with AsyncClient() as client:
-        resp = await client.post(url, params={"access_token": token}, json={"code": code})
+        resp = await client.get(url, params={"access_token": token, "code": code})
         data = resp.json()
     if data.get("errcode") != 0:
         raise RuntimeError(f"企微 getuserinfo 失败: {data.get('errmsg', '未知错误')}")

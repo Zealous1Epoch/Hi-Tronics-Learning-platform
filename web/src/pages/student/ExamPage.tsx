@@ -45,6 +45,7 @@ export default function ExamPage() {
   const [result, setResult] = useState<GradingResult | null>(null);
   const [reviewData, setReviewData] = useState<ReviewData | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [expandedQuestions, setExpandedQuestions] = useState<Set<number>>(new Set());
   const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const handleSubmitRef = useRef<() => void>(() => {});
@@ -250,6 +251,14 @@ export default function ExamPage() {
     return '';
   };
 
+  const toggleQuestion = (idx: number) => {
+    setExpandedQuestions(prev => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  };
+
   if (submitted && result) {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
@@ -262,63 +271,85 @@ export default function ExamPage() {
           <p className={`text-sm mb-6 ${result.passed ? "text-green-600" : "text-primary"}`}>
             {result.passed ? "恭喜通过!" : `未通过（及格线: ${result.pass_score}分）`}
           </p>
-          <div className="text-left text-sm text-text-secondary space-y-1 mb-6">
-            {result.grading_details.map((g, i) => (
-              <div key={i} className="flex justify-between">
-                <span>第 {i + 1} 题</span>
-                <span className={g.score >= g.max_score ? "text-green-600" : "text-primary"}>
-                  {g.score} / {g.max_score} 分
-                </span>
-              </div>
-            ))}
-          </div>
           <button onClick={() => navigate(courseId ? `/student/courses/${courseId}` : "/student/courses")} className="px-6 py-2 bg-primary text-white rounded-md text-sm">
             返回课程
           </button>
         </div>
 
-        {/* 错题回顾 */}
+        {/* 答题回顾（折叠式） */}
         {reviewData && (
-          <div>
-            <h3 className="text-lg font-bold text-primary mb-3">答题回顾</h3>
-            <div className="space-y-3">
-              {reviewData.questions.map((q, i) => (
-                <div
-                  key={q.id}
-                  className={`border-l-4 rounded-lg border-border bg-bg-base p-4 ${
-                    q.is_correct ? "border-l-green-500" : "border-l-primary"
-                  }`}
-                >
-                  <div className="flex items-start gap-2 mb-2">
-                    <span className="text-sm font-bold text-primary whitespace-nowrap mt-0.5">
-                      {i + 1}. [{TYPE_LABELS[q.type] || q.type}]
-                    </span>
-                    <span className="text-sm flex-1">{q.stem}</span>
-                    <span className="text-xs text-text-secondary whitespace-nowrap">{q.score}分</span>
-                  </div>
+          <div className="bg-bg-base rounded-lg border border-border">
+            <div className="px-4 py-3 border-b border-border/40">
+              <h3 className="text-sm font-bold text-primary">答题回顾</h3>
+            </div>
+            <div className="divide-y divide-border/40">
+              {reviewData.questions.map((q, i) => {
+                const isExpanded = expandedQuestions.has(i);
+                return (
+                  <div key={q.id}>
+                    {/* 折叠行：题号 + 类型 + 得分 */}
+                    <button
+                      onClick={() => toggleQuestion(i)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-bg-layout/50 transition-colors"
+                    >
+                      <span className={`shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs border ${
+                        q.is_correct ? "text-green-600 border-green-200 bg-green-50" : "text-primary border-primary/30 bg-primary/5"
+                      }`}>
+                        {q.is_correct ? "✓" : "✗"}
+                      </span>
+                      <span className="text-sm flex-1 min-w-0">
+                        <span className="text-text-secondary mr-2">第 {i + 1} 题</span>
+                        <span className="text-text-secondary/60 text-xs mr-2">[{TYPE_LABELS[q.type] || q.type}]</span>
+                      </span>
+                      <span className={`text-sm font-medium shrink-0 ${q.is_correct ? "text-green-600" : "text-primary"}`}>
+                        {q.got_score} / {q.max_score} 分
+                      </span>
+                      <span className={`text-text-secondary/40 transition-transform text-xs ${isExpanded ? "rotate-90" : ""}`}>
+                        &#9654;
+                      </span>
+                    </button>
 
-                  {/* 学员答案 */}
-                  <div className="ml-8 text-sm">
-                    <span className="text-text-secondary">你的答案：</span>
-                    <span className={q.is_correct ? "text-green-600" : "text-primary"}>
-                      {formatAnswer(q, q.student_answer)}
-                    </span>
-                  </div>
+                    {/* 展开详情 */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 pt-1 ml-10 space-y-2 border-t border-border/20">
+                        <p className="text-sm">{q.stem}</p>
 
-                  {/* 正确答案（答错时显示） */}
-                  {!q.is_correct && (
-                    <div className="ml-8 text-sm mt-1">
-                      <span className="text-text-secondary">正确答案：</span>
-                      <span className="text-green-600">{formatCorrectAnswer(q)}</span>
-                    </div>
-                  )}
-
-                  {/* 得分 */}
-                  <div className="ml-8 text-xs text-text-secondary mt-1">
-                    得分：{q.got_score} / {q.max_score}
+                        {q.type === "true_false" ? (
+                          <div className="flex gap-6 text-sm">
+                            <span>
+                              <span className="text-text-secondary text-xs">你的答案：</span>
+                              <span className={q.is_correct ? "text-green-600" : "text-primary"}>
+                                {formatAnswer(q, q.student_answer)}
+                              </span>
+                            </span>
+                            {!q.is_correct && (
+                              <span>
+                                <span className="text-text-secondary text-xs">正确答案：</span>
+                                <span className="text-green-600">{formatCorrectAnswer(q)}</span>
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-sm">
+                              <span className="text-text-secondary text-xs">你的答案：</span>
+                              <span className={q.is_correct ? "text-green-600" : "text-primary"}>
+                                {formatAnswer(q, q.student_answer)}
+                              </span>
+                            </div>
+                            {!q.is_correct && (
+                              <div className="text-sm">
+                                <span className="text-text-secondary text-xs">正确答案：</span>
+                                <span className="text-green-600">{formatCorrectAnswer(q)}</span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

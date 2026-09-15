@@ -1,12 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../../lib/api";
 import QuestionManage, { type QuestionManageHandle } from "./QuestionManage";
-import { ChevronRight, ChevronDown, Search } from "lucide-react";
-
-interface TreeNode {
-  id: string; name: string; parent_id: string | null;
-  sort_order: number; children: TreeNode[];
-}
+import CourseTree, { type TreeNode } from "../../components/CourseTree";
 
 interface CategoryStats {
   id: string; name: string; is_leaf: boolean; child_count: number;
@@ -39,14 +34,11 @@ const STAT_COLORS: Record<string, string> = {
 export default function QuestionBank() {
   const [activeTab, setActiveTab] = useState<TabKey>("manage");
   const [tree, setTree] = useState<TreeNode[]>([]);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [searchText, setSearchText] = useState("");
   const [stats, setStats] = useState<CategoryStats | null>(null);
   const [loading, setLoading] = useState(true);
   const qmRef = useRef<QuestionManageHandle>(null);
 
-  
   const fetchTree = async () => {
     const data = await api<TreeNode[]>("/question-categories/tree");
     setTree(data);
@@ -64,90 +56,6 @@ export default function QuestionBank() {
     }
   }, [selectedId]);
 
-  const toggleExpand = (id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  
-  // 搜索过滤树：匹配节点保留，同时保留其祖先链
-  const filterTree = (nodes: TreeNode[], term: string): TreeNode[] => {
-    if (!term) return nodes;
-    const lower = term.toLowerCase();
-    const result: TreeNode[] = [];
-    for (const node of nodes) {
-      const filteredChildren = filterTree(node.children, term);
-      if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
-        result.push({ ...node, children: filteredChildren });
-      }
-    }
-    return result;
-  };
-
-  const filteredTree = searchText ? filterTree(tree, searchText) : tree;
-
-  // 搜索时自动展开所有匹配节点
-  useEffect(() => {
-    if (!searchText) return;
-    const collectIds = (nodes: TreeNode[]): string[] => {
-      const ids: string[] = [];
-      for (const node of nodes) {
-        ids.push(node.id);
-        ids.push(...collectIds(node.children));
-      }
-      return ids;
-    };
-    setExpandedIds(new Set(collectIds(filteredTree)));
-  }, [searchText]);
-
-  const renderTree = (nodes: TreeNode[], depth: number = 0) => {
-    return nodes.map(node => {
-      const isExpanded = expandedIds.has(node.id);
-      const isSelected = selectedId === node.id;
-      const hasChildren = node.children.length > 0;
-      return (
-        <div key={node.id}>
-          <div
-            className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer hover:bg-bg-layout rounded text-sm ${
-              isSelected ? "bg-primary/10 text-primary font-medium" : ""
-            }`}
-            style={{ paddingLeft: `${8 + depth * 16}px` }}
-            onClick={() => {
-                setSelectedId(node.id);
-                if (hasChildren) {
-                  setExpandedIds(prev => {
-                    const next = new Set(prev);
-                    if (next.has(node.id)) {
-                      next.delete(node.id);
-                    } else {
-                      next.add(node.id);
-                    }
-                    return next;
-                  });
-                }
-              }}
-          >
-            {hasChildren ? (
-              <button
-                onClick={(e) => { e.stopPropagation(); toggleExpand(node.id); }}
-                className="p-0.5 shrink-0 text-text-secondary"
-              >
-                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              </button>
-            ) : (
-              <span className="w-5 shrink-0" />
-            )}
-            <span className="truncate">{node.name}</span>
-          </div>
-          {isExpanded && hasChildren && renderTree(node.children, depth + 1)}
-        </div>
-      );
-    });
-  };
-
   const formatTime = (t: string | null) => {
     if (!t) return "-";
     return new Date(t).toLocaleString("zh-CN", {
@@ -162,35 +70,16 @@ export default function QuestionBank() {
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧树 */}
         <div className="w-56 shrink-0 pr-4 border-r border-border">
-          <div
-            onClick={() => setSelectedId(null)}
-            className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
-              selectedId === null ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-bg-layout"
-            }`}
-          >
-            全部试题
-          </div>
-          <div className="relative mb-2">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
-            <input
-              type="text" placeholder="搜索题库名..."
-              value={searchText} onChange={(e) => setSearchText(e.target.value)}
-              className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
-            />
-          </div>
-          <div className="bg-bg-base rounded-lg border border-border max-h-[calc(100vh-240px)] overflow-y-auto">
-            {loading ? (
-              <p className="p-4 text-sm text-text-secondary">加载中...</p>
-            ) : filteredTree.length === 0 ? (
-              <div className="p-4 text-center text-sm text-text-secondary">
-                {searchText ? "无匹配结果" : "暂无题库"}
-              </div>
-            ) : (
-              <div className="py-1">
-                {renderTree(filteredTree)}
-              </div>
-            )}
-          </div>
+          <CourseTree
+            tree={tree}
+            flatCategories={[]}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            rootLabel="全部试题"
+            placeholder="搜索题库名..."
+            loading={loading}
+            emptyText="暂无题库"
+          />
         </div>
 
         {/* 右侧面板 */}
@@ -227,7 +116,6 @@ export default function QuestionBank() {
             <div>
               {stats ? (
                 <div className="space-y-4">
-                  {/* 统计面板 */}
                   <div className="bg-bg-base rounded-lg border border-border p-4">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-bold text-sm">{stats.name}</h3>
@@ -251,8 +139,7 @@ export default function QuestionBank() {
                       创建时间: {formatTime(stats.created_at)}
                     </p>
                   </div>
-
-            </div>
+                </div>
               ) : (
                 <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
                   加载中...

@@ -1,14 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { api, uploadFileWithProgress } from "../../lib/api";
-import { ChevronRight, ChevronDown, Plus, Search, Pencil, Trash2, X, Upload } from "lucide-react";
+import CourseTree, { type TreeNode, type FlatCategory, getCategoryPath } from "../../components/CourseTree";
+import { ChevronRight, ChevronDown, Plus, Pencil, Trash2, X, Upload } from "lucide-react";
 
-interface TreeNode {
-  id: string; name: string; parent_id: string | null;
-  sort_order: number; children: TreeNode[];
-}
-interface FlatCategory {
-  id: string; name: string; parent_id: string | null;
-}
 interface CourseItem {
   id: string; title: string; category_id: string | null;
   status: string; video_count: number; created_at: string;
@@ -41,7 +35,6 @@ interface PendingFile {
   duration: number | null;
 }
 
-// 用浏览器 <video> 探测视频时长（秒），失败返回 null
 function probeVideoDuration(file: File): Promise<number | null> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
@@ -63,9 +56,7 @@ export default function CourseManage() {
   // 树状态
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [searchText, setSearchText] = useState("");
 
   // 树编辑状态
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -146,32 +137,6 @@ export default function CourseManage() {
   useEffect(() => { fetchData(); }, [selectedId]);
 
   // 树操作
-  const toggleExpand = (id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  // 分配弹窗 - 部门树展开/折叠
-  const toggleDeptExpand = (id: string) => {
-    setExpandedDeptIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  // 编辑弹窗 - 部门树展开/折叠
-  const toggleEditDeptExpand = (id: string) => {
-    setEditExpandedDeptIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
   const handleRename = async () => {
     if (!editingName.trim() || !editingId) return;
     await api(`/question-categories/${editingId}`, {
@@ -220,18 +185,52 @@ export default function CourseManage() {
     if (!selectedId) return;
     setNewChildName("");
     setAddingChildUnder(selectedId);
-    setExpandedIds(prev => new Set(prev).add(selectedId));
   };
 
-  const getCategoryPath = (catId: string | null): string => {
-    if (!catId) return "-";
-    const parts: string[] = [];
-    let current = flatCategories.find(c => c.id === catId);
-    while (current) {
-      parts.unshift(current.name);
-      current = current!.parent_id ? flatCategories.find(c => c.id === current!.parent_id) : undefined;
+  /** 在树中递归查找指定父级的子节点 ID 列表（按当前排序） */
+  const getSiblingIds = (parentId: string | null): string[] => {
+    if (parentId === null) return tree.map((n) => n.id);
+    for (const node of tree) {
+      if (node.id === parentId) return node.children.map((c) => c.id);
+      const found = (function search(nodes: TreeNode[], pid: string): string[] | null {
+        for (const n of nodes) {
+          if (n.id === pid) return n.children.map((c) => c.id);
+          const r = search(n.children, pid);
+          if (r) return r;
+        }
+        return null;
+      })(node.children, parentId);
+      if (found) return found;
     }
-    return parts.join(" - ");
+    return [];
+  };
+
+  /** 拖拽重排：将 dragId 移到 targetId 的位置 */
+  const handleReorder = async (dragId: string, targetId: string) => {
+    const dragNode = flatCategories.find((c) => c.id === dragId);
+    const targetNode = flatCategories.find((c) => c.id === targetId);
+    if (!dragNode || !targetNode) return;
+    // 只允许同级交换
+    if (dragNode.parent_id !== targetNode.parent_id) return;
+
+    const siblingIds = getSiblingIds(dragNode.parent_id);
+    const dragIdx = siblingIds.indexOf(dragId);
+    const targetIdx = siblingIds.indexOf(targetId);
+    if (dragIdx === -1 || targetIdx === -1) return;
+
+    // 从原位置移除，再插入到目标位置
+    siblingIds.splice(dragIdx, 1);
+    const insertAt = targetIdx > dragIdx ? targetIdx - 1 : targetIdx;
+    siblingIds.splice(insertAt, 0, dragId);
+
+    await api("/question-categories/reorder-batch", {
+      method: "PUT",
+      body: JSON.stringify({
+        parent_id: dragNode.parent_id,
+        ordered_ids: siblingIds,
+      }),
+    });
+    fetchData();
   };
 
   // 课程操作
@@ -316,7 +315,6 @@ export default function CourseManage() {
         const course = await api<CourseDetail>("/courses", { method: "POST", body: JSON.stringify(body) });
         courseId = course.id;
       }
-      // 保存分配：编辑时先清旧分配再追加，新增时直接追加
       if (courseId) {
         if (editingCourse) {
           const prev = editExistingAssignments.current;
@@ -334,7 +332,6 @@ export default function CourseManage() {
           });
         }
       }
-      // 上传待上传的视频文件
       if (courseId && pendingFiles.length > 0) {
         for (let i = 0; i < pendingFiles.length; i++) {
           const pf = pendingFiles[i];
@@ -350,7 +347,6 @@ export default function CourseManage() {
               body: JSON.stringify({ title: pf.title, obs_key: filename, file_size, duration: pf.duration }),
             });
           } catch (e: any) {
-            // 单个视频上传失败不阻塞其余视频，标记状态后继续
             setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false } : p));
             console.error("视频上传失败", pf.file.name, e);
             alert(`视频「${pf.file.name}」上传失败：${e.message || e}，其余内容已保存`);
@@ -374,7 +370,6 @@ export default function CourseManage() {
       newFiles.push({ file, title: name, uploading: false, progress: 0, duration: null });
     }
     setPendingFiles(prev => [...prev, ...newFiles]);
-    // 异步探测每个文件的时长
     newFiles.forEach(async (nf) => {
       const duration = await probeVideoDuration(nf.file);
       setPendingFiles(prev => prev.map(p => p.file === nf.file ? { ...p, duration } : p));
@@ -424,7 +419,6 @@ export default function CourseManage() {
     setShowAssignModal(true);
   };
 
-  // 在部门树中按 ID 查找节点
   const findDeptNode = (nodes: DeptItem[], id: string): DeptItem | null => {
     for (const node of nodes) {
       if (node.id === id) return node;
@@ -436,7 +430,6 @@ export default function CourseManage() {
     return null;
   };
 
-  // 收集节点及其所有后代的部门名称
   const collectDescendantNames = (node: DeptItem): string[] => {
     const names = [node.name];
     for (const child of node.children || []) {
@@ -445,7 +438,6 @@ export default function CourseManage() {
     return names;
   };
 
-  // 按部门名称在树中查找节点（兼容路径格式，如 "行政人事部-人事部" 中的 "人事部"）
   const findDeptByName = (nodes: DeptItem[], name: string | null): DeptItem | null => {
     if (!name) return null;
     for (const node of nodes) {
@@ -455,7 +447,6 @@ export default function CourseManage() {
         if (found) return found;
       }
     }
-    // 兼容路径格式：用户的 department 可能是 "行政人事部-人事部"，匹配叶子名 "人事部"
     const parts = name.split("-");
     for (const part of parts) {
       for (const node of nodes) {
@@ -469,7 +460,6 @@ export default function CourseManage() {
     return null;
   };
 
-  // 匹配部门：精确匹配 或 路径分段匹配（如 "行政人事部-人事部" 匹配 "行政人事部" 或 "人事部"）
   const matchDept = (userDept: string | null, deptName: string) =>
     userDept === deptName || (userDept || "").split("-").includes(deptName);
 
@@ -495,7 +485,6 @@ export default function CourseManage() {
       body.user_ids = [targetId];
     } else {
       body.department_ids = [targetId];
-      // 移除部门时，同时清理该部门下的用户分配（避免孤儿记录）
       const deptName = findDeptNode(allDepts, targetId)?.name;
       if (deptName) {
         body.user_ids = assignedUsers.filter(u => u.department === deptName).map(u => u.id);
@@ -511,35 +500,6 @@ export default function CourseManage() {
     setAssignedUsers(assignments.users);
     setAssignedDepts(assignments.departments);
   };
-
-  // 树搜索过滤
-  const filterTree = (nodes: TreeNode[], term: string): TreeNode[] => {
-    if (!term) return nodes;
-    const lower = term.toLowerCase();
-    const result: TreeNode[] = [];
-    for (const node of nodes) {
-      const filteredChildren = filterTree(node.children, term);
-      if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
-        result.push({ ...node, children: filteredChildren });
-      }
-    }
-    return result;
-  };
-
-  const filteredTree = searchText ? filterTree(tree, searchText) : tree;
-
-  useEffect(() => {
-    if (!searchText) return;
-    const collectIds = (nodes: TreeNode[]): string[] => {
-      const ids: string[] = [];
-      for (const node of nodes) {
-        ids.push(node.id);
-        ids.push(...collectIds(node.children));
-      }
-      return ids;
-    };
-    setExpandedIds(new Set(collectIds(filteredTree)));
-  }, [searchText]);
 
   // 点击外部关闭分类下拉
   useEffect(() => {
@@ -562,69 +522,25 @@ export default function CourseManage() {
     }
   }, [showEditModal]);
 
-  const renderTree = (nodes: TreeNode[], depth: number = 0) => {
-    return nodes.map(node => {
-      const isExpanded = expandedIds.has(node.id);
-      const isSelected = selectedId === node.id;
-      const hasChildren = node.children.length > 0;
-      const isAddingChild = addingChildUnder === node.id;
-
-      return (
-        <div key={node.id}>
-          <div
-            className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer hover:bg-bg-layout rounded text-sm ${
-              isSelected ? "bg-primary/10 text-primary font-medium" : ""
-            }`}
-            style={{ paddingLeft: `${8 + depth * 16}px` }}
-            onClick={() => {
-              setSelectedId(node.id);
-              if (hasChildren) {
-                setExpandedIds(prev => {
-                  const next = new Set(prev);
-                  next.has(node.id) ? next.delete(node.id) : next.add(node.id);
-                  return next;
-                });
-              }
-            }}
-          >
-            {hasChildren ? (
-              <button
-                onClick={e => { e.stopPropagation(); toggleExpand(node.id); }}
-                className="p-0.5 shrink-0 text-text-secondary"
-              >
-                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              </button>
-            ) : (
-              <span className="w-5 shrink-0" />
-            )}
-            <span className="truncate">{node.name}</span>
-          </div>
-          {isExpanded && hasChildren && renderTree(node.children, depth + 1)}
-          {isAddingChild && (
-            <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${8 + (depth + 1) * 16}px` }}>
-              <span className="w-5 shrink-0" />
-              <input
-                type="text"
-                value={newChildName}
-                onChange={e => setNewChildName(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === "Enter") handleAddChild(node.id);
-                  if (e.key === "Escape") { setAddingChildUnder(null); setNewChildName(""); }
-                }}
-                placeholder="输入名称..."
-                className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                autoFocus
-              />
-            </div>
-          )}
-        </div>
-      );
+  // 部门树展开/折叠
+  const toggleDeptExpand = (id: string) => {
+    setExpandedDeptIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
     });
   };
 
-  const CourseCardItem = ({ c, getCategoryPath, openEdit, openAssign, handleDeleteCourse }: {
+  const toggleEditDeptExpand = (id: string) => {
+    setEditExpandedDeptIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const CourseCardItem = ({ c, openEdit, openAssign, handleDeleteCourse }: {
     c: CourseItem;
-    getCategoryPath: (id: string | null) => string;
     openEdit: (id: string) => void;
     openAssign: (course: CourseItem) => void;
     handleDeleteCourse: (id: string) => void;
@@ -639,7 +555,7 @@ export default function CourseManage() {
         </span>
       </div>
       <div className="space-y-1 text-xs text-text-secondary mb-3">
-        <p className="truncate">{getCategoryPath(c.category_id)}</p>
+        <p className="truncate">{getCategoryPath(c.category_id, flatCategories)}</p>
         <div className="flex items-center gap-3">
           <span>{c.video_count} 个视频</span>
           <span>发布时间：{new Date(c.created_at).toLocaleDateString("zh-CN")}</span>
@@ -663,96 +579,104 @@ export default function CourseManage() {
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧课程树 */}
         <div className="w-56 shrink-0 pr-4 border-r border-border">
-          <div
-            onClick={() => setSelectedId(null)}
-            className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
-              selectedId === null ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-bg-layout"
-            }`}
-          >
-            全部课程
-          </div>
-          <div className="relative mb-2">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
-            <input
-              type="text" placeholder="搜索课程..."
-              value={searchText} onChange={e => setSearchText(e.target.value)}
-              className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
-            />
-          </div>
-          <div className="bg-bg-base rounded-lg border border-border max-h-[calc(100vh-240px)] overflow-y-auto">
-            {loading ? (
-              <p className="p-4 text-sm text-text-secondary">加载中...</p>
-            ) : filteredTree.length === 0 && !addingRoot ? (
-              <div className="p-4 text-center text-sm text-text-secondary">
-                {searchText ? "无匹配结果" : "暂无课程，点击下方按钮添加"}
-              </div>
-            ) : (
-              <div className="py-1">
-                {filteredTree.length > 0 && renderTree(filteredTree)}
-                {addingRoot && (
-                  <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
-                    <span className="w-5 shrink-0" />
-                    <input
-                      type="text"
-                      value={newRootName}
-                      onChange={e => setNewRootName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") handleAddRoot();
-                        if (e.key === "Escape") { setAddingRoot(false); setNewRootName(""); }
-                      }}
-                      onBlur={() => {
-                        if (!newRootName.trim()) { setAddingRoot(false); setNewRootName(""); }
-                      }}
-                      placeholder="输入名称..."
-                      className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                      autoFocus
-                    />
-                  </div>
+          <CourseTree
+            tree={tree}
+            flatCategories={flatCategories}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            rootLabel="全部课程"
+            placeholder="搜索课程..."
+            loading={loading}
+            emptyText="暂无课程，点击下方按钮添加"
+            enableDrag={true}
+            onReorder={handleReorder}
+            renderTreeFooter={() =>
+              addingRoot ? (
+                <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
+                  <span className="w-5 shrink-0" />
+                  <input
+                    type="text"
+                    value={newRootName}
+                    onChange={e => setNewRootName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") handleAddRoot();
+                      if (e.key === "Escape") { setAddingRoot(false); setNewRootName(""); }
+                    }}
+                    onBlur={() => {
+                      if (!newRootName.trim()) { setAddingRoot(false); setNewRootName(""); }
+                    }}
+                    placeholder="输入名称..."
+                    className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
+                    autoFocus
+                  />
+                </div>
+              ) : null
+            }
+            renderNodeFooter={(node) =>
+              addingChildUnder === node.id ? (
+                <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${8 + 16}px` }}>
+                  <span className="w-5 shrink-0" />
+                  <input
+                    type="text"
+                    value={newChildName}
+                    onChange={e => setNewChildName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") handleAddChild(node.id);
+                      if (e.key === "Escape") { setAddingChildUnder(null); setNewChildName(""); }
+                    }}
+                    placeholder="输入名称..."
+                    className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
+                    autoFocus
+                  />
+                </div>
+              ) : null
+            }
+            renderActions={(sid) => (
+              <div className="mt-2 space-y-1.5">
+                <button
+                  onClick={() => { setAddingRoot(true); setNewRootName(""); }}
+                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-primary/5"
+                >
+                  <Plus size={12} /> 添加课程
+                </button>
+                {sid && (
+                  <>
+                    <button
+                      onClick={startAddChild}
+                      className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-light border border-primary"
+                    >
+                      <Plus size={12} /> 添加章节
+                    </button>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => {
+                          const node = flatCategories.find(c => c.id === sid);
+                          setEditingId(sid);
+                          setEditingName(node?.name || "");
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout"
+                      >
+                        <Pencil size={12} /> 重命名
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCategory(sid)}
+                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-red-200 text-red-500 rounded-md hover:bg-red-50"
+                      >
+                        <Trash2 size={12} /> 删除
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
             )}
-          </div>
-          <button
-            onClick={() => { setAddingRoot(true); setNewRootName(""); }}
-            className="mt-2 w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-primary/5"
-          >
-            <Plus size={12} /> 添加课程
-          </button>
-          {selectedId && (
-            <div className="mt-1.5 space-y-1.5">
-              <button
-                onClick={startAddChild}
-                className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-light border border-primary"
-              >
-                <Plus size={12} /> 添加章节
-              </button>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => {
-                    const node = flatCategories.find(c => c.id === selectedId);
-                    setEditingId(selectedId);
-                    setEditingName(node?.name || "");
-                  }}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout"
-                >
-                  <Pencil size={12} /> 重命名
-                </button>
-                <button
-                  onClick={() => handleDeleteCategory(selectedId)}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-red-200 text-red-500 rounded-md hover:bg-red-50"
-                >
-                  <Trash2 size={12} /> 删除
-                </button>
-              </div>
-            </div>
-          )}
+          />
         </div>
 
         {/* 右侧课程列表 */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm text-text-secondary">
-              {selectedId ? getCategoryPath(selectedId) : "全部课程"}
+              {selectedId ? getCategoryPath(selectedId, flatCategories) : "全部课程"}
             </span>
             <button
               onClick={openCreate}
@@ -784,7 +708,6 @@ export default function CourseManage() {
           ) : (
             <div className="space-y-6">
               {(() => {
-                // 按分类分组（按根节点分类名分组，子分类归入父级）
                 const parentMap = new Map(flatCategories.map(c => [c.id, c.parent_id]));
                 const nameMap = new Map(flatCategories.map(c => [c.id, c.name]));
                 const getRootName = (id: string): string => {
@@ -817,7 +740,7 @@ export default function CourseManage() {
                         </h3>
                         <div className="grid grid-cols-3 gap-3">
                           {grouped[catName].map(c => (
-                            <CourseCardItem key={c.id} c={c} getCategoryPath={getCategoryPath} openEdit={openEdit} openAssign={openAssign} handleDeleteCourse={handleDeleteCourse} />
+                            <CourseCardItem key={c.id} c={c} openEdit={openEdit} openAssign={openAssign} handleDeleteCourse={handleDeleteCourse} />
                           ))}
                         </div>
                       </div>
@@ -829,7 +752,7 @@ export default function CourseManage() {
                         </h3>
                         <div className="grid grid-cols-3 gap-3">
                           {uncategorized.map(c => (
-                            <CourseCardItem key={c.id} c={c} getCategoryPath={getCategoryPath} openEdit={openEdit} openAssign={openAssign} handleDeleteCourse={handleDeleteCourse} />
+                            <CourseCardItem key={c.id} c={c} openEdit={openEdit} openAssign={openAssign} handleDeleteCourse={handleDeleteCourse} />
                           ))}
                         </div>
                       </div>
@@ -854,7 +777,6 @@ export default function CourseManage() {
             </div>
 
             <div className="p-5 space-y-4">
-              {/* 基本信息 */}
               <div>
                 <label className="block text-sm text-text-secondary mb-1">课程标题</label>
                 <input
@@ -865,13 +787,11 @@ export default function CourseManage() {
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">
-                  课程分类
-                </label>
+                <label className="block text-sm text-text-secondary mb-1">课程分类</label>
                 {editingCourse || selectedId ? (
                   <input
                     type="text"
-                    value={editingCourse ? getCategoryPath(editingCourse.category_id) : getCategoryPath(selectedId)}
+                    value={editingCourse ? getCategoryPath(editingCourse.category_id, flatCategories) : getCategoryPath(selectedId, flatCategories)}
                     disabled
                     className="w-full border border-border rounded-md px-3 py-2 text-sm bg-bg-layout text-text-secondary"
                   />
@@ -882,47 +802,32 @@ export default function CourseManage() {
                       className="w-full border border-border rounded-md px-3 py-2 text-sm cursor-pointer hover:border-primary/40 flex items-center justify-between"
                     >
                       <span className={editCategoryId ? "text-text-base" : "text-text-secondary"}>
-                        {editCategoryId ? getCategoryPath(editCategoryId) : "请选择课程"}
+                        {editCategoryId ? getCategoryPath(editCategoryId, flatCategories) : "请选择课程"}
                       </span>
                       <ChevronDown size={14} className={`text-text-secondary transition-transform ${showCategoryDropdown ? "rotate-180" : ""}`} />
                     </div>
                     {showCategoryDropdown && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-bg-base border border-border rounded-md shadow-lg z-10 p-2 space-y-2">
                         <input
-                          type="text"
-                          placeholder="搜索课程..."
-                          value={categorySearch}
-                          onChange={e => setCategorySearch(e.target.value)}
-                          className="w-full border border-border rounded-md px-3 py-1.5 text-sm"
-                          autoFocus
+                          type="text" placeholder="搜索课程..."
+                          value={categorySearch} onChange={e => setCategorySearch(e.target.value)}
+                          className="w-full border border-border rounded-md px-3 py-1.5 text-sm" autoFocus
                         />
                         <div className="flex gap-2">
                           <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
                             <div
                               onClick={() => { setEditCategoryId(""); setShowCategoryDropdown(false); }}
-                              className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout ${
-                                editCategoryId === "" ? "bg-primary/10 text-primary font-medium" : ""
-                              }`}
-                            >
-                              未分类
-                            </div>
+                              className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout ${editCategoryId === "" ? "bg-primary/10 text-primary font-medium" : ""}`}
+                            >未分类</div>
                             {tree
                               .filter(n => !n.parent_id && (!categorySearch || n.name.toLowerCase().includes(categorySearch.toLowerCase())))
                               .map(root => (
-                                <div
-                                  key={root.id}
-                                  onClick={() => {
-                                    setEditCategoryId(root.id);
-                                    if (root.children.length === 0) setShowCategoryDropdown(false);
-                                  }}
-                                  className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout flex items-center justify-between ${
-                                    editCategoryId === root.id ? "bg-primary/10 text-primary font-medium" : ""
-                                  }`}
+                                <div key={root.id}
+                                  onClick={() => { setEditCategoryId(root.id); if (root.children.length === 0) setShowCategoryDropdown(false); }}
+                                  className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout flex items-center justify-between ${editCategoryId === root.id ? "bg-primary/10 text-primary font-medium" : ""}`}
                                 >
                                   <span className="truncate">{root.name}</span>
-                                  {root.children.length > 0 && (
-                                    <ChevronRight size={12} className="text-text-secondary shrink-0 ml-1" />
-                                  )}
+                                  {root.children.length > 0 && <ChevronRight size={12} className="text-text-secondary shrink-0 ml-1" />}
                                 </div>
                               ))}
                           </div>
@@ -935,15 +840,10 @@ export default function CourseManage() {
                             return (
                               <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
                                 {filteredChildren.map(child => (
-                                  <div
-                                    key={child.id}
+                                  <div key={child.id}
                                     onClick={() => { setEditCategoryId(child.id); setShowCategoryDropdown(false); }}
-                                    className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout truncate ${
-                                      editCategoryId === child.id ? "bg-primary/10 text-primary font-medium" : ""
-                                    }`}
-                                  >
-                                    {child.name}
-                                  </div>
+                                    className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout truncate ${editCategoryId === child.id ? "bg-primary/10 text-primary font-medium" : ""}`}
+                                  >{child.name}</div>
                                 ))}
                               </div>
                             );
@@ -956,32 +856,22 @@ export default function CourseManage() {
               </div>
               <div>
                 <label className="block text-sm text-text-secondary mb-1">课程简介</label>
-                <textarea
-                  value={editDescription} onChange={e => setEditDescription(e.target.value)}
+                <textarea value={editDescription} onChange={e => setEditDescription(e.target.value)}
                   rows={3} placeholder="输入课程简介"
                   className="w-full border border-border rounded-md px-3 py-2 text-sm resize-none"
                 />
               </div>
 
-              {/* 计划日期 */}
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="block text-sm text-text-secondary mb-1">开始日期</label>
-                  <input
-                    type="date"
-                    value={editStartDate}
-                    onChange={e => setEditStartDate(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm"
-                  />
+                  <input type="date" value={editStartDate} onChange={e => setEditStartDate(e.target.value)}
+                    className="w-full border border-border rounded-md px-3 py-2 text-sm" />
                 </div>
                 <div className="flex-1">
                   <label className="block text-sm text-text-secondary mb-1">结束日期</label>
-                  <input
-                    type="date"
-                    value={editEndDate}
-                    onChange={e => setEditEndDate(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm"
-                  />
+                  <input type="date" value={editEndDate} onChange={e => setEditEndDate(e.target.value)}
+                    className="w-full border border-border rounded-md px-3 py-2 text-sm" />
                 </div>
               </div>
 
@@ -990,22 +880,16 @@ export default function CourseManage() {
                 <label className="block text-sm text-text-secondary mb-2">
                   分配学员
                   {(editSelectedUsers.size > 0 || editSelectedDepts.size > 0) && (
-                    <span className="text-primary ml-1">
-                      （已选 {editSelectedDepts.size + editSelectedUsers.size} 项）
-                    </span>
+                    <span className="text-primary ml-1">（已选 {editSelectedDepts.size + editSelectedUsers.size} 项）</span>
                   )}
                 </label>
                 <div className="grid grid-cols-2 gap-3">
-                  {/* 部门 */}
                   <div className="border border-border rounded-md p-2">
-                    <input
-                      type="text" placeholder="搜索部门..."
-                      value={editDeptSearch} onChange={e => setEditDeptSearch(e.target.value)}
-                      className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5"
-                    />
+                    <input type="text" placeholder="搜索部门..." value={editDeptSearch}
+                      onChange={e => setEditDeptSearch(e.target.value)}
+                      className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5" />
                     <div className="max-h-28 overflow-y-auto space-y-0.5">
                       {(() => {
-                        // 过滤树：保留匹配节点及其祖先
                         const filterTree = (nodes: DeptItem[], term: string): DeptItem[] => {
                           if (!term) return nodes;
                           const lower = term.toLowerCase();
@@ -1032,9 +916,7 @@ export default function CourseManage() {
                                     <button onClick={(e) => { e.stopPropagation(); toggleEditDeptExpand(node.id); }} className="text-text-secondary shrink-0">
                                       {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                                     </button>
-                                  ) : (
-                                    <span className="w-2.5 shrink-0" />
-                                  )}
+                                  ) : <span className="w-2.5 shrink-0" />}
                                   <input type="checkbox" checked={editSelectedDepts.has(node.id)} onChange={() => {
                                     const next = new Set(editSelectedDepts);
                                     next.has(node.id) ? next.delete(node.id) : next.add(node.id);
@@ -1052,34 +934,25 @@ export default function CourseManage() {
                       })()}
                     </div>
                   </div>
-                  {/* 学员 */}
                   <div className="border border-border rounded-md p-2">
-                    <input
-                      type="text" placeholder="搜索姓名..."
-                      value={editUserSearch} onChange={e => setEditUserSearch(e.target.value)}
-                      className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5"
-                    />
+                    <input type="text" placeholder="搜索姓名..." value={editUserSearch}
+                      onChange={e => setEditUserSearch(e.target.value)}
+                      className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5" />
                     <div className="max-h-28 overflow-y-auto space-y-0.5">
                       {(() => {
                         const activeDept = editActiveDeptId ? findDeptNode(editAssignDepts, editActiveDeptId) : null;
-                        // 收集该部门及其所有子部门的名称，用于匹配用户
                         const activeDeptNames = activeDept ? collectDescendantNames(activeDept) : [];
                         const filtered = editAssignUsers.filter(u => {
                           if (activeDeptNames.length > 0 && !activeDeptNames.some(name => matchDept(u.department, name))) return false;
                           if (editUserSearch && !u.name.includes(editUserSearch) && !(u.department && u.department.includes(editUserSearch))) return false;
                           return true;
                         });
-                        if (!activeDept) {
-                          return <p className="text-xs text-text-secondary py-4 text-center">点击左侧部门名称查看学员</p>;
-                        }
-                        if (filtered.length === 0) {
-                          return <p className="text-xs text-text-secondary py-2 text-center">该部门暂无用户</p>;
-                        }
+                        if (!activeDept) return <p className="text-xs text-text-secondary py-4 text-center">点击左侧部门名称查看学员</p>;
+                        if (filtered.length === 0) return <p className="text-xs text-text-secondary py-2 text-center">该部门暂无用户</p>;
                         return (
                           <div>
                             <label className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-bg-layout rounded text-xs cursor-pointer border-b border-border mb-0.5">
-                              <input
-                                type="checkbox"
+                              <input type="checkbox"
                                 checked={filtered.every(u => editSelectedUsers.has(u.id))}
                                 onChange={() => {
                                   const allIds = new Set(filtered.map(u => u.id));
@@ -1093,15 +966,11 @@ export default function CourseManage() {
                             </label>
                             {filtered.map(u => (
                               <label key={u.id} className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-bg-layout rounded text-xs cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={editSelectedUsers.has(u.id)}
-                                  onChange={() => {
-                                    const next = new Set(editSelectedUsers);
-                                    next.has(u.id) ? next.delete(u.id) : next.add(u.id);
-                                    setEditSelectedUsers(next);
-                                  }}
-                                />
+                                <input type="checkbox" checked={editSelectedUsers.has(u.id)} onChange={() => {
+                                  const next = new Set(editSelectedUsers);
+                                  next.has(u.id) ? next.delete(u.id) : next.add(u.id);
+                                  setEditSelectedUsers(next);
+                                }} />
                                 <span className="truncate">{u.name}</span>
                                 {u.department && <span className="text-text-secondary truncate">({u.department})</span>}
                               </label>
@@ -1112,29 +981,22 @@ export default function CourseManage() {
                     </div>
                   </div>
                 </div>
-                {/* 分配结果摘要 */}
                 {(editSelectedDepts.size > 0 || editSelectedUsers.size > 0) && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {[...editSelectedDepts].map(id => {
                       const d = findDeptNode(editAssignDepts, id);
-                      return d ? (
-                        <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
-                          {d.name}（部门）
-                        </span>
-                      ) : null;
+                      return d ? <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">{d.name}（部门）</span> : null;
                     })}
                     {editAssignUsers.filter(u => editSelectedUsers.has(u.id) && !editSelectedDepts.has(
                       findDeptByName(editAssignDepts, u.department)?.id || ""
                     )).map(u => (
-                      <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">
-                        {u.name}
-                      </span>
+                      <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">{u.name}</span>
                     ))}
                   </div>
                 )}
               </div>
 
-              {/* 已有视频（仅编辑模式） */}
+              {/* 已有视频 */}
               {editingCourse && editVideos.length > 0 && (
                 <div>
                   <label className="block text-sm text-text-secondary mb-2">已有视频 ({editVideos.length})</label>
@@ -1148,12 +1010,8 @@ export default function CourseManage() {
                           </span>
                           <button onClick={() => handleDeleteVideo(v.id)} className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50 shrink-0 ml-2">删除</button>
                         </div>
-                        <video
-                          src={`/api/videos/stream/${v.obs_key}?token=${localStorage.getItem("lp_token") || ""}`}
-                          controls
-                          className="w-full rounded-md max-h-56 bg-black"
-                          preload="metadata"
-                        />
+                        <video src={`/api/videos/stream/${v.obs_key}?token=${localStorage.getItem("lp_token") || ""}`}
+                          controls className="w-full rounded-md max-h-56 bg-black" preload="metadata" />
                       </div>
                     ))}
                   </div>
@@ -1177,14 +1035,9 @@ export default function CourseManage() {
                   <Upload size={28} className="mx-auto text-text-secondary mb-2" />
                   <p className="text-sm text-text-secondary">点击选择文件或拖拽视频文件到此处</p>
                   <p className="text-xs text-text-secondary/60 mt-0.5">支持 MP4 / MOV / AVI / MKV</p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="video/mp4,video/mov,video/avi,video/mkv,video/webm"
-                    multiple
-                    className="hidden"
-                    onChange={e => { if (e.target.files) handleFiles(e.target.files); }}
-                  />
+                  <input ref={fileInputRef} type="file" accept="video/mp4,video/mov,video/avi,video/mkv,video/webm"
+                    multiple className="hidden"
+                    onChange={e => { if (e.target.files) handleFiles(e.target.files); }} />
                 </div>
               </div>
 
@@ -1194,37 +1047,20 @@ export default function CourseManage() {
                   {pendingFiles.map((pf, i) => (
                     <div key={i} className="py-1.5 px-3 bg-bg-layout rounded-md">
                       <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-sm text-text-secondary truncate flex-1 min-w-0" title={pf.file.name}>
-                          {pf.file.name}
-                        </span>
-                        <span className="text-xs text-text-secondary/60 shrink-0">
-                          {(pf.file.size / 1024 / 1024).toFixed(1)} MB
-                        </span>
+                        <span className="text-sm text-text-secondary truncate flex-1 min-w-0" title={pf.file.name}>{pf.file.name}</span>
+                        <span className="text-xs text-text-secondary/60 shrink-0">{(pf.file.size / 1024 / 1024).toFixed(1)} MB</span>
                         {!pf.uploading && (
                           <>
-                            <input
-                              type="text"
-                              value={pf.title}
-                              onChange={e => updatePendingTitle(i, e.target.value)}
-                              placeholder="视频标题"
-                              className="w-44 border border-border rounded-md px-2 py-1 text-xs shrink-0"
-                            />
-                            <button
-                              onClick={() => removePendingFile(i)}
-                              className="text-red-400 hover:text-red-600 shrink-0 p-0.5 border border-red-200 rounded hover:bg-red-50"
-                            >
+                            <input type="text" value={pf.title} onChange={e => updatePendingTitle(i, e.target.value)}
+                              placeholder="视频标题" className="w-44 border border-border rounded-md px-2 py-1 text-xs shrink-0" />
+                            <button onClick={() => removePendingFile(i)}
+                              className="text-red-400 hover:text-red-600 shrink-0 p-0.5 border border-red-200 rounded hover:bg-red-50">
                               <X size={14} />
                             </button>
                           </>
                         )}
                       </div>
-                      {!pf.uploading && (
-                        <video
-                          src={getBlobUrl(pf.file)}
-                          controls
-                          className="w-full rounded-md max-h-56 bg-black"
-                        />
-                      )}
+                      {!pf.uploading && <video src={getBlobUrl(pf.file)} controls className="w-full rounded-md max-h-56 bg-black" />}
                       {pf.uploading && (
                         <div className="mt-1.5">
                           <div className="flex items-center justify-between text-xs text-text-secondary mb-0.5">
@@ -1232,10 +1068,7 @@ export default function CourseManage() {
                             <span>{pf.progress}%</span>
                           </div>
                           <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary rounded-full transition-all duration-200"
-                              style={{ width: `${pf.progress}%` }}
-                            />
+                            <div className="h-full bg-primary rounded-full transition-all duration-200" style={{ width: `${pf.progress}%` }} />
                           </div>
                         </div>
                       )}
@@ -1247,17 +1080,11 @@ export default function CourseManage() {
 
             <div className="flex gap-3 px-5 py-4 border-t border-border">
               <button onClick={() => handleSaveCourse("draft")} disabled={saving}
-                className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">
-                保存草稿
-              </button>
+                className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">保存草稿</button>
               <button onClick={() => handleSaveCourse("published")} disabled={saving}
-                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light border border-primary">
-                发布
-              </button>
+                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light border border-primary">发布</button>
               <button onClick={() => setShowEditModal(false)}
-                className="px-4 py-2 rounded-md text-sm text-text-secondary hover:text-text-base ml-auto border border-border">
-                取消
-              </button>
+                className="px-4 py-2 rounded-md text-sm text-text-secondary hover:text-text-base ml-auto border border-border">取消</button>
             </div>
           </div>
         </div>
@@ -1269,24 +1096,16 @@ export default function CourseManage() {
           <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h3 className="font-bold text-sm">分配课程: {assigningTitle}</h3>
-              <button onClick={() => setShowAssignModal(false)} className="text-text-secondary hover:text-text-base">
-                <X size={18} />
-              </button>
+              <button onClick={() => setShowAssignModal(false)} className="text-text-secondary hover:text-text-base"><X size={18} /></button>
             </div>
-
             <div className="p-5">
               <div className="grid grid-cols-2 gap-4">
-                {/* 部门 */}
                 <div className="bg-bg-base rounded-lg border border-border p-3">
                   <h4 className="font-bold text-sm mb-2">选择部门</h4>
-                  <input
-                    type="text" placeholder="搜索部门..."
-                    value={deptSearch} onChange={e => setDeptSearch(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2"
-                  />
+                  <input type="text" placeholder="搜索部门..." value={deptSearch} onChange={e => setDeptSearch(e.target.value)}
+                    className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2" />
                   <div className="max-h-52 overflow-y-auto space-y-0.5 mb-2">
                     {(() => {
-                      // 过滤树：保留匹配节点及其祖先
                       const filterTree = (nodes: DeptItem[], term: string): DeptItem[] => {
                         if (!term) return nodes;
                         const lower = term.toLowerCase();
@@ -1313,17 +1132,13 @@ export default function CourseManage() {
                                   <button onClick={(e) => { e.stopPropagation(); toggleDeptExpand(node.id); }} className="text-text-secondary shrink-0">
                                     {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                                   </button>
-                                ) : (
-                                  <span className="w-3 shrink-0" />
-                                )}
+                                ) : <span className="w-3 shrink-0" />}
                                 <input type="checkbox" checked={selectedDepts.has(node.id)} onChange={() => {
                                   const next = new Set(selectedDepts);
                                   next.has(node.id) ? next.delete(node.id) : next.add(node.id);
                                   setSelectedDepts(next);
                                 }} className="shrink-0" />
-                                <span className="flex-1 cursor-pointer truncate" onClick={() => setActiveDeptId(isActive ? null : node.id)}>
-                                  {node.name}
-                                </span>
+                                <span className="flex-1 cursor-pointer truncate" onClick={() => setActiveDeptId(isActive ? null : node.id)}>{node.name}</span>
                               </div>
                               {isExpanded && hasChildren && renderNode(node.children!, depth + 1)}
                             </div>
@@ -1333,43 +1148,28 @@ export default function CourseManage() {
                     })()}
                   </div>
                 </div>
-
-                {/* 学员 */}
                 <div className="bg-bg-base rounded-lg border border-border p-3">
                   <h4 className="font-bold text-sm mb-2">
                     选择学员
-                    {activeDeptId && (
-                      <span className="text-text-secondary font-normal ml-1">
-                        ({findDeptNode(allDepts, activeDeptId)?.name || ""})
-                      </span>
-                    )}
+                    {activeDeptId && <span className="text-text-secondary font-normal ml-1">({findDeptNode(allDepts, activeDeptId)?.name || ""})</span>}
                   </h4>
-                  <input
-                    type="text" placeholder="搜索姓名..."
-                    value={userSearch} onChange={e => setUserSearch(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2"
-                  />
+                  <input type="text" placeholder="搜索姓名..." value={userSearch} onChange={e => setUserSearch(e.target.value)}
+                    className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2" />
                   <div className="max-h-52 overflow-y-auto space-y-1 mb-2">
                     {(() => {
                       const activeDept = activeDeptId ? findDeptNode(allDepts, activeDeptId) : null;
-                      // 收集该部门及其所有子部门的名称，用于匹配用户
                       const activeDeptNames = activeDept ? collectDescendantNames(activeDept) : [];
                       const filtered = allUsers.filter(u => {
                         if (activeDeptNames.length > 0 && !activeDeptNames.some(name => matchDept(u.department, name))) return false;
                         if (userSearch && !u.name.includes(userSearch) && !(u.department && u.department.includes(userSearch))) return false;
                         return true;
                       });
-                      if (!activeDept) {
-                        return <p className="text-sm text-text-secondary py-4 text-center">点击左侧部门名称查看学员</p>;
-                      }
-                      if (filtered.length === 0) {
-                        return <p className="text-sm text-text-secondary py-2 text-center">该部门暂无用户</p>;
-                      }
+                      if (!activeDept) return <p className="text-sm text-text-secondary py-4 text-center">点击左侧部门名称查看学员</p>;
+                      if (filtered.length === 0) return <p className="text-sm text-text-secondary py-2 text-center">该部门暂无用户</p>;
                       return (
                         <div>
                           <label className="flex items-center gap-2 py-1 px-2 hover:bg-bg-layout rounded text-sm cursor-pointer border-b border-border mb-1">
-                            <input
-                              type="checkbox"
+                            <input type="checkbox"
                               checked={filtered.every(u => selectedUsers.has(u.id))}
                               onChange={() => {
                                 const allIds = new Set(filtered.map(u => u.id));
@@ -1381,21 +1181,16 @@ export default function CourseManage() {
                                 } else {
                                   setSelectedUsers(new Set([...selectedUsers, ...allIds]));
                                 }
-                              }}
-                            />
+                              }} />
                             <span className="text-text-secondary text-xs">全选</span>
                           </label>
                           {filtered.map(u => (
                             <label key={u.id} className="flex items-center gap-2 py-1 px-2 hover:bg-bg-layout rounded text-sm cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={selectedUsers.has(u.id)}
-                                onChange={() => {
-                                  const next = new Set(selectedUsers);
-                                  next.has(u.id) ? next.delete(u.id) : next.add(u.id);
-                                  setSelectedUsers(next);
-                                }}
-                              />
+                              <input type="checkbox" checked={selectedUsers.has(u.id)} onChange={() => {
+                                const next = new Set(selectedUsers);
+                                next.has(u.id) ? next.delete(u.id) : next.add(u.id);
+                                setSelectedUsers(next);
+                              }} />
                               <span>{u.name}</span>
                               {u.department && <span className="text-text-secondary text-xs">({u.department})</span>}
                             </label>
@@ -1407,36 +1202,25 @@ export default function CourseManage() {
                 </div>
               </div>
 
-              {/* 分配结果摘要 */}
               {(selectedDepts.size > 0 || selectedUsers.size > 0) && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {[...selectedDepts].map(id => {
                     const d = findDeptNode(allDepts, id);
-                    return d ? (
-                      <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
-                        {d.name}（部门）
-                      </span>
-                    ) : null;
+                    return d ? <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">{d.name}（部门）</span> : null;
                   })}
                   {allUsers.filter(u => selectedUsers.has(u.id) && !selectedDepts.has(
                     findDeptByName(allDepts, u.department)?.id || ""
                   )).map(u => (
-                    <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">
-                      {u.name}
-                    </span>
+                    <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">{u.name}</span>
                   ))}
                 </div>
               )}
 
-              <button
-                onClick={handleAssign}
-                disabled={selectedUsers.size === 0 && selectedDepts.size === 0}
-                className="mt-3 bg-primary text-white px-4 py-2 rounded-md text-sm disabled:opacity-50 border border-primary"
-              >
+              <button onClick={handleAssign} disabled={selectedUsers.size === 0 && selectedDepts.size === 0}
+                className="mt-3 bg-primary text-white px-4 py-2 rounded-md text-sm disabled:opacity-50 border border-primary">
                 分配选中 ({selectedDepts.size + selectedUsers.size})
               </button>
 
-              {/* 已分配 */}
               <div className="mt-4">
                 <h4 className="font-bold text-sm mb-2">已分配</h4>
                 {assignedUsers.length === 0 && assignedDepts.length === 0 ? (
@@ -1464,4 +1248,5 @@ export default function CourseManage() {
       )}
     </div>
   );
-}
+
+  }

@@ -64,6 +64,7 @@ def get_category_flat(
             "id": c.id,
             "name": c.name,
             "parent_id": c.parent_id,
+            "sort_order": c.sort_order,
         }
         for c in categories
     ]
@@ -97,6 +98,53 @@ def create_category(
         "parent_id": category.parent_id,
         "sort_order": category.sort_order,
     }
+
+
+class ReorderItem(BaseModel):
+    id: str
+    sort_order: int
+
+
+class ReorderRequest(BaseModel):
+    items: list[ReorderItem]
+
+
+@router.put("/question-categories/reorder")
+def reorder_categories(
+    data: ReorderRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """批量更新分类排序（拖拽排序使用）"""
+    for item in data.items:
+        cat = db.query(QuestionCategory).filter(QuestionCategory.id == item.id).first()
+        if cat:
+            cat.sort_order = item.sort_order
+    db.commit()
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="update", resource_type="题库分类", resource_name="", description=f"{current_user.name} 重排了题库分类顺序", level="info")
+    return {"ok": True}
+
+
+class ReorderBatchRequest(BaseModel):
+    """前端拖拽排序后传回的完整兄弟节点顺序"""
+    parent_id: str | None = None
+    ordered_ids: list[str]
+
+
+@router.put("/question-categories/reorder-batch")
+def reorder_categories_batch(
+    data: ReorderBatchRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """根据完整兄弟节点顺序重新分配 sort_order（拖拽排序使用）"""
+    for index, cat_id in enumerate(data.ordered_ids):
+        cat = db.query(QuestionCategory).filter(QuestionCategory.id == cat_id).first()
+        if cat:
+            cat.sort_order = index
+    db.commit()
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="update", resource_type="题库分类", resource_name="", description=f"{current_user.name} 重排了题库分类顺序", level="info")
+    return {"ok": True}
 
 
 @router.put("/question-categories/{category_id}")

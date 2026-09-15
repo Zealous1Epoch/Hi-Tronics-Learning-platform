@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
-import { Search, ChevronRight, ChevronDown } from "lucide-react";
+import CourseTree, { type TreeNode, type FlatCategory, getCategoryPath, buildDescendantMap } from "../../components/CourseTree";
+import { Search } from "lucide-react";
 
 interface ExamItem {
   id: string; course_id: string; title: string; paper_type: string;
@@ -16,13 +17,6 @@ interface CourseItem {
 interface PaperItem {
   id: string; title: string; category_id: string | null; paper_type: string;
   total_score: number; status: string;
-}
-interface TreeNode {
-  id: string; name: string; parent_id: string | null;
-  children: TreeNode[];
-}
-interface FlatCategory {
-  id: string; name: string; parent_id: string | null;
 }
 
 const STATUS_LABELS: Record<string, string> = { draft: "草稿", published: "已发布", ended: "已结束" };
@@ -44,9 +38,7 @@ export default function ExamManage() {
   const [saving, setSaving] = useState(false);
 
   // 树状态
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [treeSearch, setTreeSearch] = useState("");
 
   // 新增考试：选中的试卷
   const [modalCategoryId, setModalCategoryId] = useState<string | null>(null);
@@ -83,29 +75,7 @@ export default function ExamManage() {
   useEffect(() => { fetchData(); }, []);
 
   // 构建 category 后代映射
-  const categoryDescendants = useMemo(() => {
-    const childrenMap = new Map<string, string[]>();
-    flatCategories.forEach((c) => {
-      if (c.parent_id) {
-        const arr = childrenMap.get(c.parent_id) || [];
-        arr.push(c.id);
-        childrenMap.set(c.parent_id, arr);
-      }
-    });
-    const cache = new Map<string, Set<string>>();
-    function collectDescendants(id: string): Set<string> {
-      if (cache.has(id)) return cache.get(id)!;
-      const result = new Set<string>([id]);
-      const children = childrenMap.get(id) || [];
-      children.forEach((childId) => {
-        collectDescendants(childId).forEach((descId) => result.add(descId));
-      });
-      cache.set(id, result);
-      return result;
-    }
-    flatCategories.forEach((c) => collectDescendants(c.id));
-    return cache;
-  }, [flatCategories]);
+  const categoryDescendants = useMemo(() => buildDescendantMap(flatCategories), [flatCategories]);
 
   // 主页面：根据分类筛选考试
   const filteredExams = useMemo(() => {
@@ -261,105 +231,12 @@ export default function ExamManage() {
     }
   };
 
-  // 树操作
-  const toggleExpand = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const handleSelectCategory = (nodeId: string, hasChildren: boolean) => {
-    setSelectedCategoryId(nodeId);
-    if (hasChildren) toggleExpand(nodeId);
-  };
-
-  const handleModalSelectCategory = (nodeId: string, hasChildren: boolean) => {
-    setModalCategoryId(nodeId);
-    setSelectedPaperId("");
-    setSelectedCourseId("");  // 单课程时由 useEffect 自动设置
-    if (hasChildren) toggleExpand(nodeId);
-  };
-
   // 匹配到唯一课程时自动选中
   useEffect(() => {
     if (matchedCourses.length === 1) {
       setSelectedCourseId(matchedCourses[0].id);
     }
   }, [matchedCourses]);
-
-  const filterTree = (nodes: TreeNode[], term: string): TreeNode[] => {
-    if (!term) return nodes;
-    const lower = term.toLowerCase();
-    const result: TreeNode[] = [];
-    for (const node of nodes) {
-      const filteredChildren = filterTree(node.children, term);
-      if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
-        result.push({ ...node, children: filteredChildren });
-      }
-    }
-    return result;
-  };
-
-  const filteredTree = treeSearch ? filterTree(tree, treeSearch) : tree;
-
-  useEffect(() => {
-    if (!treeSearch) return;
-    const collectIds = (nodes: TreeNode[]): string[] => {
-      const ids: string[] = [];
-      for (const node of nodes) {
-        ids.push(node.id);
-        ids.push(...collectIds(node.children));
-      }
-      return ids;
-    };
-    setExpandedIds(new Set(collectIds(filteredTree)));
-  }, [treeSearch]);
-
-  const getCategoryPath = (catId: string | null): string => {
-    if (!catId) return "";
-    const parts: string[] = [];
-    let current = flatCategories.find((c) => c.id === catId);
-    while (current) {
-      parts.unshift(current.name);
-      current = current!.parent_id ? flatCategories.find((c) => c.id === current!.parent_id) : undefined;
-    }
-    return parts.join(" - ");
-  };
-
-  const renderTree = (nodes: TreeNode[], depth: number = 0, onSelect: (id: string, hasChildren: boolean) => void, activeId: string | null) => {
-    return nodes.map((node) => {
-      const isExpanded = expandedIds.has(node.id);
-      const isSelected = activeId === node.id;
-      const hasChildren = node.children.length > 0;
-
-      return (
-        <div key={node.id}>
-          <div
-            className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer hover:bg-bg-layout rounded text-sm ${
-              isSelected ? "bg-primary/10 text-primary font-medium" : ""
-            }`}
-            style={{ paddingLeft: `${8 + depth * 16}px` }}
-            onClick={() => onSelect(node.id, hasChildren)}
-          >
-            {hasChildren ? (
-              <button
-                onClick={(e) => { e.stopPropagation(); toggleExpand(node.id); }}
-                className="p-0.5 shrink-0 text-text-secondary"
-              >
-                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              </button>
-            ) : (
-              <span className="w-5 shrink-0" />
-            )}
-            <span className="truncate">{node.name}</span>
-          </div>
-          {isExpanded && hasChildren && renderTree(node.children, depth + 1, onSelect, activeId)}
-        </div>
-      );
-    });
-  };
 
   if (loading) return <p className="text-text-secondary">加载中...</p>;
 
@@ -370,46 +247,25 @@ export default function ExamManage() {
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧分类树 */}
         <div className="w-56 shrink-0 pr-4 border-r border-border">
-          <div
-            onClick={() => setSelectedCategoryId(null)}
-            className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
-              selectedCategoryId === null ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-bg-layout"
-            }`}
-          >
-            全部考试
-          </div>
-          <div className="relative mb-2">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
-            <input
-              type="text" placeholder="搜索课程..."
-              value={treeSearch} onChange={(e) => setTreeSearch(e.target.value)}
-              className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
-            />
-          </div>
-          <div className="bg-bg-base rounded-lg border border-border max-h-[calc(100vh-220px)] overflow-y-auto">
-            {filteredTree.length === 0 ? (
-              <p className="p-4 text-sm text-text-secondary text-center">
-                {treeSearch ? "无匹配结果" : "暂无课程"}
-              </p>
-            ) : (
-              <div className="py-1">{renderTree(filteredTree, 0, handleSelectCategory, selectedCategoryId)}</div>
-            )}
-          </div>
-          {selectedCategoryId && (
-            <button
-              onClick={() => setSelectedCategoryId(null)}
-              className="mt-2 w-full text-xs text-text-secondary hover:text-primary"
-            >
-              清除筛选
-            </button>
-          )}
+          <CourseTree
+            tree={tree}
+            flatCategories={flatCategories}
+            selectedId={selectedCategoryId}
+            onSelect={setSelectedCategoryId}
+            rootLabel="全部考试"
+            placeholder="搜索课程..."
+            loading={loading}
+            emptyText="暂无课程"
+            clearFilterText="清除筛选"
+            treeContainerClass="max-h-[calc(100vh-220px)]"
+          />
         </div>
 
         {/* 右侧考试列表 */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm text-text-secondary">
-              {selectedCategoryId ? getCategoryPath(selectedCategoryId) : "全部考试"}
+              {selectedCategoryId ? getCategoryPath(selectedCategoryId, flatCategories) : "全部考试"}
             </span>
             <button onClick={openCreate} className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light">
               新增考试
@@ -469,18 +325,33 @@ export default function ExamManage() {
 
             <div className="flex" style={{ height: "420px" }}>
               <div className="w-48 shrink-0 border-r border-border flex flex-col">
-                <div className="flex-1 overflow-y-auto">
-                  {filteredTree.length === 0 ? (
-                    <p className="p-4 text-sm text-text-secondary text-center">暂无课程</p>
-                  ) : (
-                    <div className="py-1">{renderTree(filteredTree, 0, handleModalSelectCategory, modalCategoryId)}</div>
-                  )}
-                </div>
+                <CourseTree
+                  tree={tree}
+                  flatCategories={flatCategories}
+                  selectedId={modalCategoryId}
+                  onSelect={(id) => {
+                    if (id !== null) {
+                      setModalCategoryId(id);
+                      setSelectedPaperId("");
+                      setSelectedCourseId("");
+                      const node = tree.find(n => n.id === id);
+                      if (node && node.children.length > 0) {
+                        // 展开/折叠由 CourseTree 内部管理
+                      }
+                    }
+                  }}
+                  rootLabel="全部考试"
+                  showHeader={false}
+                  showSearch={false}
+                  emptyText="暂无课程"
+                  treeContainerClass="flex-1"
+                  loading={loading}
+                />
               </div>
 
               <div className="flex-1 flex flex-col min-w-0">
                 <div className="px-4 pt-3 pb-2 space-y-2">
-                  {modalCategoryId && <p className="text-xs text-text-secondary">{getCategoryPath(modalCategoryId)}</p>}
+                  {modalCategoryId && <p className="text-xs text-text-secondary">{getCategoryPath(modalCategoryId, flatCategories)}</p>}
                   {modalCategoryId && matchedCourses.length === 1 && (
                     <p className="text-xs text-text-secondary">关联课程: {matchedCourses[0].title}</p>
                   )}

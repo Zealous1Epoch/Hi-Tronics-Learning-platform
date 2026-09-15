@@ -10,12 +10,20 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tiptap/extension-image": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "@types/dagre": "^0.7.54",
     "@types/video.js": "^7.3.58",
+    "@xyflow/react": "^12.11.6",
+    "dagre": "^0.8.5",
     "lucide-react": "^1.38.0",
+    "mammoth": "^1.12.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.3",
-    "video.js": "^8.24.0"
+    "video.js": "^8.24.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

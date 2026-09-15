@@ -6,6 +6,7 @@ import MyCourses from "../pages/student/MyCourses";
 import CourseDetail from "../pages/student/CourseDetail";
 import ExamPage from "../pages/student/ExamPage";
 import StudentProfile from "../pages/student/Profile";
+import KnowledgeBrowse from "../pages/student/KnowledgeBrowse";
 import logoImg from "../assets/logo.png";
 
 export default function StudentLayout() {
@@ -22,6 +23,7 @@ export default function StudentLayout() {
           <Link to="/student" className="text-white/80 hover:text-white text-sm">首页</Link>
           <Link to="/student/tasks" className="text-white/80 hover:text-white text-sm">代办任务</Link>
           <Link to="/student/courses" className="text-white/80 hover:text-white text-sm">我的课程</Link>
+          <Link to="/student/knowledge" className="text-white/80 hover:text-white text-sm">知识地图</Link>
           <Link to="/student/profile" className="text-white/80 hover:text-white text-sm">学习档案</Link>
         </div>
         <div className="flex items-center gap-3">
@@ -39,6 +41,7 @@ export default function StudentLayout() {
           <Route path="courses" element={<MyCourses />} />
           <Route path="courses/:id" element={<CourseDetail />} />
           <Route path="exams/:id" element={<ExamPage />} />
+          <Route path="knowledge" element={<KnowledgeBrowse />} />
           <Route path="profile" element={<StudentProfile />} />
           <Route path="*" element={<Navigate to="/student" replace />} />
         </Routes>

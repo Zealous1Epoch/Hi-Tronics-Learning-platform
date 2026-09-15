@@ -952,7 +952,25 @@ export default function CourseManage() {
                                   ) : <span className="w-2.5 shrink-0" />}
                                   <input type="checkbox" checked={editSelectedDepts.has(node.id)} onChange={() => {
                                     const next = new Set(editSelectedDepts);
-                                    next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+                                    const isChecking = !next.has(node.id);
+                                    if (isChecking) {
+                                      next.add(node.id);
+                                      // 自动展开该部门成员列表，并全选所有成员
+                                      setEditActiveDeptId(node.id);
+                                      const names = collectDescendantNames(node);
+                                      const userIds = editAssignUsers.filter(u => names.some(name => matchDept(u.department, name))).map(u => u.id);
+                                      setEditSelectedUsers(prev => new Set([...prev, ...userIds]));
+                                    } else {
+                                      next.delete(node.id);
+                                      // 取消勾选时移除该部门所有成员
+                                      const names = collectDescendantNames(node);
+                                      const userIds = new Set(editAssignUsers.filter(u => names.some(name => matchDept(u.department, name))).map(u => u.id));
+                                      setEditSelectedUsers(prev => {
+                                        const updated = new Set(prev);
+                                        userIds.forEach(id => updated.delete(id));
+                                        return updated;
+                                      });
+                                    }
                                     setEditSelectedDepts(next);
                                   }} className="shrink-0" />
                                   <span className="truncate flex-1 cursor-pointer" onClick={() => setEditActiveDeptId(isActive ? null : node.id)}>
@@ -1168,7 +1186,25 @@ export default function CourseManage() {
                                 ) : <span className="w-3 shrink-0" />}
                                 <input type="checkbox" checked={selectedDepts.has(node.id)} onChange={() => {
                                   const next = new Set(selectedDepts);
-                                  next.has(node.id) ? next.delete(node.id) : next.add(node.id);
+                                  const isChecking = !next.has(node.id);
+                                  if (isChecking) {
+                                    next.add(node.id);
+                                    // 自动展开该部门成员列表，并全选所有成员
+                                    setActiveDeptId(node.id);
+                                    const names = collectDescendantNames(node);
+                                    const userIds = allUsers.filter(u => names.some(name => matchDept(u.department, name))).map(u => u.id);
+                                    setSelectedUsers(prev => new Set([...prev, ...userIds]));
+                                  } else {
+                                    next.delete(node.id);
+                                    // 取消勾选时移除该部门所有成员
+                                    const names = collectDescendantNames(node);
+                                    const userIds = new Set(allUsers.filter(u => names.some(name => matchDept(u.department, name))).map(u => u.id));
+                                    setSelectedUsers(prev => {
+                                      const updated = new Set(prev);
+                                      userIds.forEach(id => updated.delete(id));
+                                      return updated;
+                                    });
+                                  }
                                   setSelectedDepts(next);
                                 }} className="shrink-0" />
                                 <span className="flex-1 cursor-pointer truncate" onClick={() => setActiveDeptId(isActive ? null : node.id)}>{node.name}</span>

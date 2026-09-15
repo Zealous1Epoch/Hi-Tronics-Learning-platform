@@ -244,7 +244,7 @@ export default function CourseDetail() {
             ) : isCompleted ? (
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-green-600">
                 <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M4.5 7L6 8.5L9.5 5" stroke="currentColor" strokeWidth="1.5" strokeCap="round" strokeLinejoin="round" />
+                <path d="M4.5 7L6 8.5L9.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             ) : (
               <span className="text-text-secondary/50 text-xs">{idx + 1}</span>

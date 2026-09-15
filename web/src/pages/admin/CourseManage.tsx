@@ -440,7 +440,6 @@ export default function CourseManage() {
     setEditVideos(prev => prev.filter(v => v.id !== videoId));
     const data = await api<CourseDetail>(`/courses/${editingCourse.id}`);
     setEditVideos([...data.videos, ...data.chapters.flatMap(ch => ch.videos)]);
-    setEditChapters(data.chapters);
   };
 
   // 分配弹窗

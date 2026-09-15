@@ -46,7 +46,7 @@ export function getCategoryPath(catId: string | null, flatCategories: FlatCatego
   let current = flatCategories.find((c) => c.id === catId);
   while (current) {
     parts.unshift(current.name);
-    current = current.parent_id ? flatCategories.find((c) => c.id === current.parent_id) : undefined;
+    current = current.parent_id ? flatCategories.find((c) => c.id === current!.parent_id) : undefined;
   }
   return parts.join(" - ");
 }
@@ -101,7 +101,6 @@ function collectAllIds(nodes: TreeNode[]): string[] {
 
 export default function CourseTree({
   tree,
-  flatCategories,
   selectedId,
   onSelect,
   rootLabel,
@@ -114,7 +113,6 @@ export default function CourseTree({
   renderNodeFooter,
   renderTreeFooter,
   renderActions,
-  renderHeader,
   treeContainerClass = "max-h-[calc(100vh-240px)]",
   showHeader = true,
   showSearch = true,
@@ -131,13 +129,6 @@ export default function CourseTree({
       return next;
     });
   }, []);
-
-  const handleSelect = useCallback(
-    (id: string) => {
-      onSelect(id);
-    },
-    [onSelect]
-  );
 
   const filtered = searchText ? filterTree(tree, searchText) : tree;
 

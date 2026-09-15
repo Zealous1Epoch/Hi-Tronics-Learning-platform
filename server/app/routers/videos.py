@@ -114,7 +114,13 @@ async def stream_video(
     def iterfile():
         with open(filepath, "rb") as f:
             f.seek(start)
-            yield f.read(chunk_size)
+            remaining = chunk_size
+            while remaining > 0:
+                piece = f.read(min(256 * 1024, remaining))  # 每次 256KB，边读边传
+                if not piece:
+                    break
+                remaining -= len(piece)
+                yield piece
 
     return StreamingResponse(
         iterfile(),

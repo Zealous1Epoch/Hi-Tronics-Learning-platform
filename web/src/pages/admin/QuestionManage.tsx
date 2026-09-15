@@ -329,14 +329,14 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
 
       {/* 批量操作栏 */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 mb-3 px-4 py-2 bg-primary/5 border border-primary/20 rounded-md text-sm">
+        <div className="flex items-center gap-3 mb-3 px-4 py-2 bg-primary/5 rounded-lg text-sm">
           <span className="text-text-secondary">已选 {selectedIds.size} 题</span>
           <button onClick={() => {
             const value = prompt("新难度 (easy / medium / hard):");
             if (value) handleBatch("update_difficulty", value);
-          }} className="text-primary hover:underline">批量改难度</button>
-                    <button onClick={() => handleBatch("delete")} className="text-red-500 hover:underline">批量删除</button>
-          <button onClick={() => setSelectedIds(new Set())} className="text-text-secondary hover:underline ml-auto">取消选择</button>
+          }} className="text-primary/70 hover:text-primary text-xs transition-colors">批量改难度</button>
+                    <button onClick={() => handleBatch("delete")} className="text-red-500/70 hover:text-red-500 text-xs transition-colors">批量删除</button>
+          <button onClick={() => setSelectedIds(new Set())} className="text-text-secondary/60 hover:text-text-secondary text-xs ml-auto transition-colors">取消选择</button>
         </div>
       )}
 
@@ -344,7 +344,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
       <div className="flex gap-3 mb-4">
         {!propCategoryId && (
           <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setLoading(true); }}
-            className="border border-border rounded-md px-3 py-1.5 text-sm">
+            className="border border-border/60 rounded-md px-3 py-1.5 text-sm bg-bg-base">
             <option value="">全部分类</option>
             {flatCategories.map((c) => (
               <option key={c.id} value={c.id}>{c.parent_id ? "  " : ""}{c.name}</option>
@@ -352,11 +352,11 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
           </select>
         )}
         <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setLoading(true); }}
-          className="border border-border rounded-md px-3 py-1.5 text-sm">
+          className="border border-border/60 rounded-md px-3 py-1.5 text-sm bg-bg-base">
           {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <select value={diffFilter} onChange={(e) => { setDiffFilter(e.target.value); setLoading(true); }}
-          className="border border-border rounded-md px-3 py-1.5 text-sm">
+          className="border border-border/60 rounded-md px-3 py-1.5 text-sm bg-bg-base">
           {DIFFICULTY_OPTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
         </select>
         <input
@@ -376,22 +376,22 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
       ) : (
         <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm table-fixed">
-            <thead className="bg-bg-layout border-b border-border">
+            <thead className="bg-bg-layout/50 border-b border-border/50">
               <tr>
-                <th className="px-4 py-3 w-8">
+                <th className="px-4 py-2.5 w-8">
                   <input type="checkbox" checked={selectedIds.size === questions.length && questions.length > 0}
                     onChange={toggleSelectAll} />
                 </th>
-                <th className="text-center px-4 py-3 font-medium text-text-secondary w-[26%]">题干</th>
-                <th className="text-center px-2 py-3 font-medium text-text-secondary w-16">题型</th>
-                <th className="text-center px-2 py-3 font-medium text-text-secondary w-16">难度</th>
-                <th className="text-center px-2 py-3 font-medium text-text-secondary w-24">题库分类</th>
-                <th className="text-right px-3 py-3 font-medium text-text-secondary w-40">操作</th>
+                <th className="text-center px-4 py-2.5 text-xs font-normal text-text-secondary/70 w-[26%]">题干</th>
+                <th className="text-center px-2 py-2.5 text-xs font-normal text-text-secondary/70 w-16">题型</th>
+                <th className="text-center px-2 py-2.5 text-xs font-normal text-text-secondary/70 w-16">难度</th>
+                <th className="text-center px-2 py-2.5 text-xs font-normal text-text-secondary/70 w-24">题库分类</th>
+                <th className="text-right px-3 py-2.5 text-xs font-normal text-text-secondary/70 w-40">操作</th>
               </tr>
             </thead>
             <tbody>
               {questions.map((q) => (
-                <tr key={q.id} className="border-b border-border last:border-0 hover:bg-bg-layout/50">
+                <tr key={q.id} className="border-b border-border/40 last:border-0 hover:bg-bg-layout/50">
                   <td className="px-4 py-3">
                     <input type="checkbox" checked={selectedIds.has(q.id)} onChange={() => toggleSelect(q.id)} />
                   </td>
@@ -408,10 +408,10 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
                     </span>
                   </td>
                   <td className="px-3 py-3 text-right whitespace-nowrap">
-                    <button onClick={() => setPreviewQuestion(q)} className="text-xs text-text-secondary hover:underline mr-2">预览</button>
-                    <button onClick={() => openEdit(q)} className="text-xs text-primary hover:underline mr-2">编辑</button>
-                    <button onClick={() => handleClone(q.id)} className="text-xs text-primary hover:underline mr-2">复制</button>
-                    <button onClick={() => handleDelete(q.id)} className="text-xs text-red-500 hover:underline">删除</button>
+                    <button onClick={() => setPreviewQuestion(q)} className="text-xs text-text-secondary/60 hover:text-text-secondary mr-2 transition-colors">预览</button>
+                    <button onClick={() => openEdit(q)} className="text-xs text-primary/70 hover:text-primary mr-2 transition-colors">编辑</button>
+                    <button onClick={() => handleClone(q.id)} className="text-xs text-primary/70 hover:text-primary mr-2 transition-colors">复制</button>
+                    <button onClick={() => handleDelete(q.id)} className="text-xs text-text-secondary/50 hover:text-red-500 transition-colors">删除</button>
                   </td>
                 </tr>
               ))}
@@ -428,17 +428,17 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
-              className="px-3 py-1 border border-border rounded-md hover:bg-bg-layout disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-2 py-1 text-xs text-text-secondary hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               上一页
             </button>
-            <span className="px-2">
+            <span className="text-xs px-1">
               {page} / {Math.ceil(total / pageSize)}
             </span>
             <button
               onClick={() => setPage((p) => p + 1)}
               disabled={page >= Math.ceil(total / pageSize)}
-              className="px-3 py-1 border border-border rounded-md hover:bg-bg-layout disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-2 py-1 text-xs text-text-secondary hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >
               下一页
             </button>
@@ -658,7 +658,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
             <div className="space-y-3">
               {/* 题型 */}
               <div>
-                <label className="block text-sm text-text-secondary mb-1">题型</label>
+                <label className="block text-xs text-text-secondary mb-1">题型</label>
                 <select value={qType} onChange={(e) => setQType(e.target.value)}
                   className="w-full border border-border rounded-md px-3 py-2 text-sm">
                   {TYPE_OPTIONS.filter((t) => t.value).map((t) => (
@@ -669,7 +669,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
 
               {/* 题干 */}
               <div>
-                <label className="block text-sm text-text-secondary mb-1">题干</label>
+                <label className="block text-xs text-text-secondary mb-1">题干</label>
                 <textarea value={stem} onChange={(e) => setStem(e.target.value)} rows={2}
                   className="w-full border border-border rounded-md px-3 py-2 text-sm" />
               </div>
@@ -677,7 +677,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
               {/* 选择题选项 */}
               {(qType === "single_choice" || qType === "multi_choice") && (
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">选项</label>
+                  <label className="block text-xs text-text-secondary mb-1">选项</label>
                   {Object.entries(options).map(([key, val]) => (
                     <div key={key} className="flex items-center gap-2 mb-1.5">
                       <span className="text-sm text-text-secondary w-6">{key}.</span>
@@ -694,7 +694,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
               {/* 单选题答案 */}
               {qType === "single_choice" && (
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">正确答案</label>
+                  <label className="block text-xs text-text-secondary mb-1">正确答案</label>
                   <select value={correctAnswer} onChange={(e) => setCorrectAnswer(e.target.value)}
                     className="w-full border border-border rounded-md px-3 py-2 text-sm">
                     {Object.keys(options).map((k) => (
@@ -707,7 +707,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
               {/* 多选题答案 */}
               {qType === "multi_choice" && (
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">正确答案（多选）</label>
+                  <label className="block text-xs text-text-secondary mb-1">正确答案（多选）</label>
                   <div className="flex gap-3">
                     {Object.keys(options).map((k) => (
                       <label key={k} className="flex items-center gap-1 text-sm cursor-pointer">
@@ -722,7 +722,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
               {/* 判断题答案 */}
               {qType === "true_false" && (
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">正确答案</label>
+                  <label className="block text-xs text-text-secondary mb-1">正确答案</label>
                   <div className="flex gap-3">
                     <label className="flex items-center gap-1 text-sm cursor-pointer">
                       <input type="radio" checked={tfAnswer} onChange={() => setTfAnswer(true)} /> 正确
@@ -737,7 +737,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
               {/* 填空题答案 */}
               {qType === "fill_blank" && (
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">正确答案</label>
+                  <label className="block text-xs text-text-secondary mb-1">正确答案</label>
                   <input type="text" value={fillAnswer} onChange={(e) => setFillAnswer(e.target.value)}
                     className="w-full border border-border rounded-md px-3 py-2 text-sm" />
                 </div>
@@ -747,12 +747,12 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
               {qType === "essay" && (
                 <>
                   <div>
-                    <label className="block text-sm text-text-secondary mb-1">参考答案</label>
+                    <label className="block text-xs text-text-secondary mb-1">参考答案</label>
                     <textarea value={essayAnswer} onChange={(e) => setEssayAnswer(e.target.value)} rows={3}
                       className="w-full border border-border rounded-md px-3 py-2 text-sm" />
                   </div>
                   <div>
-                    <label className="block text-sm text-text-secondary mb-1">关键词（逗号分隔，用于自动打分）</label>
+                    <label className="block text-xs text-text-secondary mb-1">关键词（逗号分隔，用于自动打分）</label>
                     <input type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)}
                       placeholder="可变, 不可变, 哈希"
                       className="w-full border border-border rounded-md px-3 py-2 text-sm" />
@@ -762,7 +762,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
 
               {/* 难度 */}
               <div>
-                <label className="block text-sm text-text-secondary mb-1">难度</label>
+                <label className="block text-xs text-text-secondary mb-1">难度</label>
                 <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}
                   className="w-full border border-border rounded-md px-3 py-2 text-sm">
                   {DIFFICULTY_OPTIONS.filter((d) => d.value).map((d) => (
@@ -774,7 +774,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
               {/* 题库分类 */}
               {!propCategoryId && (
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">题库分类</label>
+                  <label className="block text-xs text-text-secondary mb-1">题库分类</label>
                   <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}
                     className="w-full border border-border rounded-md px-3 py-2 text-sm">
                     <option value="">未分类</option>

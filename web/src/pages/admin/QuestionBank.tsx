@@ -23,12 +23,12 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const STAT_COLORS: Record<string, string> = {
-  single_choice: "border border-border text-text-secondary",
-  multi_choice: "border border-border text-text-secondary",
-  true_false: "border border-border text-text-secondary",
-  fill_blank: "border border-border text-text-secondary",
-  essay: "border border-border text-text-secondary",
-  total: "border border-border text-text-secondary font-medium",
+  single_choice: "bg-bg-base/80 text-text-secondary/80 rounded",
+  multi_choice: "bg-bg-base/80 text-text-secondary/80 rounded",
+  true_false: "bg-bg-base/80 text-text-secondary/80 rounded",
+  fill_blank: "bg-bg-base/80 text-text-secondary/80 rounded",
+  essay: "bg-bg-base/80 text-text-secondary/80 rounded",
+  total: "bg-bg-base text-text-secondary rounded font-medium",
 };
 
 export default function QuestionBank() {
@@ -65,11 +65,11 @@ export default function QuestionBank() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4 pb-3 border-b border-border">试题管理</h2>
+      <h2 className="text-xl font-bold text-primary mb-4">试题管理</h2>
 
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧树 */}
-        <div className="w-56 shrink-0 pr-4 border-r border-border">
+        <div className="w-56 shrink-0 pr-5">
           <CourseTree
             tree={tree}
             flatCategories={[]}
@@ -91,10 +91,10 @@ export default function QuestionBank() {
                   <button
                     key={t.key}
                     onClick={() => setActiveTab(t.key)}
-                    className={`px-4 py-2 rounded-md text-sm ${
+                    className={`px-4 py-2 rounded-md text-sm transition-colors ${
                       activeTab === t.key
-                        ? "bg-primary text-white"
-                        : "border border-border text-text-secondary"
+                        ? "bg-primary/5 text-primary font-medium"
+                        : "text-text-secondary hover:bg-bg-layout"
                     }`}
                   >
                     {t.label}
@@ -116,10 +116,10 @@ export default function QuestionBank() {
             <div>
               {stats ? (
                 <div className="space-y-4">
-                  <div className="bg-bg-base rounded-lg border border-border p-4">
+                  <div className="bg-bg-layout/50 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-bold text-sm">{stats.name}</h3>
-                      <span className="text-xs text-text-secondary">
+                      <h3 className="font-bold text-sm text-primary">{stats.name}</h3>
+                      <span className="text-[11px] text-text-secondary/60">
                         {stats.is_leaf ? "叶子题库" : stats.child_count > 0 ? `容器节点 / ${stats.child_count} 个子节点` : "全部题库"}
                       </span>
                     </div>

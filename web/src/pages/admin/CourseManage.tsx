@@ -678,40 +678,40 @@ export default function CourseManage() {
     openAssign: (course: CourseItem) => void;
     handleDeleteCourse: (id: string) => void;
   }) => (
-    <div className="bg-bg-base rounded-lg border border-border p-4 hover:shadow-sm transition-shadow">
-      <div className="flex items-start justify-between mb-2">
-        <h4 className="font-medium text-sm truncate flex-1 min-w-0">{c.title}</h4>
-        <span className={`text-xs px-2 py-0.5 rounded shrink-0 ml-2 ${
-          c.status === "published" ? "bg-emerald-50 text-emerald-700" : "bg-bg-layout text-text-secondary"
+    <div className="bg-bg-base rounded-lg border border-border p-4 hover:border-primary/20 hover:shadow-sm transition-all">
+      <div className="flex items-start justify-between mb-2.5">
+        <h4 className="font-bold text-base truncate flex-1 min-w-0 text-primary">{c.title}</h4>
+        <span className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 ml-2 font-medium ${
+          c.status === "published" ? "bg-emerald-50 text-emerald-600" : "bg-bg-layout text-text-secondary"
         }`}>
           {c.status === "published" ? "已发布" : "草稿"}
         </span>
       </div>
-      <div className="space-y-1 text-xs text-text-secondary mb-3">
-        <p className="truncate">{getCategoryPath(c.category_id, flatCategories)}</p>
+      <div className="space-y-1 text-xs text-text-secondary/70 mb-4">
+        <p className="truncate">{getCategoryPath(c.category_id, flatCategories) || "未分类"}</p>
         <div className="flex items-center gap-3">
           <span>{c.video_count} 个视频</span>
-          <span>发布时间：{new Date(c.created_at).toLocaleDateString("zh-CN")}</span>
+          <span>{new Date(c.created_at).toLocaleDateString("zh-CN")}</span>
         </div>
         {c.start_date && c.end_date && (
-          <p className="text-primary/70">时间范围：{c.start_date} ~ {c.end_date}</p>
+          <p className="text-primary/50">{c.start_date} ~ {c.end_date}</p>
         )}
       </div>
-      <div className="flex items-center gap-2 pt-2 border-t border-border">
-        <button onClick={() => openEdit(c.id)} className="flex-1 text-xs text-center text-primary border border-border rounded-md py-1 hover:bg-bg-layout">编辑</button>
-        <button onClick={() => openAssign(c)} className="flex-1 text-xs text-center text-primary border border-border rounded-md py-1 hover:bg-bg-layout">分配</button>
-        <button onClick={() => handleDeleteCourse(c.id)} className="text-xs text-red-500 border border-red-200 rounded-md px-2 py-1 hover:bg-red-50 shrink-0">删除</button>
+      <div className="flex items-center gap-1.5">
+        <button onClick={() => openEdit(c.id)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">编辑</button>
+        <button onClick={() => openAssign(c)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">分配</button>
+        <button onClick={() => handleDeleteCourse(c.id)} className="shrink-0 px-3 py-1.5 text-xs text-text-secondary hover:text-red-500 hover:bg-red-50 rounded-md transition-colors">删除</button>
       </div>
     </div>
   );
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4 pb-3 border-b border-border">课程管理</h2>
+      <h2 className="text-xl font-bold text-primary mb-4">课程管理</h2>
 
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧课程树 */}
-        <div className="w-56 shrink-0 pr-4 border-r border-border">
+        <div className="w-56 shrink-0 pr-5">
           <CourseTree
             tree={tree}
             flatCategories={flatCategories}
@@ -765,10 +765,10 @@ export default function CourseManage() {
               ) : null
             }
             renderActions={(sid) => (
-              <div className="mt-2 space-y-1.5">
+              <div className="mt-2 space-y-1">
                 <button
                   onClick={() => { setAddingRoot(true); setNewRootName(""); }}
-                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-primary/5"
+                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary/70 hover:text-primary hover:bg-primary/5 rounded-md transition-colors"
                 >
                   <Plus size={12} /> 添加课程
                 </button>
@@ -776,24 +776,24 @@ export default function CourseManage() {
                   <>
                     <button
                       onClick={startAddChild}
-                      className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-light border border-primary"
+                      className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-primary/30 rounded-md hover:bg-primary/5 hover:border-primary/50 transition-colors"
                     >
                       <Plus size={12} /> 添加章节
                     </button>
-                    <div className="flex gap-1.5">
+                    <div className="flex gap-1">
                       <button
                         onClick={() => {
                           const node = flatCategories.find(c => c.id === sid);
                           setEditingId(sid);
                           setEditingName(node?.name || "");
                         }}
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout"
+                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-text-secondary hover:text-primary hover:bg-bg-layout rounded-md transition-colors"
                       >
                         <Pencil size={12} /> 重命名
                       </button>
                       <button
                         onClick={() => handleDeleteCategory(sid)}
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-red-200 text-red-500 rounded-md hover:bg-red-50"
+                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-text-secondary/60 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
                       >
                         <Trash2 size={12} /> 删除
                       </button>
@@ -807,13 +807,14 @@ export default function CourseManage() {
 
         {/* 右侧课程列表 */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-text-secondary">
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm font-medium text-text-secondary">
               {selectedId ? getCategoryPath(selectedId, flatCategories) : "全部课程"}
+              <span className="text-text-secondary/50 ml-2 font-normal">{courses.length} 门</span>
             </span>
             <button
               onClick={openCreate}
-              className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light border border-primary"
+              className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light transition-colors"
             >
               <Plus size={14} className="inline mr-1" />新增课程
             </button>
@@ -821,7 +822,7 @@ export default function CourseManage() {
 
           {/* 重命名输入框 */}
           {editingId && (
-            <div className="flex items-center gap-2 bg-bg-base rounded-lg border border-border p-3 mb-3">
+            <div className="flex items-center gap-2 bg-bg-layout rounded-lg p-3 mb-3">
               <input
                 type="text" value={editingName}
                 onChange={e => setEditingName(e.target.value)}
@@ -835,8 +836,12 @@ export default function CourseManage() {
           )}
 
           {courses.length === 0 ? (
-            <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
-              暂无课程
+            <div className="bg-bg-base rounded-lg p-12 border border-border text-center">
+              <div className="text-text-secondary/40 mb-3 flex justify-center">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+              </div>
+              <p className="text-sm text-text-secondary mb-1">暂无课程</p>
+              <p className="text-xs text-text-secondary/50">点击「新增课程」开始添加</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -868,7 +873,7 @@ export default function CourseManage() {
                   <>
                     {groupNames.map(catName => (
                       <div key={catName} className="bg-bg-base rounded-lg border border-border p-4">
-                        <h3 className="text-base font-bold text-primary mb-3 border-b border-border pb-2">
+                        <h3 className="text-sm font-bold text-primary/80 mb-3">
                           {catName}
                         </h3>
                         <div className="grid grid-cols-3 gap-3">

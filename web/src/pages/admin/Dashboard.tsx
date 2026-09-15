@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Users, BookOpen, Play, CheckCircle, ChevronDown } from "lucide-react";
 import { api } from "../../lib/api";
 
 // ── 类型 ──
@@ -99,7 +100,7 @@ function NoticeModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-lg w-full max-w-lg mx-4 p-6 shadow-xl">
+      <div className="bg-bg-base rounded-lg w-full max-w-lg mx-4 p-6 shadow-xl border border-border">
         <h3 className="text-lg font-bold text-primary mb-4">
           {editItem ? "编辑公告" : "发布公告"}
         </h3>
@@ -248,34 +249,36 @@ function AdminNoticePanel() {
         ) : notices.length === 0 ? (
           <p className="text-sm text-text-secondary">暂无公告</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {notices.map((n) => (
+          <div className="flex flex-col">
+            {notices.map((n, i) => (
               <div
                 key={n.id}
-                className="border border-border rounded-lg p-3 flex items-start justify-between gap-4 hover:shadow-sm transition-shadow"
+                className={`flex items-start justify-between gap-4 py-3 ${
+                  i < notices.length - 1 ? "border-b border-border/60" : ""
+                }`}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     {n.is_pinned && (
-                      <span className="text-xs text-orange-500 font-bold">[置顶]</span>
+                      <span className="text-[11px] text-orange-500 font-bold">置顶</span>
                     )}
                     <span className="text-sm font-medium truncate">{n.title}</span>
                     {statusLabel(n.status)}
                   </div>
-                  <div className="text-xs text-text-secondary mt-1">
-                    {new Date(n.created_at).toLocaleString("zh-CN")} | 已读 {n.read_count}/{n.total_users}
+                  <div className="text-xs text-text-secondary/60 mt-0.5">
+                    {new Date(n.created_at).toLocaleString("zh-CN")} · 已读 {n.read_count}/{n.total_users}
                   </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex gap-3 shrink-0 pt-0.5">
                   <button
                     onClick={() => handleEdit(n)}
-                    className="text-xs text-primary hover:underline"
+                    className="text-xs text-text-secondary hover:text-primary transition-colors"
                   >
                     编辑
                   </button>
                   <button
                     onClick={() => handleDelete(n.id, n.title)}
-                    className="text-xs text-red-500 hover:underline"
+                    className="text-xs text-text-secondary/60 hover:text-red-500 transition-colors"
                   >
                     删除
                   </button>
@@ -341,13 +344,13 @@ function RecentActivities() {
         ) : activities.length === 0 ? (
           <p className="text-sm text-text-secondary">暂无动态</p>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col">
             {Object.entries(grouped).map(([userName, items]) => {
             const isExpanded = expandedUser === userName;
             return (
               <div
                 key={userName}
-                className="border border-border rounded-lg hover:shadow-sm transition-shadow"
+                className="border-b border-border/60 last:border-0"
               >
                 <button
                   onClick={() => setExpandedUser(isExpanded ? null : userName)}
@@ -359,12 +362,10 @@ function RecentActivities() {
                       {items.length}
                     </span>
                   </div>
-                  <span className={`text-xs text-text-secondary transition-transform ${isExpanded ? "rotate-180" : ""}`}>
-                    &#9660;
-                  </span>
+                  <ChevronDown size={14} className={`text-text-secondary transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                 </button>
                 {isExpanded && (
-                  <div className="border-t border-border px-3 py-2 space-y-2">
+                  <div className="border-t border-border/40 px-3 py-2 space-y-2">
                     {items.map((a, i) => (
                       <div key={i} className="flex items-start gap-2 text-sm">
                         <span
@@ -418,30 +419,35 @@ export default function AdminDashboard() {
   }, []);
 
   const statCards = [
-    { label: "总学员", value: stats?.total_students ?? 0 },
-    { label: "总课程", value: stats?.total_courses ?? 0 },
-    { label: "进行中", value: stats?.in_progress ?? 0 },
-    { label: "已完成", value: stats?.completed ?? 0 },
+    { label: "总学员", value: stats?.total_students ?? 0, icon: Users, color: "text-blue-500" },
+    { label: "总课程", value: stats?.total_courses ?? 0, icon: BookOpen, color: "text-emerald-500" },
+    { label: "进行中", value: stats?.in_progress ?? 0, icon: Play, color: "text-amber-500" },
+    { label: "已完成", value: stats?.completed ?? 0, icon: CheckCircle, color: "text-primary" },
   ];
 
   return (
     <div className="h-full flex flex-col">
-      <h2 className="text-xl font-bold text-primary mb-4 shrink-0">管理后台首页</h2>
+      <h2 className="text-xl font-bold text-primary mb-5">管理后台首页</h2>
 
       {/* 统计卡片 */}
-      <div className="grid grid-cols-4 gap-4 mb-6 shrink-0">
+      <div className="grid grid-cols-4 gap-4 mb-6">
         {statCards.map((s) => (
-          <div key={s.label} className="bg-bg-base rounded-lg p-4 border border-border text-center">
-            <div className="text-2xl font-bold text-primary">
-              {statsLoading ? "-" : s.value}
+          <div key={s.label} className="bg-bg-base rounded-xl border border-border p-4 flex items-center gap-3 hover:border-primary/20 hover:shadow-sm transition-all">
+            <div className={`${s.color} shrink-0`}>
+              <s.icon size={22} strokeWidth={1.5} />
             </div>
-            <div className="text-sm text-text-secondary">{s.label}</div>
+            <div>
+              <div className="text-xl font-bold text-primary">
+                {statsLoading ? "-" : s.value}
+              </div>
+              <div className="text-xs text-text-secondary">{s.label}</div>
+            </div>
           </div>
         ))}
       </div>
 
       {/* 两列布局：左侧公告，右侧动态 */}
-      <div className="grid grid-cols-2 gap-6 flex-1 min-h-0 max-h-[420px]">
+      <div className="grid grid-cols-2 gap-6 flex-1 min-h-0">
         <AdminNoticePanel />
         <RecentActivities />
       </div>

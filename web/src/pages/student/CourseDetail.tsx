@@ -229,8 +229,12 @@ export default function CourseDetail() {
         key={v.id}
         data-video-idx={idx}
         onClick={() => setActiveVideoIdx(idx)}
-        className={`w-full text-left pl-10 pr-3 py-2 text-sm border-b border-border last:border-0 hover:bg-bg-layout transition-colors ${
-          isActive ? "bg-primary/5 text-primary font-medium" : "text-text-secondary"
+        className={`w-full text-left pl-9 pr-3 py-2 text-sm rounded ml-1 mr-2 mb-0.5 transition-colors border-l-2 ${
+          isActive
+            ? "bg-primary/5 text-primary font-medium border-l-primary"
+            : isCompleted
+            ? "text-text-secondary/80 border-l-transparent hover:bg-bg-layout"
+            : "text-text-secondary/50 border-l-transparent hover:bg-bg-layout hover:text-text-secondary"
         }`}
       >
         <div className="flex items-center gap-2">
@@ -259,49 +263,67 @@ export default function CourseDetail() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4">{course.title}</h2>
-
-      {/* 课程整体进度条 */}
-      <div className="mb-3 px-1">
-        <div className="flex items-center justify-between text-xs text-text-secondary mb-1">
-          <span>课程进度</span>
-          <span className="text-primary font-medium">{totalProgress || 0}%</span>
+      {/* 课程头部卡片 */}
+      <div className="bg-bg-base rounded-lg border border-border p-4 mb-4">
+        <div className="flex items-start justify-between mb-3">
+          <h2 className="text-lg font-bold text-primary">{course.title}</h2>
+          <span className="text-xs text-text-secondary shrink-0 ml-4 mt-0.5">
+            {progress?.completed_count || 0} / {progress?.total_count || totalVideos} 节
+          </span>
         </div>
-        {hasExam ? (
-          <div className="flex w-full bg-bg-layout rounded-full h-1.5 overflow-hidden">
-            <div className="bg-primary transition-all" style={{ width: `${videoProgress || 0}%` }} />
-            {examProgress > 0 && <div className="bg-[#4CAF50] transition-all" style={{ width: `${examProgress}%` }} />}
+        <div className="flex items-center gap-2.5">
+          <div className="flex-1">
+            {hasExam ? (
+              <div className="flex w-full bg-bg-layout rounded-full h-1.5 overflow-hidden">
+                <div className="bg-primary transition-all" style={{ width: `${videoProgress || 0}%` }} />
+                {examProgress > 0 && <div className="bg-[#4CAF50] transition-all" style={{ width: `${examProgress}%` }} />}
+              </div>
+            ) : (
+              <div className="w-full bg-bg-layout rounded-full h-1.5">
+                <div className="h-1.5 rounded-full transition-all bg-primary" style={{ width: `${totalProgress || 0}%` }} />
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="w-full bg-bg-layout rounded-full h-1.5">
-            <div className="h-1.5 rounded-full transition-all bg-primary" style={{ width: `${totalProgress || 0}%` }} />
-          </div>
-        )}
+          <span className="text-xs font-medium text-primary shrink-0">{totalProgress || 0}%</span>
+        </div>
       </div>
 
       <div className="flex gap-4">
         {/* 播放器 */}
         <div className="flex-1 min-w-0">
-          {activeVideo && playUrl ? (
-            <div className="bg-black rounded-lg overflow-hidden">
-              <VideoPlayer
-                key={`${activeVideo.id}-${resumeTime}`}
-                src={playUrl}
-                startTime={resumeTime}
-                onProgress={handleProgress}
-                onVideoEnded={handleVideoEnded}
-                disableSeek
-              />
-            </div>
-          ) : activeVideo ? (
-            <div className="bg-black rounded-lg overflow-hidden flex items-center justify-center h-48 text-text-secondary">
-              加载视频中...
-            </div>
-          ) : (
-            <div className="bg-bg-base rounded-lg p-12 text-center text-text-secondary border border-border">
-              暂无视频章节
-            </div>
-          )}
+          <div className="bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden">
+            {activeVideo && playUrl ? (
+              <div className="bg-black">
+                <VideoPlayer
+                  key={`${activeVideo.id}-${resumeTime}`}
+                  src={playUrl}
+                  startTime={resumeTime}
+                  onProgress={handleProgress}
+                  onVideoEnded={handleVideoEnded}
+                  disableSeek
+                />
+              </div>
+            ) : activeVideo ? (
+              <div className="bg-black flex items-center justify-center h-48 text-text-secondary">
+                加载视频中...
+              </div>
+            ) : (
+              <div className="p-12 text-center text-text-secondary">
+                暂无视频
+              </div>
+            )}
+            {activeVideo && (
+              <div className="px-4 py-2.5 border-t border-border flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                <span className="text-sm font-medium truncate flex-1">{activeVideo.title}</span>
+                {activeVideo.duration && (
+                  <span className="text-xs text-text-secondary shrink-0">
+                    {Math.floor(activeVideo.duration / 60)}:{String(activeVideo.duration % 60).padStart(2, "0")}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
           {course.description && (
             <p className="mt-4 text-sm text-text-secondary">{course.description}</p>
           )}
@@ -359,14 +381,14 @@ export default function CourseDetail() {
         {/* 章节列表 */}
         <div className="w-64 flex-shrink-0">
           <div className="bg-bg-base rounded-lg border border-border" ref={chapterListRef}>
-            <div className="px-4 py-3 border-b border-border font-bold text-sm">章节列表</div>
+            <div className="px-4 py-3 text-sm font-bold text-primary/80">章节列表</div>
             {/* 续播提示 */}
             {lastWatched && (
               <button
                 onClick={() => setActiveVideoIdx(lastWatched.index)}
-                className="w-full text-left px-4 py-3 border-b border-dashed border-primary/20 hover:bg-primary/5 transition-colors group"
+                className="w-full text-left px-3 py-3 mb-1.5 rounded-lg mx-2 bg-primary/5 hover:bg-primary/10 transition-colors group"
               >
-                <div className="text-xs text-primary/60 mb-0.5">上次看到</div>
+                <div className="text-xs text-primary/50 mb-0.5">上次看到</div>
                 <div className="text-sm font-medium text-primary truncate">
                   第 {lastWatched.index + 1} 节 · {allVideos[lastWatched.index].title}
                 </div>
@@ -396,7 +418,7 @@ export default function CourseDetail() {
                               return next;
                             });
                           }}
-                          className="w-full flex items-center gap-1 px-3 py-2 text-sm font-medium border-b border-border hover:bg-bg-layout transition-colors text-text-base"
+                          className="w-full flex items-center gap-1 px-3 py-2 text-sm font-medium rounded hover:bg-bg-layout transition-colors text-text-base"
                         >
                           {isExpanded ? <ChevronDown size={14} className="text-text-secondary shrink-0" /> : <ChevronRight size={14} className="text-text-secondary shrink-0" />}
                           <span className="truncate">{ch.title}</span>

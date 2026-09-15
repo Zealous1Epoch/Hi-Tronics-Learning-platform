@@ -67,6 +67,23 @@ class CourseAssignment(Base):
     )
 
 
+class Chapter(Base):
+    """课程章节（课程 → 章节 → 视频 三层结构）"""
+    __tablename__ = "chapters"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    course_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("courses.id"), nullable=False, index=True, comment="关联课程"
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False, comment="章节标题")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), comment="创建时间"
+    )
+
+
 class Video(Base):
     __tablename__ = "videos"
 
@@ -76,7 +93,10 @@ class Video(Base):
     course_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("courses.id"), nullable=False, index=True, comment="关联课程"
     )
-    title: Mapped[str] = mapped_column(String(200), nullable=False, comment="章节标题")
+    chapter_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("chapters.id"), nullable=True, index=True, comment="关联章节"
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False, comment="视频标题")
     obs_key: Mapped[str] = mapped_column(String(500), nullable=False, comment="OBS 存储 key")
     file_size: Mapped[int | None] = mapped_column(
         Integer, nullable=True, comment="文件大小(字节)"

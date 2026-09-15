@@ -1,6 +1,6 @@
 from app.models.user import User
 from app.models.department import Department
-from app.models.course import Course, CourseAssignment, Video
+from app.models.course import Course, CourseAssignment, Chapter, Video
 from app.models.knowledge_node import KnowledgeNode
 from app.models.question import Question
 from app.models.question_tag import QuestionTag
@@ -17,6 +17,7 @@ __all__ = [
     "Department",
     "Course",
     "CourseAssignment",
+    "Chapter",
     "Video",
     "KnowledgeNode",
     "Question",

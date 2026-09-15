@@ -8,12 +8,13 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.models.course import Course, Video
+from app.models.course import Course, Chapter, Video
 from app.models.department import Department
 from app.models.question_category import QuestionCategory
 from app.schemas.course import (
     CourseCreate, CourseUpdate,
     CourseOut, VideoCreate, VideoOut, VideoReorder,
+    ChapterCreate, ChapterUpdate, ChapterOut, ChapterReorder,
 )
 from app.routers.auth import get_current_user, require_admin
 from pydantic import BaseModel
@@ -24,33 +25,64 @@ class AssignRequest(BaseModel):
     department_ids: list[str] = []
 
 
-def _courses_with_videos(db: Session, courses: list[Course]) -> list[CourseOut]:
-    """批量查询视频并组装 CourseOut，避免 N+1 查询"""
+def _courses_with_chapters(db: Session, courses: list[Course]) -> list[CourseOut]:
+    """批量查询章节和视频，组装 CourseOut（Course → Chapter → Video 三层），避免 N+1"""
     if not courses:
         return []
     course_ids = [c.id for c in courses]
+    # 查询所有章节
+    all_chapters = (
+        db.query(Chapter)
+        .filter(Chapter.course_id.in_(course_ids))
+        .order_by(Chapter.sort_order)
+        .all()
+    )
+    chapter_ids = [ch.id for ch in all_chapters]
+    # 查询所有视频
     all_videos = (
         db.query(Video)
         .filter(Video.course_id.in_(course_ids))
         .order_by(Video.sort_order)
         .all()
     )
-    videos_by_course: dict[str, list[Video]] = defaultdict(list)
+    # 章节 → 视频映射
+    videos_by_chapter: dict[str, list[Video]] = defaultdict(list)
+    orphan_videos: dict[str, list[Video]] = defaultdict(list)  # 无章节的视频
     for v in all_videos:
-        videos_by_course[v.course_id].append(v)
-    return [
-        CourseOut(
+        if v.chapter_id:
+            videos_by_chapter[v.chapter_id].append(v)
+        else:
+            orphan_videos[v.course_id].append(v)
+    # 课程 → 章节映射
+    chapters_by_course: dict[str, list[Chapter]] = defaultdict(list)
+    for ch in all_chapters:
+        chapters_by_course[ch.course_id].append(ch)
+
+    result: list[CourseOut] = []
+    for c in courses:
+        course_chapters: list[ChapterOut] = []
+        for ch in chapters_by_course.get(c.id, []):
+            course_chapters.append(ChapterOut(
+                id=ch.id, course_id=ch.course_id, title=ch.title,
+                sort_order=ch.sort_order,
+                videos=[VideoOut.model_validate(v) for v in videos_by_chapter.get(ch.id, [])],
+            ))
+        # 不归属任何章节的视频放到根级别 videos 里（兼容）
+        root_videos = [VideoOut.model_validate(v) for v in orphan_videos.get(c.id, [])]
+        total_video_count = sum(len(ch.videos) for ch in course_chapters) + len(root_videos)
+        result.append(CourseOut(
             id=c.id, title=c.title, description=c.description,
             cover_image=c.cover_image, category_id=c.category_id,
             exam_id=c.exam_id, status=c.status,
             start_date=c.start_date, end_date=c.end_date,
             created_by=c.created_by, created_at=c.created_at,
             updated_at=c.updated_at,
-            videos=[VideoOut.model_validate(v) for v in videos_by_course.get(c.id, [])],
-            video_count=len(videos_by_course.get(c.id, [])),
-        )
-        for c in courses
-    ]
+            chapters=course_chapters,
+            videos=root_videos,
+            video_count=total_video_count,
+        ))
+    return result
+
 
 router = APIRouter(prefix="/api", tags=["课程管理"])
 
@@ -83,7 +115,7 @@ def list_courses(
     if search:
         q = q.filter(Course.title.contains(search))
     courses = q.order_by(Course.created_at.desc()).all()
-    return _courses_with_videos(db, courses)
+    return _courses_with_chapters(db, courses)
 
 
 @router.post("/courses", response_model=CourseOut)
@@ -106,7 +138,7 @@ def create_course(data: CourseCreate, db: Session = Depends(get_db), current_use
         exam_id=course.exam_id, status=course.status,
         start_date=course.start_date, end_date=course.end_date,
         created_by=course.created_by, created_at=course.created_at,
-        updated_at=course.updated_at, videos=[], video_count=0,
+        updated_at=course.updated_at, chapters=[], videos=[], video_count=0,
     )
 
 
@@ -115,7 +147,7 @@ def get_course(course_id: str, db: Session = Depends(get_db), _: User = Depends(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
-    return _courses_with_videos(db, [course])[0]
+    return _courses_with_chapters(db, [course])[0]
 
 
 @router.put("/courses/{course_id}", response_model=CourseOut)
@@ -128,7 +160,7 @@ def update_course(course_id: str, data: CourseUpdate, db: Session = Depends(get_
     db.commit()
     db.refresh(course)
     write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="course", action="update", resource_type="课程", resource_name=course.title if hasattr(course, 'title') else "", description=f"{current_user.name} 编辑了课程「{course.title}」", level="info")
-    return _courses_with_videos(db, [course])[0]
+    return _courses_with_chapters(db, [course])[0]
 
 
 @router.delete("/courses/{course_id}")
@@ -149,26 +181,136 @@ def delete_course(course_id: str, db: Session = Depends(get_db), current_user: U
         db.query(Exam).filter(Exam.course_id == course_id).delete()
     db.query(CourseAssignment).filter(CourseAssignment.course_id == course_id).delete()
     db.query(Video).filter(Video.course_id == course_id).delete()
+    db.query(Chapter).filter(Chapter.course_id == course_id).delete()
     db.delete(course)
     db.commit()
     return {"ok": True}
 
 
-# ========== 视频章节 ==========
+# ========== 章节 ==========
+
+@router.post("/courses/{course_id}/chapters", response_model=ChapterOut)
+def create_chapter(
+    course_id: str, data: ChapterCreate,
+    db: Session = Depends(get_db), _: User = Depends(require_admin),
+):
+    """创建章节"""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="课程不存在")
+    max_order = db.query(Chapter).filter(Chapter.course_id == course_id).count()
+    chapter = Chapter(
+        id=str(uuid.uuid4()),
+        course_id=course_id, title=data.title, sort_order=max_order,
+    )
+    db.add(chapter)
+    db.commit()
+    db.refresh(chapter)
+    return ChapterOut(
+        id=chapter.id, course_id=chapter.course_id, title=chapter.title,
+        sort_order=chapter.sort_order, videos=[],
+    )
+
+
+@router.put("/chapters/{chapter_id}", response_model=ChapterOut)
+def update_chapter(
+    chapter_id: str, data: ChapterUpdate,
+    db: Session = Depends(get_db), _: User = Depends(require_admin),
+):
+    """更新章节（重命名）"""
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
+    if data.title is not None:
+        chapter.title = data.title
+    db.commit()
+    db.refresh(chapter)
+    videos = db.query(Video).filter(Video.chapter_id == chapter_id).order_by(Video.sort_order).all()
+    return ChapterOut(
+        id=chapter.id, course_id=chapter.course_id, title=chapter.title,
+        sort_order=chapter.sort_order,
+        videos=[VideoOut.model_validate(v) for v in videos],
+    )
+
+
+@router.delete("/chapters/{chapter_id}")
+def delete_chapter(
+    chapter_id: str,
+    db: Session = Depends(get_db), _: User = Depends(require_admin),
+):
+    """删除章节（下属视频 chapter_id 置为 NULL）"""
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
+    # 章节下视频取消归属
+    db.query(Video).filter(Video.chapter_id == chapter_id).update(
+        {"chapter_id": None}, synchronize_session=False
+    )
+    db.delete(chapter)
+    db.commit()
+    return {"ok": True}
+
+
+@router.put("/courses/{course_id}/chapters/reorder")
+def reorder_chapters(
+    course_id: str, data: ChapterReorder,
+    db: Session = Depends(get_db), _: User = Depends(require_admin),
+):
+    """章节排序"""
+    for i, ch_id in enumerate(data.chapter_ids):
+        db.query(Chapter).filter(
+            Chapter.id == ch_id, Chapter.course_id == course_id
+        ).update({"sort_order": i})
+    db.commit()
+    return {"ok": True}
+
+
+# ========== 视频 ==========
 
 @router.post("/courses/{course_id}/videos", response_model=VideoOut)
 def add_video(course_id: str, data: VideoCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
+    if data.chapter_id:
+        chapter = db.query(Chapter).filter(Chapter.id == data.chapter_id, Chapter.course_id == course_id).first()
+        if not chapter:
+            raise HTTPException(status_code=400, detail="章节不存在或不属于该课程")
     max_order = db.query(Video).filter(Video.course_id == course_id).count()
     video = Video(
         id=str(uuid.uuid4()),
-        course_id=course_id, title=data.title, obs_key=data.obs_key,
+        course_id=course_id, chapter_id=data.chapter_id,
+        title=data.title, obs_key=data.obs_key,
         file_size=data.file_size, duration=data.duration,
         sort_order=max_order,
     )
     db.add(video)
+    db.commit()
+    db.refresh(video)
+    return VideoOut.model_validate(video)
+
+
+@router.put("/videos/{video_id}", response_model=VideoOut)
+def update_video(
+    video_id: str, data: VideoCreate,
+    db: Session = Depends(get_db), _: User = Depends(require_admin),
+):
+    """更新视频信息（含所属章节）"""
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="视频不存在")
+    if data.chapter_id is not None:
+        if data.chapter_id:
+            chapter = db.query(Chapter).filter(
+                Chapter.id == data.chapter_id, Chapter.course_id == video.course_id
+            ).first()
+            if not chapter:
+                raise HTTPException(status_code=400, detail="章节不存在或不属于该课程")
+        video.chapter_id = data.chapter_id
+    if data.title:
+        video.title = data.title
+    if data.obs_key:
+        video.obs_key = data.obs_key
     db.commit()
     db.refresh(video)
     return VideoOut.model_validate(video)
@@ -227,7 +369,8 @@ def student_courses(
         .order_by(Course.created_at.asc())
         .all()
     )
-    return _courses_with_videos(db, courses)
+    return _courses_with_chapters(db, courses)
+
 
 # ========== 课程分配 ==========
 

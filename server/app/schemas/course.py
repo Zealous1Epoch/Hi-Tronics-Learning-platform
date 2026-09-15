@@ -4,16 +4,41 @@ from datetime import datetime, date
 from pydantic import BaseModel, model_validator
 
 
+class ChapterCreate(BaseModel):
+    title: str
+
+
+class ChapterUpdate(BaseModel):
+    title: str | None = None
+
+
+class ChapterOut(BaseModel):
+    id: str
+    course_id: str
+    title: str
+    sort_order: int
+    videos: list["VideoOut"] = []
+
+    class Config:
+        from_attributes = True
+
+
+class ChapterReorder(BaseModel):
+    chapter_ids: list[str]
+
+
 class VideoCreate(BaseModel):
     title: str
     obs_key: str = ""
     file_size: int | None = None
     duration: int | None = None
+    chapter_id: str | None = None
 
 
 class VideoOut(BaseModel):
     id: str
     course_id: str
+    chapter_id: str | None = None
     title: str
     obs_key: str
     file_size: int | None = None
@@ -75,6 +100,7 @@ class CourseOut(BaseModel):
     created_by: str | None = None
     created_at: datetime
     updated_at: datetime
+    chapters: list[ChapterOut] = []
     videos: list[VideoOut] = []
     video_count: int = 0
 

@@ -36,7 +36,6 @@ interface DeptItem {
 interface PendingFile {
   file: File;
   title: string;
-  chapterId: string;
   uploading: boolean;
   progress: number;
   duration: number | null;
@@ -94,13 +93,6 @@ export default function CourseManage() {
   const [editStartDate, setEditStartDate] = useState("");
   const [editEndDate, setEditEndDate] = useState("");
   const [editVideos, setEditVideos] = useState<VideoItem[]>([]);
-  // 章节管理
-  const [editChapters, setEditChapters] = useState<ChapterItem[]>([]);
-  const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
-  const [editingChapterName, setEditingChapterName] = useState("");
-  const [addingNewChapter, setAddingNewChapter] = useState(false);
-  const [newChapterName, setNewChapterName] = useState("");
-  const [videoChapterMap, setVideoChapterMap] = useState<Record<string, string>>({}); // video_id → chapter_id
   const [saving, setSaving] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -312,12 +304,6 @@ export default function CourseManage() {
     setEditDeptSearch("");
     setEditActiveDeptId(null);
     setEditExpandedDeptIds(new Set());
-    setEditChapters([]);
-    setEditingChapterId(null);
-    setEditingChapterName("");
-    setAddingNewChapter(false);
-    setNewChapterName("");
-    setVideoChapterMap({});
     setShowEditModal(true);
   };
 
@@ -351,75 +337,7 @@ export default function CourseManage() {
     setEditUserSearch("");
     setEditDeptSearch("");
     setEditActiveDeptId(null);
-    setEditChapters(detail.chapters || []);
-    setEditingChapterId(null);
-    setEditingChapterName("");
-    setAddingNewChapter(false);
-    setNewChapterName("");
-    // 从已有数据中构建 video → chapter 映射
-    const vcMap: Record<string, string> = {};
-    allDetailVideos.forEach(v => {
-      if (v.chapter_id) vcMap[v.id] = v.chapter_id;
-    });
-    setVideoChapterMap(vcMap);
     setShowEditModal(true);
-  };
-
-  // 章节操作
-  const handleAddChapter = async () => {
-    if (!newChapterName.trim() || !editingCourse) return;
-    const courseId = editingCourse.id;
-    const ch = await api<ChapterItem>(`/courses/${courseId}/chapters`, {
-      method: "POST",
-      body: JSON.stringify({ title: newChapterName.trim() }),
-    });
-    setEditChapters(prev => [...prev, ch]);
-    setNewChapterName("");
-    setAddingNewChapter(false);
-  };
-
-  const handleRenameChapter = async (chapterId: string) => {
-    if (!editingChapterName.trim()) { setEditingChapterId(null); return; }
-    const updated = await api<ChapterItem>(`/chapters/${chapterId}`, {
-      method: "PUT",
-      body: JSON.stringify({ title: editingChapterName.trim() }),
-    });
-    setEditChapters(prev => prev.map(ch => ch.id === chapterId ? updated : ch));
-    setEditingChapterId(null);
-    setEditingChapterName("");
-  };
-
-  const handleDeleteChapter = async (chapterId: string) => {
-    if (!confirm("删除章节后，下属视频将取消归属。确定删除？")) return;
-    await api(`/chapters/${chapterId}`, { method: "DELETE" });
-    setEditChapters(prev => prev.filter(ch => ch.id !== chapterId));
-    setVideoChapterMap(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(vid => {
-        if (next[vid] === chapterId) delete next[vid];
-      });
-      return next;
-    });
-  };
-
-  const handleMoveVideo = async (videoId: string, newChapterId: string) => {
-    // 更新本地映射（乐观更新）
-    setVideoChapterMap(prev => {
-      const next = { ...prev };
-      if (newChapterId) next[videoId] = newChapterId;
-      else delete next[videoId];
-      return next;
-    });
-    // 调用后端更新
-    try {
-      await api(`/videos/${videoId}`, {
-        method: "PUT",
-        body: JSON.stringify({ chapter_id: newChapterId || null }),
-      });
-    } catch (e) {
-      // 回滚本地状态
-      fetchData();
-    }
   };
 
   const handleSaveCourse = async (status: string) => {
@@ -470,7 +388,7 @@ export default function CourseManage() {
             setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false, progress: 100 } : p));
             await api(`/courses/${courseId}/videos`, {
               method: "POST",
-              body: JSON.stringify({ title: pf.title, obs_key: filename, file_size, duration: pf.duration, chapter_id: pf.chapterId || null }),
+              body: JSON.stringify({ title: pf.title, obs_key: filename, file_size, duration: pf.duration, chapter_id: null }),
             });
           } catch (e: any) {
             setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false } : p));
@@ -493,7 +411,7 @@ export default function CourseManage() {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith("video/")) continue;
       const name = file.name.replace(/\.[^.]+$/, "");
-      newFiles.push({ file, title: name, chapterId: "", uploading: false, progress: 0, duration: null });
+      newFiles.push({ file, title: name, uploading: false, progress: 0, duration: null });
     }
     setPendingFiles(prev => [...prev, ...newFiles]);
     newFiles.forEach(async (nf) => {
@@ -520,11 +438,6 @@ export default function CourseManage() {
     if (!editingCourse || !confirm("删除此视频？")) return;
     await api(`/videos/${videoId}`, { method: "DELETE" });
     setEditVideos(prev => prev.filter(v => v.id !== videoId));
-    setVideoChapterMap(prev => {
-      const next = { ...prev };
-      delete next[videoId];
-      return next;
-    });
     const data = await api<CourseDetail>(`/courses/${editingCourse.id}`);
     setEditVideos([...data.videos, ...data.chapters.flatMap(ch => ch.videos)]);
     setEditChapters(data.chapters);
@@ -1152,95 +1065,24 @@ export default function CourseManage() {
                 )}
               </div>
 
-              {/* 章节管理 */}
-              <div>
-                <label className="block text-sm text-text-secondary mb-2">课程章节</label>
-                <div className="border border-border rounded-md p-3 space-y-2">
-                  {editChapters.length === 0 && !addingNewChapter ? (
-                    <p className="text-xs text-text-secondary text-center py-2">暂无章节，点击下方按钮添加</p>
-                  ) : (
-                    <>
-                      {editChapters.map((ch) => (
-                        <div key={ch.id} className="flex items-center gap-2">
-                          {editingChapterId === ch.id ? (
-                            <>
-                              <input
-                                type="text" value={editingChapterName}
-                                onChange={e => setEditingChapterName(e.target.value)}
-                                onKeyDown={e => { if (e.key === "Enter") handleRenameChapter(ch.id); if (e.key === "Escape") setEditingChapterId(null); }}
-                                className="flex-1 border border-border rounded-md px-2 py-1 text-xs"
-                                autoFocus
-                              />
-                              <button onClick={() => handleRenameChapter(ch.id)} className="text-xs text-primary px-2 py-1">保存</button>
-                              <button onClick={() => setEditingChapterId(null)} className="text-xs text-text-secondary px-1 py-1">取消</button>
-                            </>
-                          ) : (
-                            <>
-                              <span className="flex-1 text-sm truncate">{ch.title}</span>
-                              <span className="text-xs text-text-secondary">({ch.videos.length} 视频)</span>
-                              <button onClick={() => { setEditingChapterId(ch.id); setEditingChapterName(ch.title); }} className="text-text-secondary hover:text-primary border border-border rounded px-1.5 py-0.5">
-                                <Pencil size={12} />
-                              </button>
-                              <button onClick={() => handleDeleteChapter(ch.id)} className="text-red-400 hover:text-red-600 border border-red-200 rounded px-1.5 py-0.5">
-                                <Trash2 size={12} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </>
-                  )}
-                  {addingNewChapter ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text" value={newChapterName} placeholder="章节名称"
-                        onChange={e => setNewChapterName(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") handleAddChapter(); if (e.key === "Escape") { setAddingNewChapter(false); setNewChapterName(""); } }}
-                        className="flex-1 border border-border rounded-md px-2 py-1 text-xs" autoFocus
-                      />
-                      <button onClick={handleAddChapter} className="text-xs text-primary px-2 py-1">添加</button>
-                      <button onClick={() => { setAddingNewChapter(false); setNewChapterName(""); }} className="text-xs text-text-secondary px-1 py-1">取消</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setAddingNewChapter(true)} className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-primary/5">
-                      <Plus size={12} /> 添加章节
-                    </button>
-                  )}
-                </div>
-              </div>
-
               {/* 已有视频 */}
               {editingCourse && editVideos.length > 0 && (
                 <div>
                   <label className="block text-sm text-text-secondary mb-2">已有视频 ({editVideos.length})</label>
                   <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {editVideos.map((v, i) => {
-                      const chId = videoChapterMap[v.id] || "";
-                      const chapterName = chId ? (editChapters.find(c => c.id === chId)?.title || "") : "";
-                      return (
+                    {editVideos.map((v, i) => (
                         <div key={v.id} className="py-1.5 px-3 bg-bg-layout rounded-md">
                           <div className="flex items-center gap-2 mb-1.5">
                             <span className="text-sm truncate flex-1 min-w-0">
                               <span className="text-text-secondary mr-1.5">{i + 1}.</span>
                               {v.title}
                             </span>
-                            <select
-                              value={chId}
-                              onChange={e => handleMoveVideo(v.id, e.target.value)}
-                              className="text-xs border border-border rounded px-1.5 py-0.5 bg-bg-base shrink-0 max-w-[100px]"
-                            >
-                              <option value="">未分类</option>
-                              {editChapters.map(ch => (
-                                <option key={ch.id} value={ch.id}>{ch.title}</option>
-                              ))}
-                            </select>
                             <button onClick={() => handleDeleteVideo(v.id)} className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50 shrink-0">删除</button>
                           </div>
                           <video src={`/api/videos/stream/${v.obs_key}?token=${localStorage.getItem("lp_token") || ""}`}
                             controls className="w-full rounded-md max-h-56 bg-black" preload="metadata" />
                         </div>
-                      );
-                    })}
+                      ))}
                   </div>
                 </div>
               )}
@@ -1280,18 +1122,6 @@ export default function CourseManage() {
                           <>
                             <input type="text" value={pf.title} onChange={e => updatePendingTitle(i, e.target.value)}
                               placeholder="视频标题" className="w-32 border border-border rounded-md px-2 py-1 text-xs shrink-0" />
-                            <select
-                              value={pf.chapterId}
-                              onChange={e => {
-                                setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, chapterId: e.target.value } : p));
-                              }}
-                              className="text-xs border border-border rounded px-1 py-1 bg-bg-base shrink-0 w-20"
-                            >
-                              <option value="">无章节</option>
-                              {editChapters.map(ch => (
-                                <option key={ch.id} value={ch.id}>{ch.title}</option>
-                              ))}
-                            </select>
                             <button onClick={() => removePendingFile(i)}
                               className="text-red-400 hover:text-red-600 shrink-0 p-0.5 border border-red-200 rounded hover:bg-red-50">
                               <X size={14} />

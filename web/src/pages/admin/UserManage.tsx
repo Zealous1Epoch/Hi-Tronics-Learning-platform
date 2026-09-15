@@ -53,19 +53,19 @@ export default function UserManage() {
         </div>
       )}
       <div className="bg-bg-base rounded-lg border border-border">
-        <div className="p-4 border-b border-border flex gap-3">
+        <div className="p-4 border-b border-border/60 flex gap-3">
           <input
             type="text"
             placeholder="搜索姓名/用户名/工号..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && fetchUsers()}
-            className="border border-border rounded-md px-3 py-1.5 text-sm w-64"
+            className="border border-border/60 rounded-md px-3 py-1.5 text-sm w-64 bg-bg-base"
           />
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
-            className="border border-border rounded-md px-3 py-1.5 text-sm"
+            className="border border-border/60 rounded-md px-3 py-1.5 text-sm bg-bg-base"
           >
             <option value="">全部角色</option>
             <option value="admin">管理员</option>
@@ -79,15 +79,15 @@ export default function UserManage() {
           </button>
         </div>
         <table className="w-full text-sm">
-          <thead className="bg-bg-layout border-b border-border">
+          <thead className="border-b border-border/40">
             <tr>
-              <th className="text-left px-4 py-3 text-text-secondary font-normal">姓名</th>
-              <th className="text-left px-4 py-3 text-text-secondary font-normal">用户名</th>
-              <th className="text-left px-4 py-3 text-text-secondary font-normal">工号</th>
-              <th className="text-left px-4 py-3 text-text-secondary font-normal">部门</th>
-              <th className="text-left px-4 py-3 text-text-secondary font-normal">角色</th>
-              <th className="text-left px-4 py-3 text-text-secondary font-normal">状态</th>
-              <th className="text-left px-4 py-3 text-text-secondary font-normal">操作</th>
+              <th className="text-left px-4 py-2.5 text-text-secondary/70 font-normal text-xs">姓名</th>
+              <th className="text-left px-4 py-2.5 text-text-secondary/70 font-normal text-xs">用户名</th>
+              <th className="text-left px-4 py-2.5 text-text-secondary/70 font-normal text-xs">工号</th>
+              <th className="text-left px-4 py-2.5 text-text-secondary/70 font-normal text-xs">部门</th>
+              <th className="text-left px-4 py-2.5 text-text-secondary/70 font-normal text-xs">角色</th>
+              <th className="text-left px-4 py-2.5 text-text-secondary/70 font-normal text-xs">状态</th>
+              <th className="text-left px-4 py-2.5 text-text-secondary/70 font-normal text-xs">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -97,7 +97,7 @@ export default function UserManage() {
               <tr><td colSpan={7} className="text-center py-8 text-text-secondary">暂无用户</td></tr>
             ) : (
               users.map((u) => (
-                <tr key={u.id} className="border-b border-border hover:bg-bg-layout">
+                <tr key={u.id} className="border-b border-border/40 hover:bg-bg-layout">
                   <td className="px-4 py-3">{u.name}</td>
                   <td className="px-4 py-3 text-text-secondary">{u.username}</td>
                   <td className="px-4 py-3 text-text-secondary">{u.employee_id || "-"}</td>
@@ -117,17 +117,17 @@ export default function UserManage() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-2">
+                    <div className="flex gap-3">
                       <button
                         onClick={() => handleRoleChange(u.id, u.role === "admin" ? "student" : "admin")}
-                        className="text-xs text-primary hover:underline"
+                        className="text-xs text-text-secondary hover:text-primary transition-colors"
                       >
                         {u.role === "admin" ? "降为学员" : "提升管理员"}
                       </button>
                       <button
                         onClick={() => handleStatusChange(u.id, u.status === "active" ? "disabled" : "active")}
-                        className={`text-xs hover:underline ${
-                          u.status === "active" ? "text-red-500" : "text-green-600"
+                        className={`text-xs transition-colors ${
+                          u.status === "active" ? "text-text-secondary/60 hover:text-red-500" : "text-text-secondary/60 hover:text-green-600"
                         }`}
                       >
                         {u.status === "active" ? "禁用" : "启用"}

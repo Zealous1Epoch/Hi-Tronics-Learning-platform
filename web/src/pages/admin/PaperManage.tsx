@@ -76,11 +76,11 @@ export default function PaperManage() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4 pb-3 border-b border-border">试卷管理</h2>
+      <h2 className="text-xl font-bold text-primary mb-4">试卷管理</h2>
 
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧分类树 */}
-        <div className="w-56 shrink-0 pr-4 border-r border-border">
+        <div className="w-56 shrink-0 pr-5">
           <CourseTree
             tree={tree}
             flatCategories={flatCategories}
@@ -115,20 +115,20 @@ export default function PaperManage() {
           ) : (
             <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
               <table className="w-full text-sm table-fixed">
-                <thead className="bg-bg-layout border-b border-border">
+                <thead className="border-b border-border/40">
                   <tr>
-                    <th className="text-center px-4 py-3 font-medium text-text-secondary">试卷名称</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-16">类型</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-40">类别</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">题目数</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">总分</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">状态</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-32">操作</th>
+                    <th className="text-center px-4 py-2.5 font-normal text-text-secondary/70 text-xs">试卷名称</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-16">类型</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-40">类别</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">题目数</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">总分</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">状态</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-32">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredPapers.map(p => (
-                    <tr key={p.id} className="border-b border-border last:border-0 hover:bg-bg-layout/50">
+                    <tr key={p.id} className="border-b border-border/40 last:border-0 hover:bg-bg-layout/50">
                       <td className="px-4 py-3 truncate font-medium text-center">{p.title}</td>
                       <td className="px-3 py-3 text-center text-text-secondary whitespace-nowrap">
                         {p.paper_type === "fixed" ? "固定" : "随机"}
@@ -146,8 +146,8 @@ export default function PaperManage() {
                         </span>
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
-                        <Link to={`/admin/papers/${p.id}`} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1 inline-block">编辑</Link>
-                        <button onClick={() => handleDeletePaper(p.id)} className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50">删除</button>
+                        <Link to={`/admin/papers/${p.id}`} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">编辑</Link>
+                        <button onClick={() => handleDeletePaper(p.id)} className="text-xs text-text-secondary/60 hover:text-red-500 transition-colors">删除</button>
                       </td>
                     </tr>
                   ))}

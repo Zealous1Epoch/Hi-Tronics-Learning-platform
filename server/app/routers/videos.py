@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.course import Video
+from jose import JWTError, jwt
+from app.config import settings
 from app.routers.auth import get_current_user, require_admin
 from app.services.auth_service import create_video_token, decode_video_token
 
@@ -76,15 +78,21 @@ async def stream_video(
     token: str = Query(..., description="认证 token"),
 ):
     """流式播放视频（支持 Range 请求，通过 query 参数 token 认证）"""
-    # 浏览器 <video> 标签不支持自定义请求头，通过 URL query 参数传递短期专用 token
+    # 浏览器 <video> 标签不支持自定义请求头，通过 URL query 参数传递 token
+    # 先尝试视频专用 token（学员端 play-url 生成），再 fallback 主 auth token（后台预览）
     payload = decode_video_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="token 无效或已过期")
+        # fallback: 尝试解析主 auth token（后台管理预览场景）
+        try:
+            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        except JWTError:
+            raise HTTPException(status_code=401, detail="token 无效或已过期")
 
-    # 验证 token 中的文件名与请求的文件名匹配
-    token_filename = payload.get("filename")
-    if token_filename and token_filename != filename:
-        raise HTTPException(status_code=403, detail="无权访问该视频")
+    # 视频专用 token 需校验文件名匹配，主 auth token 不校验（已通过登录认证）
+    if payload.get("purpose") == "video":
+        token_filename = payload.get("filename")
+        if token_filename and token_filename != filename:
+            raise HTTPException(status_code=403, detail="无权访问该视频")
 
     filepath = os.path.join(UPLOAD_DIR, filename)
     if not os.path.exists(filepath):

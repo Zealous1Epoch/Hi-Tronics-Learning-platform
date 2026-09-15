@@ -242,11 +242,11 @@ export default function ExamManage() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4 pb-3 border-b border-border">考试管理</h2>
+      <h2 className="text-xl font-bold text-primary mb-4">考试管理</h2>
 
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧分类树 */}
-        <div className="w-56 shrink-0 pr-4 border-r border-border">
+        <div className="w-56 shrink-0 pr-5">
           <CourseTree
             tree={tree}
             flatCategories={flatCategories}
@@ -279,18 +279,18 @@ export default function ExamManage() {
           ) : (
             <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
               <table className="w-full text-sm table-fixed">
-                <thead className="bg-bg-layout border-b border-border">
+                <thead className="border-b border-border/40">
                   <tr>
-                    <th className="text-center px-4 py-3 font-medium text-text-secondary">考试名称</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">组卷</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-28">时长/分数</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">状态</th>
-                    <th className="text-center px-3 py-3 font-medium text-text-secondary w-64">操作</th>
+                    <th className="text-center px-4 py-2.5 font-normal text-text-secondary/70 text-xs">考试名称</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">组卷</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-28">时长/分数</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">状态</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-64">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredExams.map((e) => (
-                    <tr key={e.id} className="border-b border-border last:border-0 hover:bg-bg-layout/50">
+                    <tr key={e.id} className="border-b border-border/40 last:border-0 hover:bg-bg-layout/50">
                       <td className="px-4 py-3 font-medium truncate text-center">{e.title}</td>
                       <td className="px-3 py-3 text-text-secondary whitespace-nowrap text-center">{e.paper_type === "fixed" ? "固定" : "随机"}</td>
                       <td className="px-3 py-3 text-text-secondary whitespace-nowrap text-center">{e.duration}分钟 / {e.total_score}分</td>
@@ -299,11 +299,11 @@ export default function ExamManage() {
                       </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         {e.status === "draft" && (
-                          <button onClick={() => handlePublish(e.id)} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1">发布</button>
+                          <button onClick={() => handlePublish(e.id)} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">发布</button>
                         )}
-                        <Link to={`/admin/exams/${e.id}/paper`} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1">查看组卷</Link>
-                        <button onClick={() => openEdit(e)} className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1">编辑</button>
-                        <button onClick={() => handleDelete(e.id)} className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50">删除</button>
+                        <Link to={`/admin/exams/${e.id}/paper`} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">查看组卷</Link>
+                        <button onClick={() => openEdit(e)} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">编辑</button>
+                        <button onClick={() => handleDelete(e.id)} className="text-xs text-text-secondary/60 hover:text-red-500 transition-colors">删除</button>
                       </td>
                     </tr>
                   ))}
@@ -437,30 +437,30 @@ export default function ExamManage() {
             <h3 className="font-bold text-lg mb-4">编辑考试</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm text-text-secondary mb-1">考试名称</label>
+                <label className="block text-xs text-text-secondary mb-1">考试名称</label>
                 <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
                   className="w-full border border-border rounded-md px-3 py-2 text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">时长(分钟)</label>
+                  <label className="block text-xs text-text-secondary mb-1">时长(分钟)</label>
                   <input type="number" value={editDuration || ""} onChange={(e) => setEditDuration(parseInt(e.target.value) || 0)}
                     className="w-full border border-border rounded-md px-3 py-2 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">及格分</label>
+                  <label className="block text-xs text-text-secondary mb-1">及格分</label>
                   <input type="number" value={editPassScore || ""} onChange={(e) => setEditPassScore(parseInt(e.target.value) || 0)}
                     className="w-full border border-border rounded-md px-3 py-2 text-sm" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">最大重考次数</label>
+                  <label className="block text-xs text-text-secondary mb-1">最大重考次数</label>
                   <input type="number" value={editMaxAttempts} onChange={(e) => setEditMaxAttempts(e.target.value)}
                     placeholder="不限" className="w-full border border-border rounded-md px-3 py-2 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">状态</label>
+                  <label className="block text-xs text-text-secondary mb-1">状态</label>
                   <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}
                     className="w-full border border-border rounded-md px-3 py-2 text-sm">
                     <option value="draft">草稿</option>

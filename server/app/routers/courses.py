@@ -329,6 +329,9 @@ def delete_video(video_id: str, db: Session = Depends(get_db), _: User = Depends
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在")
+    # 先删除关联的学习进度记录（外键约束）
+    from app.models.learning_progress import LearningProgress
+    db.query(LearningProgress).filter(LearningProgress.video_id == video_id).delete()
     db.delete(video)
     db.commit()
     return {"ok": True}

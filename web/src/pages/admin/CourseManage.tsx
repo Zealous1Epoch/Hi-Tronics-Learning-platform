@@ -66,6 +66,14 @@ export default function CourseManage() {
   const [addingChildUnder, setAddingChildUnder] = useState<string | null>(null);
   const [newChildName, setNewChildName] = useState("");
 
+  // 删除确认弹窗
+  const [deleteImpact, setDeleteImpact] = useState<{
+    name: string; child_count: number;
+    courses: number; papers: number; questions: number;
+    details: { name: string; depth: number; courses: number; papers: number; questions: number }[];
+  } | null>(null);
+  const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
+
   // 课程列表
   const [courses, setCourses] = useState<CourseItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,10 +157,35 @@ export default function CourseManage() {
   };
 
   const handleDeleteCategory = async (id: string) => {
-    if (!confirm("删除此课程将同时删除其章节，确定？")) return;
     try {
-      await api(`/question-categories/${id}`, { method: "DELETE" });
-      if (selectedId === id) setSelectedId(null);
+      const impact = await api<{
+        name: string; child_count: number;
+        courses: number; papers: number; questions: number;
+        details: { name: string; depth: number; courses: number; papers: number; questions: number }[];
+      }>(`/question-categories/${id}/impact`);
+      setDeleteImpact(impact);
+      setDeletingCategoryId(id);
+    } catch (e: any) {
+      alert(e.message || "获取影响信息失败");
+    }
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!deletingCategoryId) return;
+    try {
+      const result = await api<{ ok: boolean; affected: { courses: number; papers: number; questions: number } }>(
+        `/question-categories/${deletingCategoryId}`, { method: "DELETE" }
+      );
+      if (selectedId === deletingCategoryId) setSelectedId(null);
+      setDeleteImpact(null);
+      setDeletingCategoryId(null);
+      // 提示用户
+      if (result.affected?.courses > 0 || result.affected?.papers > 0) {
+        const parts: string[] = [];
+        if (result.affected.courses > 0) parts.push(`${result.affected.courses} 门课程`);
+        if (result.affected.papers > 0) parts.push(`${result.affected.papers} 张试卷`);
+        alert(`分类已删除，${parts.join("、")}已归为"未分类"，可重新归类。`);
+      }
       fetchData();
     } catch (e: any) {
       alert(e.message || "删除失败");
@@ -1242,6 +1275,96 @@ export default function CourseManage() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除影响确认弹窗 */}
+      {deleteImpact && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => { setDeleteImpact(null); setDeletingCategoryId(null); }}>
+          <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h3 className="font-bold text-sm">
+                确认删除分类
+              </h3>
+              <button onClick={() => { setDeleteImpact(null); setDeletingCategoryId(null); }} className="text-text-secondary hover:text-text-base">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-sm">
+                  将删除分类 <span className="font-bold text-primary">「{deleteImpact.name}」</span>
+                  {deleteImpact.child_count > 0 && (
+                    <span> 及其 <span className="font-bold">{deleteImpact.child_count}</span> 个子分类</span>
+                  )}
+                </p>
+              </div>
+
+              {(deleteImpact.courses > 0 || deleteImpact.papers > 0 || deleteImpact.questions > 0) && (
+                <div className="bg-bg-layout rounded-lg p-3 space-y-1.5">
+                  <p className="text-xs text-text-secondary">影响内容：</p>
+                  {deleteImpact.questions > 0 && (
+                    <p className="text-sm text-red-600">
+                      {deleteImpact.questions} 道试题将被<span className="font-bold">永久删除</span>
+                    </p>
+                  )}
+                  {deleteImpact.courses > 0 && (
+                    <p className="text-sm text-text-secondary">
+                      {deleteImpact.courses} 门课程将归为「未分类」
+                    </p>
+                  )}
+                  {deleteImpact.papers > 0 && (
+                    <p className="text-sm text-text-secondary">
+                      {deleteImpact.papers} 张试卷将归为「未分类」
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {deleteImpact.details.length > 1 && (
+                <div className="max-h-52 overflow-y-auto border border-border rounded-md">
+                  <table className="w-full text-xs">
+                    <thead className="bg-bg-layout border-b border-border sticky top-0">
+                      <tr>
+                        <th className="text-left px-3 py-1.5 text-text-secondary font-medium">分类</th>
+                        <th className="text-center px-2 py-1.5 text-text-secondary font-medium">课程</th>
+                        <th className="text-center px-2 py-1.5 text-text-secondary font-medium">试卷</th>
+                        <th className="text-center px-2 py-1.5 text-text-secondary font-medium">试题</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deleteImpact.details.map((d, i) => (
+                        <tr key={i} className="border-b border-border last:border-0">
+                          <td className="px-3 py-1" style={{ paddingLeft: `${12 + d.depth * 14}px` }}>
+                            {d.name}
+                          </td>
+                          <td className="text-center px-2 py-1">{d.courses || "-"}</td>
+                          <td className="text-center px-2 py-1">{d.papers || "-"}</td>
+                          <td className="text-center px-2 py-1">{d.questions || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 justify-end px-5 py-4 border-t border-border bg-bg-layout/50">
+              <button
+                onClick={() => { setDeleteImpact(null); setDeletingCategoryId(null); }}
+                className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-base"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmDeleteCategory}
+                className="px-4 py-2 rounded-md text-sm bg-red-500 text-white hover:bg-red-600"
+              >
+                确认删除
+              </button>
             </div>
           </div>
         </div>

@@ -8,6 +8,8 @@ from app.database import get_db
 from app.models.user import User
 from app.models.question_category import QuestionCategory
 from app.models.question import Question
+from app.models.course import Course
+from app.models.paper import Paper
 from app.routers.auth import get_current_user, require_admin
 from app.services.log_service import write_log
 
@@ -187,7 +189,7 @@ def delete_category(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """删除分类（递归删除子分类及关联题目）"""
+    """删除分类（递归删除子分类及关联题目，课程和试卷设为未分类）"""
     category = db.query(QuestionCategory).filter(QuestionCategory.id == category_id).first()
     if not category:
         raise HTTPException(status_code=404, detail="分类不存在")
@@ -204,15 +206,33 @@ def delete_category(
     all_ids = collect_descendant_ids(category_id)
 
     # 删除关联题目
-    db.query(Question).filter(Question.category_id.in_(all_ids)).delete(synchronize_session=False)
+    deleted_questions = db.query(Question).filter(Question.category_id.in_(all_ids)).delete(synchronize_session=False)
+
+    # 关联课程设为未分类
+    affected_courses = db.query(Course).filter(Course.category_id.in_(all_ids)).update(
+        {"category_id": None}, synchronize_session=False
+    )
+
+    # 关联试卷设为未分类
+    affected_papers = db.query(Paper).filter(Paper.category_id.in_(all_ids)).update(
+        {"category_id": None}, synchronize_session=False
+    )
+
     db.flush()
 
     # 从深到浅删除分类（all_ids 已经是深度优先，叶子在前）
     for cid in all_ids:
         db.query(QuestionCategory).filter(QuestionCategory.id == cid).delete()
-    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="delete", resource_type="题库分类", resource_name=category.name if hasattr(category, 'name') else "", description=f"{current_user.name} 删除了题库分类「{category.name}」", level="warning")
+
+    desc = f"{current_user.name} 删除了题库分类「{category.name}」"
+    if affected_courses or affected_papers:
+        desc += f"（{affected_courses} 门课程、{affected_papers} 张试卷已归为未分类）"
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="delete", resource_type="题库分类", resource_name=category.name if hasattr(category, 'name') else "", description=desc, level="warning")
     db.commit()
-    return {"ok": True}
+    return {
+        "ok": True,
+        "affected": {"questions": deleted_questions, "courses": affected_courses, "papers": affected_papers},
+    }
 
 
 @router.get("/question-categories/stats")
@@ -298,3 +318,91 @@ def get_category_stats(
         "total_count": total,
         "created_at": category.created_at.isoformat() if category.created_at else None,
     }
+
+
+def _collect_descendant_ids(db: Session, category_id: str) -> list[str]:
+    """递归收集分类及其所有子节点的 ID"""
+    ids: list[str] = [category_id]
+    children = db.query(QuestionCategory).filter(QuestionCategory.parent_id == category_id).all()
+    for child in children:
+        ids.extend(_collect_descendant_ids(db, child.id))
+    return ids
+
+
+class ImpactNode(BaseModel):
+    name: str
+    depth: int
+    courses: int
+    papers: int
+    questions: int
+
+
+class ImpactResponse(BaseModel):
+    name: str
+    child_count: int
+    courses: int
+    papers: int
+    questions: int
+    details: list[ImpactNode]
+
+
+@router.get("/question-categories/{category_id}/impact")
+def get_category_impact(
+    category_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """获取删除分类前的影响范围统计"""
+    category = db.query(QuestionCategory).filter(QuestionCategory.id == category_id).first()
+    if not category:
+        raise HTTPException(status_code=404, detail="分类不存在")
+
+    all_ids = _collect_descendant_ids(db, category_id)
+
+    # 统计各层级的课程、试卷、试题数量
+    details: list[ImpactNode] = []
+    total_courses = 0
+    total_papers = 0
+    total_questions = 0
+
+    # BFS 遍历，计算每个节点的深度
+    for cat_id in all_ids:
+        cat = db.query(QuestionCategory).filter(QuestionCategory.id == cat_id).first()
+        if not cat:
+            continue
+        # 计算深度
+        depth = 0
+        current = cat
+        while current.parent_id:
+            current = db.query(QuestionCategory).filter(QuestionCategory.id == current.parent_id).first()
+            if current:
+                depth += 1
+            else:
+                break
+        # 收集该节点的子分类 ID（含自身），用于统计
+        sub_ids = _collect_descendant_ids(db, cat.id)
+        courses = db.query(Course).filter(Course.category_id.in_(sub_ids)).count()
+        papers = db.query(Paper).filter(Paper.category_id.in_(sub_ids)).count()
+        questions = db.query(Question).filter(Question.category_id.in_(sub_ids)).count()
+
+        details.append(ImpactNode(
+            name=cat.name, depth=depth,
+            courses=courses, papers=papers, questions=questions,
+        ))
+        total_courses += courses
+        total_papers += papers
+        total_questions += questions
+
+    # 去重：子分类的统计包含了父级，所以总数直接用 all_ids 统计
+    total_courses = db.query(Course).filter(Course.category_id.in_(all_ids)).count()
+    total_papers = db.query(Paper).filter(Paper.category_id.in_(all_ids)).count()
+    total_questions = db.query(Question).filter(Question.category_id.in_(all_ids)).count()
+
+    return ImpactResponse(
+        name=category.name,
+        child_count=len(all_ids) - 1,
+        courses=total_courses,
+        papers=total_papers,
+        questions=total_questions,
+        details=details,
+    )

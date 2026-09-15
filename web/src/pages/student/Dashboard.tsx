@@ -371,7 +371,7 @@ function TodoPanel({ selectedDate }: { selectedDate: string }) {
   const hasTasks = tasks.length > 0;
 
   return (
-    <div className="bg-bg-base rounded-lg border border-border h-full flex flex-col">
+    <div className="bg-bg-base rounded-lg border border-border absolute inset-0 flex flex-col overflow-hidden">
       {/* 标题行 */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <span className="text-sm font-bold text-primary">
@@ -516,12 +516,12 @@ export default function StudentDashboard() {
     <div className="space-y-4">
       <NoticeSection />
       <div className="flex gap-4 items-stretch">
-        {/* 左侧 1/3：月历 */}
+        {/* 左侧 1/3：月历（决定行高） */}
         <div className="w-1/3">
           <Calendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
         </div>
-        {/* 右侧 2/3：当日任务列表 */}
-        <div className="w-2/3">
+        {/* 右侧 2/3：当日任务列表（与日历齐平，内部滚动） */}
+        <div className="w-2/3 relative">
           <TodoPanel selectedDate={selectedDate} />
         </div>
       </div>

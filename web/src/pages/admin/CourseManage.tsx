@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { api, uploadFileWithProgress } from "../../lib/api";
+import { api, uploadToOSS } from "../../lib/api";
 import CourseTree, { type TreeNode, type FlatCategory, getCategoryPath } from "../../components/CourseTree";
 import { ChevronRight, ChevronDown, Plus, Pencil, Trash2, X, Upload } from "lucide-react";
 
@@ -381,11 +381,19 @@ export default function CourseManage() {
           const pf = pendingFiles[i];
           setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: true, progress: 0 } : p));
           try {
-            const { filename, file_size } = await uploadFileWithProgress<{ filename: string; file_size: number }>(
-              "/videos/upload", pf.file,
+            // 步骤 1：从服务器获取 OSS 直传凭证
+            const ext = pf.file.name.split(".").pop() || "mp4";
+            const content_type = pf.file.type || `video/${ext}`;
+            const { filename, upload_url } = await api<{ filename: string; upload_url: string }>(
+              `/videos/upload-token?ext=${ext}&content_type=${encodeURIComponent(content_type)}`,
+            );
+            // 步骤 2：浏览器直传 OSS（跳过服务器中转，速度取决于客户端上行带宽）
+            await uploadToOSS(upload_url, pf.file, content_type,
               (progress) => setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, progress } : p)),
             );
             setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false, progress: 100 } : p));
+            const file_size = pf.file.size;
+            // 步骤 3：创建视频数据库记录
             await api(`/courses/${courseId}/videos`, {
               method: "POST",
               body: JSON.stringify({ title: pf.title, obs_key: filename, file_size, duration: pf.duration, chapter_id: null }),

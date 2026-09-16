@@ -152,3 +152,36 @@ export async function uploadFileWithProgress<T extends object = Record<string, u
     xhr.send(formData);
   });
 }
+
+/** 浏览器直传文件到 OSS 预签名 URL，带进度回调 */
+export async function uploadToOSS(
+  uploadUrl: string,
+  file: File,
+  content_type: string,
+  onProgress?: (progress: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl);
+
+    // Content-Type 必须和预签名 URL 里签的一致
+    xhr.setRequestHeader("Content-Type", content_type);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`OSS 上传失败 (${xhr.status})`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("网络错误"));
+    xhr.send(file);
+  });
+}

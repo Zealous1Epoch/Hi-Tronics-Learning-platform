@@ -40,11 +40,11 @@ class Settings:
     OA_SYSTEM_ID: str = os.getenv("OA_SYSTEM_ID", "")
     OA_PASSWORD: str = os.getenv("OA_PASSWORD", "")
 
-    # 华为云 OBS 配置
-    OBS_ACCESS_KEY: str = os.getenv("OBS_ACCESS_KEY", "")
-    OBS_SECRET_KEY: str = os.getenv("OBS_SECRET_KEY", "")
-    OBS_ENDPOINT: str = os.getenv("OBS_ENDPOINT", "")
-    OBS_BUCKET: str = os.getenv("OBS_BUCKET", "hitronics-learning")
+    # 阿里云 OSS 配置
+    OSS_ACCESS_KEY_ID: str = os.getenv("OSS_ACCESS_KEY_ID", "")
+    OSS_ACCESS_KEY_SECRET: str = os.getenv("OSS_ACCESS_KEY_SECRET", "")
+    OSS_ENDPOINT: str = os.getenv("OSS_ENDPOINT", "")
+    OSS_BUCKET: str = os.getenv("OSS_BUCKET", "hitronics-learning-platform")
 
     # 内置管理员账号（生产环境必须通过环境变量设置密码）
     BUILTIN_ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "hitronics")

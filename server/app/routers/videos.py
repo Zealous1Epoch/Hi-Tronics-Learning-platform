@@ -1,27 +1,61 @@
-"""视频上传与播放"""
+"""视频上传与播放（阿里云 OSS 存储，客户端直连 OSS 播放）"""
 
 import uuid
-import os
+import oss2
+import oss2.http as oss2_http
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.models.course import Video
-from jose import JWTError, jwt
 from app.config import settings
+from jose import JWTError, jwt
 from app.routers.auth import get_current_user, require_admin
-from app.services.auth_service import create_video_token, decode_video_token
-
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads", "videos")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+from app.services.auth_service import decode_video_token
 
 MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 500MB
-
-# API 前缀，由 nginx 统一配置，不依赖客户端请求头
-API_PREFIX = "/api/learning-platform"
+OSS_VIDEO_PREFIX = "videos/"  # OSS 中视频对象的前缀
+PRESIGNED_EXPIRE = 7200  # 签名 URL 有效期（秒），2 小时
 
 router = APIRouter(prefix="/api", tags=["视频"])
+
+
+class _NoProxySession(oss2_http.Session):
+    """OSS Session，直连 OSS 不走系统代理"""
+
+    def __init__(self):
+        super().__init__()
+        self.session.trust_env = False
+        self.session.proxies = {}
+
+
+def _get_oss_bucket():
+    """获取 OSS Bucket 实例"""
+    auth = oss2.Auth(settings.OSS_ACCESS_KEY_ID, settings.OSS_ACCESS_KEY_SECRET)
+    return oss2.Bucket(auth, settings.OSS_ENDPOINT, settings.OSS_BUCKET, session=_NoProxySession())
+
+
+@router.get("/videos/upload-token")
+def get_upload_token(
+    ext: str = Query("mp4", description="文件扩展名，不含点"),
+    content_type: str = Query("video/mp4", description="文件 MIME 类型"),
+    _: User = Depends(require_admin),
+):
+    """获取 OSS 直传凭证 —— 浏览器直接上传到 OSS，不经过服务器中转"""
+    if ext not in ("mp4", "mov", "avi", "mkv", "webm"):
+        raise HTTPException(status_code=400, detail="不支持的格式，支持: mp4, mov, avi, mkv, webm")
+
+    filename = f"{uuid.uuid4()}.{ext}"
+    object_key = f"{OSS_VIDEO_PREFIX}{filename}"
+    bucket = _get_oss_bucket()
+
+    # 预签名 PUT URL，Content-Type 参与签名，1 小时内有效
+    upload_url = bucket.sign_url("PUT", object_key, 3600, headers={"Content-Type": content_type})
+
+    return {
+        "filename": filename,
+        "upload_url": upload_url,
+    }
 
 
 @router.post("/videos/upload")
@@ -31,29 +65,25 @@ async def upload_video(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """上传视频文件（本地存储）"""
+    """上传视频文件到阿里云 OSS"""
     ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename else "mp4"
     if ext not in ("mp4", "mov", "avi", "mkv", "webm"):
         raise HTTPException(status_code=400, detail="不支持的格式，支持: mp4, mov, avi, mkv, webm")
 
-    filename = f"{uuid.uuid4()}.{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
+    content = await file.read()
+    if len(content) > MAX_VIDEO_SIZE:
+        raise HTTPException(status_code=400, detail=f"视频文件过大，最大支持 {MAX_VIDEO_SIZE // 1024 // 1024}MB")
 
-    file_size = 0
-    with open(filepath, "wb") as f:
-        while chunk := await file.read(1024 * 1024):  # 1MB chunks
-            f.write(chunk)
-            file_size += len(chunk)
-            if file_size > MAX_VIDEO_SIZE:
-                f.close()
-                os.remove(filepath)
-                raise HTTPException(status_code=400, detail=f"视频文件过大，最大支持 {MAX_VIDEO_SIZE // 1024 // 1024}MB")
+    object_key = f"{OSS_VIDEO_PREFIX}{uuid.uuid4()}.{ext}"
+    bucket = _get_oss_bucket()
+    bucket.put_object(object_key, content, headers={"Content-Type": "video/mp4"})
 
+    filename = object_key.split("/")[-1]
     return {
         "filename": filename,
+        "object_key": object_key,
         "original_name": file.filename,
-        "file_size": file_size,
-        "url": f"{API_PREFIX}/videos/stream/{filename}",
+        "file_size": len(content),
     }
 
 
@@ -63,12 +93,15 @@ def get_play_url(
     request: Request = None,
     current_user: User = Depends(get_current_user),
 ):
-    """获取视频播放 URL（含短期专用 token，避免主 token 暴露在 URL 中）"""
-    filepath = os.path.join(UPLOAD_DIR, obs_key)
-    if not os.path.exists(filepath):
+    """获取视频播放 URL（OSS 签名 URL，客户端直连 OSS 播放，2 小时有效）"""
+    object_key = f"{OSS_VIDEO_PREFIX}{obs_key}"
+    bucket = _get_oss_bucket()
+
+    if not bucket.object_exists(object_key):
         raise HTTPException(status_code=404, detail="视频不存在")
-    video_token = create_video_token(current_user.id, obs_key)
-    return {"url": f"{API_PREFIX}/videos/stream/{obs_key}?token={video_token}"}
+
+    signed_url = bucket.sign_url("GET", object_key, PRESIGNED_EXPIRE)
+    return {"url": signed_url}
 
 
 @router.get("/videos/stream/{filename}")
@@ -77,58 +110,31 @@ async def stream_video(
     request: Request,
     token: str = Query(..., description="认证 token"),
 ):
-    """流式播放视频（支持 Range 请求，通过 query 参数 token 认证）"""
-    # 浏览器 <video> 标签不支持自定义请求头，通过 URL query 参数传递 token
-    # 先尝试视频专用 token（学员端 play-url 生成），再 fallback 主 auth token（后台预览）
+    """视频播放（验证 token 后重定向到 OSS 签名 URL）
+
+    支持两种 token：
+    - 视频专用 token（学员端 play-url 生成）
+    - 主 auth token（后台管理预览）
+    """
+    # 先尝试视频专用 token，再 fallback 主 auth token
     payload = decode_video_token(token)
     if not payload:
-        # fallback: 尝试解析主 auth token（后台管理预览场景）
         try:
             payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
         except JWTError:
             raise HTTPException(status_code=401, detail="token 无效或已过期")
 
-    # 视频专用 token 需校验文件名匹配，主 auth token 不校验（已通过登录认证）
+    # 视频专用 token 需校验文件名匹配
     if payload.get("purpose") == "video":
         token_filename = payload.get("filename")
         if token_filename and token_filename != filename:
             raise HTTPException(status_code=403, detail="无权访问该视频")
 
-    filepath = os.path.join(UPLOAD_DIR, filename)
-    if not os.path.exists(filepath):
+    object_key = f"{OSS_VIDEO_PREFIX}{filename}"
+    bucket = _get_oss_bucket()
+
+    if not bucket.object_exists(object_key):
         raise HTTPException(status_code=404, detail="视频不存在")
 
-    file_size = os.path.getsize(filepath)
-    range_header = request.headers.get("range")
-
-    if not range_header:
-        return FileResponse(filepath, media_type="video/mp4")
-
-    # 支持 Range 请求（拖动进度条）
-    range_val = range_header.replace("bytes=", "")
-    parts = range_val.split("-")
-    start = int(parts[0])
-    end = int(parts[1]) if parts[1] else file_size - 1
-    chunk_size = end - start + 1
-
-    def iterfile():
-        with open(filepath, "rb") as f:
-            f.seek(start)
-            remaining = chunk_size
-            while remaining > 0:
-                piece = f.read(min(256 * 1024, remaining))  # 每次 256KB，边读边传
-                if not piece:
-                    break
-                remaining -= len(piece)
-                yield piece
-
-    return StreamingResponse(
-        iterfile(),
-        status_code=206,
-        headers={
-            "Content-Range": f"bytes {start}-{end}/{file_size}",
-            "Accept-Ranges": "bytes",
-            "Content-Length": str(chunk_size),
-            "Content-Type": "video/mp4",
-        },
-    )
+    signed_url = bucket.sign_url("GET", object_key, PRESIGNED_EXPIRE)
+    return RedirectResponse(url=signed_url, status_code=302)

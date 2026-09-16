@@ -122,9 +122,11 @@ function CardHead({ title, extra }: { title: string; extra?: ReactNode }) {
 function ContinueCard({ course, loading }: { course: CourseWithProgress | null; loading: boolean }) {
   const navigate = useNavigate();
 
+  const sectionStyle: React.CSSProperties = { padding: "16px 18px", minHeight: 150 };
+
   if (loading) {
     return (
-      <section className="k-card" style={{ padding: "16px 18px" }}>
+      <section className="k-card" style={sectionStyle}>
         <Skeleton width={72} height={12} />
         <div style={{ marginTop: 10 }}><Skeleton width="58%" height={18} /></div>
         <div style={{ marginTop: 14 }}><Skeleton height={6} /></div>
@@ -134,7 +136,7 @@ function ContinueCard({ course, loading }: { course: CourseWithProgress | null; 
 
   if (!course) {
     return (
-      <section className="k-card" style={{ padding: "16px 18px" }}>
+      <section className="k-card" style={sectionStyle}>
         <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>继续学习</div>
         <EmptyState text="暂无进行中的课程" hint="去课程中心看看分配给你的学习任务" />
         <div style={{ textAlign: "center", marginTop: 4 }}>
@@ -153,7 +155,7 @@ function ContinueCard({ course, loading }: { course: CourseWithProgress | null; 
   return (
     <section
       className="k-card"
-      style={{ padding: "16px 18px", borderColor: "var(--color-primary)", borderWidth: 1 }}
+      style={{ padding: "16px 18px", minHeight: 150, borderColor: "var(--color-primary)", borderWidth: 1 }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>继续学习</span>
@@ -268,7 +270,7 @@ function TodayPlanCard({ date, onDateChange }: { date: string; onDateChange: (d:
   const total = planCourses.length + tasks.length;
 
   return (
-    <section className="k-card">
+    <section className="k-card" style={{ minHeight: 260 }}>
       <CardHead
         title={isToday ? "今日计划" : `${d.getMonth() + 1}月${d.getDate()}日 计划`}
         extra={
@@ -398,7 +400,7 @@ function TodayPlanCard({ date, onDateChange }: { date: string; onDateChange: (d:
 function DueSoonCard({ items, loading }: { items: { c: CourseWithProgress; d: number }[]; loading: boolean }) {
   if (loading) {
     return (
-      <section className="k-card" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <section className="k-card" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 120 }}>
         <CardHead title="即将到期" />
         <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
           <Skeleton height={16} /><Skeleton width="70%" height={16} />
@@ -408,7 +410,7 @@ function DueSoonCard({ items, loading }: { items: { c: CourseWithProgress; d: nu
   }
 
   return (
-    <section className="k-card" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+    <section className="k-card" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 120 }}>
       <CardHead
         title="即将到期"
         extra={<Link to="/student/courses" className="k-link" style={{ fontSize: 12 }}>全部课程</Link>}
@@ -547,7 +549,7 @@ function NoticeCard() {
 
   return (
     <>
-      <section className="k-card">
+      <section className="k-card" style={{ minHeight: 200 }}>
         <CardHead title="系统公告" extra={<span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{notices.length} 条</span>} />
         <div className="k-scroll" style={{ padding: "6px 16px 10px", maxHeight: 320, overflowY: "auto" }}>
           {loading ? (

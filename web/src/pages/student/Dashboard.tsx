@@ -1,528 +1,695 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  ChevronLeft, ChevronRight, ArrowRight, Trash2, Clock, BookOpen,
+} from "lucide-react";
 import { api } from "../../lib/api";
+import { Skeleton, EmptyState } from "../../components/ui/Misc";
+import { notify } from "../../components/ui/Toast";
 
-// ── 公告组件 ──
+// ── 类型 ──
 
-interface NoticeItem {
-  id: string;
-  title: string;
-  content: string;
-  is_pinned: boolean;
-  created_at: string;
-  is_read: boolean;
+interface CourseWithProgress {
+  id: string; title: string; description: string | null;
+  cover_image: string | null; category_id: string | null;
+  video_count: number; status: string;
+  start_date: string | null; end_date: string | null;
+  completed_count: number; total_count: number;
+  exam_passed: boolean; has_exam: boolean;
 }
 
-interface NoticeListResponse {
-  notices: NoticeItem[];
-  total: number;
+interface StudentProfile {
+  assigned_courses: number; completed_courses: number;
+  total_videos: number; completed_videos: number;
+  total_watched_seconds: number;
 }
-
-function NoticeSection() {
-  const [notices, setNotices] = useState<NoticeItem[]>([]);
-  const [activeNotice, setActiveNotice] = useState<NoticeItem | null>(null);
-  const [loading, setLoading] = useState(true);
-  const mountedRef = useRef(true);
-
-  const fetchData = () => {
-    api<NoticeListResponse>("/notices/published")
-      .then((data) => {
-        if (mountedRef.current) {
-          setNotices(data.notices);
-          if (data.notices.length > 0) {
-            setActiveNotice(data.notices[0]);
-          }
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (mountedRef.current) setLoading(false);
-      });
-  };
-
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchData();
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  const handleSelect = async (notice: NoticeItem) => {
-    setActiveNotice(notice);
-    if (!notice.is_read) {
-      try {
-        await api(`/notices/${notice.id}/read`, { method: "POST" });
-        fetchData();
-      } catch (e) {
-        console.error("标记已读失败", e);
-      }
-    }
-  };
-
-  // 无论公告为空还是加载中，都保留区域占位
-  if (loading) {
-    return (
-      <div className="bg-bg-base rounded-lg border border-border">
-        <div className="px-4 py-3 border-b border-border">
-          <span className="text-sm font-bold text-primary">系统公告</span>
-        </div>
-        <div className="p-4 text-sm text-text-secondary">加载中...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-bg-base rounded-lg border border-border">
-      <div className="px-4 py-3 border-b border-border">
-        <span className="text-sm font-bold text-primary">系统公告</span>
-      </div>
-      <div className="flex gap-0">
-        {/* 左侧 2/3：当前公告详情 */}
-        <div className="w-2/3 p-4 border-r border-border min-h-[180px]">
-          {activeNotice ? (
-            <>
-              <div className="flex items-center gap-2 mb-2">
-                {activeNotice.is_pinned && (
-                  <span className="text-xs text-orange-500 font-bold shrink-0">[置顶]</span>
-                )}
-                <h3 className="text-base font-bold text-primary">{activeNotice.title}</h3>
-              </div>
-              <p className="text-xs text-text-secondary mb-3">
-                {new Date(activeNotice.created_at).toLocaleString("zh-CN")}
-              </p>
-              <div className="text-sm text-text-base whitespace-pre-wrap leading-relaxed">
-                {activeNotice.content}
-              </div>
-              {notices.length > 0 && activeNotice.id !== notices[0].id && (
-                <button
-                  onClick={() => setActiveNotice(notices[0])}
-                  className="text-xs text-primary mt-3 hover:underline"
-                >
-                  &larr; 返回最新
-                </button>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-text-secondary">暂无公告</p>
-          )}
-        </div>
-
-        {/* 右侧 1/3：历史公告列表 */}
-        <div className="w-1/3 max-h-[300px] overflow-y-auto p-2">
-          {notices.length <= 1 ? (
-            <p className="text-sm text-text-secondary text-center py-8">暂无历史公告</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {notices.slice(1).map((n) => (
-                <div
-                  key={n.id}
-                  className={`border rounded-lg p-3 cursor-pointer hover:shadow-sm transition-shadow ${
-                    activeNotice?.id === n.id ? "border-primary bg-primary/5" : "border-border"
-                  }`}
-                  onClick={() => handleSelect(n)}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    {!n.is_read && (
-                      <span className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
-                    )}
-                    {n.is_pinned && (
-                      <span className="text-xs text-orange-500 font-bold shrink-0">[置顶]</span>
-                    )}
-                    <span className="text-xs font-medium truncate">{n.title}</span>
-                  </div>
-                  <p className="text-xs text-text-secondary line-clamp-2">{n.content}</p>
-                  <p className="text-xs text-text-secondary mt-1">
-                    {new Date(n.created_at).toLocaleString("zh-CN")}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── 月历组件 ──
-
-const WEEKDAY_CN = ["日", "一", "二", "三", "四", "五", "六"];
-
-function getMonthDays(year: number, month: number): (number | null)[] {
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const days: (number | null)[] = [];
-  for (let i = 0; i < firstDay; i++) days.push(null);
-  for (let d = 1; d <= daysInMonth; d++) days.push(d);
-  while (days.length < 35) days.push(null);
-  return days;
-}
-
-function Calendar({
-  selectedDate,
-  onSelectDate,
-}: {
-  selectedDate: string;
-  onSelectDate: (date: string) => void;
-}) {
-  const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
-  const [year, month] = selectedDate.split("-").slice(0, 2).map(Number);
-  const [viewYear, setViewYear] = useState(year);
-  const [viewMonth, setViewMonth] = useState(month - 1); // 0-based
-
-  const days = getMonthDays(viewYear, viewMonth);
-
-  const goPrev = () => {
-    if (viewMonth === 0) {
-      setViewYear(viewYear - 1);
-      setViewMonth(11);
-    } else {
-      setViewMonth(viewMonth - 1);
-    }
-  };
-
-  const goNext = () => {
-    if (viewMonth === 11) {
-      setViewYear(viewYear + 1);
-      setViewMonth(0);
-    } else {
-      setViewMonth(viewMonth + 1);
-    }
-  };
-
-  const handleDayClick = (day: number | null) => {
-    if (day === null) return;
-    const mm = String(viewMonth + 1).padStart(2, "0");
-    const dd = String(day).padStart(2, "0");
-    onSelectDate(`${viewYear}-${mm}-${dd}`);
-  };
-
-  return (
-    <div className="bg-bg-base rounded-lg border border-border">
-      {/* 月份标题 + 切换 */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <button onClick={goPrev} className="p-1 text-text-secondary hover:text-primary">
-          <ChevronLeft size={16} />
-        </button>
-        <span className="text-sm font-bold text-primary">
-          {viewYear}年{viewMonth + 1}月
-        </span>
-        <button onClick={goNext} className="p-1 text-text-secondary hover:text-primary">
-          <ChevronRight size={16} />
-        </button>
-      </div>
-
-      {/* 星期行 */}
-      <div className="grid grid-cols-7 px-2 pt-3 pb-1">
-        {WEEKDAY_CN.map((w) => (
-          <div key={w} className="text-center text-xs text-text-secondary font-medium">
-            {w}
-          </div>
-        ))}
-      </div>
-
-      {/* 日期格子 */}
-      <div className="grid grid-cols-7 px-2 pb-3">
-        {days.map((d, i) => {
-          const dateStr = d !== null
-            ? `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`
-            : null;
-          const isToday = dateStr === todayStr;
-          const isSelected = dateStr === selectedDate && d !== null;
-
-          return (
-            <div key={i} className="aspect-square flex items-center justify-center">
-              {d !== null ? (
-                <button
-                  onClick={() => handleDayClick(d)}
-                  className={`w-8 h-8 flex items-center justify-center rounded-full text-sm transition-colors
-                    ${isToday && isSelected
-                      ? "bg-primary text-white ring-2 ring-primary/30"
-                      : isToday
-                        ? "bg-primary text-white"
-                        : isSelected
-                          ? "bg-primary/10 text-primary font-medium"
-                          : "text-text-base hover:bg-bg-layout"
-                    }`}
-                >
-                  {d}
-                </button>
-              ) : (
-                <span />
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ── 代办任务组件 ──
 
 interface TaskItem {
-  id: string;
-  title: string;
-  description: string | null;
-  due_date: string;
-  completed: boolean;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
+  id: string; title: string; due_date: string; completed: boolean;
 }
 
 interface DailyPlanCourse {
-  id: string;
-  title: string;
-  description: string | null;
-  start_date: string | null;
-  end_date: string | null;
-  completed_count: number;
-  total_count: number;
-  exam_passed: boolean;
-  has_exam: boolean;
+  id: string; title: string;
+  start_date: string | null; end_date: string | null;
+  completed_count: number; total_count: number;
+  exam_passed: boolean; has_exam: boolean;
 }
 
-interface DailyPlan {
-  tasks: TaskItem[];
-  courses: DailyPlanCourse[];
+interface DailyPlan { tasks: TaskItem[]; courses: DailyPlanCourse[]; }
+
+interface NoticeItem {
+  id: string; title: string; content: string;
+  is_pinned: boolean; created_at: string; is_read: boolean;
 }
 
-function TodoPanel({ selectedDate }: { selectedDate: string }) {
+// ── 工具 ──
+
+const isDone = (c: { total_count: number; completed_count: number; has_exam: boolean; exam_passed: boolean }) =>
+  c.total_count > 0 && c.completed_count >= c.total_count && (!c.has_exam || c.exam_passed);
+
+const isStarted = (c: { completed_count: number; exam_passed: boolean }) =>
+  c.completed_count > 0 || c.exam_passed;
+
+const needExam = (c: CourseWithProgress) =>
+  c.has_exam && !c.exam_passed && c.total_count > 0 && c.completed_count >= c.total_count;
+
+function coursePercent(c: { total_count: number; completed_count: number; has_exam: boolean; exam_passed: boolean }) {
+  if (c.total_count === 0) return c.has_exam ? (c.exam_passed ? 100 : 0) : 0;
+  const video = c.has_exam ? (c.completed_count / c.total_count) * 80 : (c.completed_count / c.total_count) * 100;
+  return Math.round(video + (c.has_exam && c.exam_passed ? 20 : 0));
+}
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function shiftDate(date: string, delta: number) {
+  const d = new Date(date + "T00:00:00");
+  d.setDate(d.getDate() + delta);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function daysLeft(end: string) {
+  const e = new Date(end + "T23:59:59").getTime();
+  return Math.ceil((e - Date.now()) / 86400000);
+}
+
+function fmtDuration(sec: number) {
+  if (!sec) return "0 分钟";
+  const h = Math.floor(sec / 3600);
+  const m = Math.round((sec % 3600) / 60);
+  return h > 0 ? `${h} 小时 ${m} 分` : `${m} 分钟`;
+}
+
+function Bar({ pct, height = 4 }: { pct: number; height?: number }) {
+  return (
+    <span
+      style={{
+        flex: 1, display: "inline-block", height,
+        background: "var(--color-bg-hover)", borderRadius: height,
+        overflow: "hidden", minWidth: 40,
+      }}
+    >
+      <span
+        style={{
+          display: "block", height: "100%", width: `${Math.min(100, Math.max(0, pct))}%`,
+          background: "var(--color-primary)", borderRadius: height,
+          transition: "width 240ms ease",
+        }}
+      />
+    </span>
+  );
+}
+
+function CardHead({ title, extra }: { title: string; extra?: ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        gap: 12, padding: "10px 16px", borderBottom: "1px solid var(--color-border)",
+      }}
+    >
+      <h3 style={{ margin: 0, fontSize: 13, fontWeight: 500, color: "var(--color-primary)" }}>{title}</h3>
+      {extra}
+    </div>
+  );
+}
+
+// ── 继续学习 ──
+
+function ContinueCard({ course, loading }: { course: CourseWithProgress | null; loading: boolean }) {
+  const navigate = useNavigate();
+
+  if (loading) {
+    return (
+      <section className="k-card" style={{ padding: "16px 18px" }}>
+        <Skeleton width={72} height={12} />
+        <div style={{ marginTop: 10 }}><Skeleton width="58%" height={18} /></div>
+        <div style={{ marginTop: 14 }}><Skeleton height={6} /></div>
+      </section>
+    );
+  }
+
+  if (!course) {
+    return (
+      <section className="k-card" style={{ padding: "16px 18px" }}>
+        <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>继续学习</div>
+        <EmptyState text="暂无进行中的课程" hint="去课程中心看看分配给你的学习任务" />
+        <div style={{ textAlign: "center", marginTop: 4 }}>
+          <Link to="/student/courses" className="k-btn k-btn-default k-btn-sm" style={{ textDecoration: "none" }}>
+            浏览我的课程
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  const pct = coursePercent(course);
+  const started = isStarted(course);
+  const label = needExam(course) ? "去参加考试" : started ? "继续学习" : "开始学习";
+
+  return (
+    <section
+      className="k-card"
+      style={{ padding: "16px 18px", borderColor: "var(--color-primary)", borderWidth: 1 }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>继续学习</span>
+        {course.end_date && (() => {
+          const d = daysLeft(course.end_date);
+          if (d < 0) return <span className="k-tag k-tag-danger">已逾期 {Math.abs(d)} 天</span>;
+          if (d <= 3) return <span className="k-tag k-tag-danger">剩 {d} 天</span>;
+          if (d <= 7) return <span className="k-tag k-tag-warning">剩 {d} 天</span>;
+          return null;
+        })()}
+      </div>
+
+      <h2 className="k-title" style={{ fontSize: 18, margin: "6px 0 3px", color: "var(--color-primary)", wordBreak: "break-word" }}>
+        {course.title}
+      </h2>
+      <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>
+        {needExam(course)
+          ? "视频已全部看完，可以参加考试了"
+          : started
+            ? `已学 ${course.completed_count}/${course.total_count} 个视频`
+            : `共 ${course.total_count} 个视频，还没有开始`}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0 16px" }}>
+        <Bar pct={pct} height={6} />
+        <span style={{ fontSize: 13, color: "var(--color-primary)", minWidth: 34, textAlign: "right" }}>{pct}%</span>
+      </div>
+
+      <button
+        type="button"
+        className="k-btn k-btn-primary"
+        onClick={() => navigate(`/student/courses/${course.id}`)}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+      >
+        {label} <ArrowRight size={14} />
+      </button>
+    </section>
+  );
+}
+
+// ── 今日计划 ──
+
+function TodayPlanCard({ date, onDateChange }: { date: string; onDateChange: (d: string) => void }) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [courses, setCourses] = useState<DailyPlanCourse[]>([]);
+  const [planCourses, setPlanCourses] = useState<DailyPlanCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
   const [adding, setAdding] = useState(false);
   const mountedRef = useRef(true);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const data = await api<DailyPlan>(
-        `/student/daily-plan?date=${selectedDate}`
-      );
-      if (mountedRef.current) {
-        setTasks(data.tasks);
-        setCourses(data.courses);
+  const load = useCallback(() => {
+    setLoading(true);
+    api<DailyPlan>(`/student/daily-plan?date=${date}`)
+      .then((data) => {
+        if (!mountedRef.current) return;
+        setTasks(data.tasks ?? []);
+        setPlanCourses(data.courses ?? []);
         setLoading(false);
-      }
-    } catch {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [selectedDate]);
+      })
+      .catch(() => { if (mountedRef.current) setLoading(false); });
+  }, [date]);
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchData();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [fetchData]);
+    load();
+    return () => { mountedRef.current = false; };
+  }, [load]);
 
   const handleAdd = async () => {
     const title = newTitle.trim();
     if (!title) return;
     setAdding(true);
     try {
-      await api("/student/tasks", {
-        method: "POST",
-        body: JSON.stringify({ title, due_date: selectedDate }),
-      });
+      await api("/student/tasks", { method: "POST", body: JSON.stringify({ title, due_date: date }) });
       setNewTitle("");
-      fetchData();
-    } catch (e) {
-      console.error("添加任务失败", e);
+      notify.success("已添加任务");
+      load();
+    } catch {
+      notify.error("添加任务失败");
     } finally {
       setAdding(false);
     }
   };
 
   const handleToggle = async (task: TaskItem) => {
+    const next = !task.completed;
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, completed: next } : t)));
     try {
       await api(`/student/tasks/${task.id}`, {
         method: "PUT",
-        body: JSON.stringify({ completed: !task.completed }),
+        body: JSON.stringify({ completed: next }),
       });
-      fetchData();
-    } catch (e) {
-      console.error("更新任务失败", e);
+    } catch {
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, completed: task.completed } : t)));
+      notify.error("更新任务失败");
     }
   };
 
-  const handleDelete = async (taskId: string) => {
+  const handleDelete = async (id: string) => {
     try {
-      await api(`/student/tasks/${taskId}`, { method: "DELETE" });
-      fetchData();
-    } catch (e) {
-      console.error("删除任务失败", e);
+      await api(`/student/tasks/${id}`, { method: "DELETE" });
+      notify.success("已删除任务");
+      load();
+    } catch {
+      notify.error("删除任务失败");
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      handleAdd();
-    }
-  };
-
-  const dateObj = new Date(selectedDate + "T00:00:00");
-  const dateLabel = `${dateObj.getMonth() + 1}月${dateObj.getDate()}日`;
-  const hasCourses = courses.length > 0;
-  const hasTasks = tasks.length > 0;
+  const isToday = date === todayStr();
+  const d = new Date(date + "T00:00:00");
+  const doneCount = tasks.filter((t) => t.completed).length;
+  const total = planCourses.length + tasks.length;
 
   return (
-    <div className="bg-bg-base rounded-lg border border-border absolute inset-0 flex flex-col overflow-hidden">
-      {/* 标题行 */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <span className="text-sm font-bold text-primary">
-          {dateLabel} 的计划
-        </span>
-        <span className="text-xs text-text-secondary">
-          {tasks.filter((t) => t.completed).length}/{tasks.length} 完成
-        </span>
-      </div>
+    <section className="k-card">
+      <CardHead
+        title={isToday ? "今日计划" : `${d.getMonth() + 1}月${d.getDate()}日 计划`}
+        extra={
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <button
+              type="button" className="k-btn k-btn-ghost k-btn-sm"
+              style={{ padding: "3px 6px" }} onClick={() => onDateChange(shiftDate(date, -1))}
+              aria-label="前一天"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <input
+              type="date" value={date} className="k-input"
+              style={{ width: 138, padding: "3px 8px", fontSize: 12 }}
+              onChange={(e) => e.target.value && onDateChange(e.target.value)}
+            />
+            <button
+              type="button" className="k-btn k-btn-ghost k-btn-sm"
+              style={{ padding: "3px 6px" }} onClick={() => onDateChange(shiftDate(date, 1))}
+              aria-label="后一天"
+            >
+              <ChevronRight size={14} />
+            </button>
+            {!isToday && (
+              <button type="button" className="k-btn k-btn-ghost k-btn-sm" onClick={() => onDateChange(todayStr())}>
+                今天
+              </button>
+            )}
+          </div>
+        }
+      />
 
-      {/* 添加任务 */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-        <input
-          type="text"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="添加新任务..."
-          className="flex-1 px-3 py-1.5 border border-border rounded-md text-sm
-                     focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary
-                     bg-bg-base"
-          disabled={adding}
-        />
-        <button
-          onClick={handleAdd}
-          disabled={adding || !newTitle.trim()}
-          className="px-3 py-1.5 text-sm bg-primary text-white rounded-md
-                     hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {adding ? "添加中..." : "添加"}
-        </button>
-      </div>
+      <div style={{ padding: "12px 16px" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input
+            className="k-input"
+            style={{ flex: 1 }}
+            placeholder="添加新任务..."
+            value={newTitle}
+            disabled={adding}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e: KeyboardEvent) => { if (e.key === "Enter") handleAdd(); }}
+          />
+          <button type="button" className="k-btn k-btn-default" onClick={handleAdd} disabled={adding || !newTitle.trim()}>
+            添加
+          </button>
+        </div>
 
-      {/* 内容列表 */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-3">
         {loading ? (
-          <p className="text-sm text-text-secondary">加载中...</p>
-        ) : !hasCourses && !hasTasks ? (
-          <p className="text-sm text-text-secondary text-center mt-8">暂无计划</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Skeleton height={16} /><Skeleton height={16} /><Skeleton width="60%" height={16} />
+          </div>
+        ) : total === 0 ? (
+          <div style={{ padding: "10px 0" }}>
+            <EmptyState text="这一天还没有计划" hint="添加个人任务，或等待课程安排" />
+          </div>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            {/* 课程卡片 */}
-            {courses.map((course) => {
-              const videoPct = course.has_exam
-                ? (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 80) : 0)
-                : (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 100) : 0);
-              const examPct = course.has_exam && course.exam_passed ? 20 : 0;
-              const totalPct = videoPct + examPct;
-              return (
-                <Link
-                  key={course.id}
-                  to={`/student/courses/${course.id}`}
-                  className="border border-primary/30 rounded-lg p-2 hover:shadow-sm transition-shadow block bg-primary/[0.02]"
-                >
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-[11px] text-primary font-bold px-1 py-0.5 bg-primary/10 rounded">课程</span>
-                    <span className="text-xs font-medium text-text-base truncate">{course.title}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[11px] text-text-secondary">
-                    {course.start_date && course.end_date && (
-                      <span className="shrink-0">{course.start_date} ~ {course.end_date}</span>
-                    )}
-                    <span className="flex-1 flex items-center gap-1">
-                      {course.has_exam ? (
-                        <span className="flex flex-1 bg-bg-layout rounded-full h-1 border border-border overflow-hidden">
-                          <div className="bg-primary transition-all" style={{ width: `${videoPct}%` }} />
-                          {examPct > 0 && <div className="bg-[#4CAF50] transition-all" style={{ width: `${examPct}%` }} />}
-                        </span>
-                      ) : (
-                        <span className="flex-1 bg-bg-layout rounded-full h-1 border border-border">
-                          <div className="h-1 rounded-full transition-all bg-primary" style={{ width: `${totalPct}%` }} />
-                        </span>
-                      )}
-                      <span className="shrink-0 text-primary">进度：{totalPct}%</span>
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 320, overflowY: "auto" }}>
+            {planCourses.map((c) => (
+              <Link
+                key={c.id} to={`/student/courses/${c.id}`}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10, padding: "8px 10px",
+                  borderRadius: 6, textDecoration: "none",
+                }}
+                className="k-card-hover"
+              >
+                <BookOpen size={13} style={{ color: "var(--color-primary)", flexShrink: 0 }} />
+                <span style={{ fontSize: 13, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {c.title}
+                </span>
+                <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <Bar pct={coursePercent(c)} />
+                  <span style={{ fontSize: 12, color: "var(--color-text-secondary)", minWidth: 62, textAlign: "right" }}>
+                    {c.total_count > 0 ? `${c.completed_count}/${c.total_count} 视频` : "暂无视频"}
+                  </span>
+                </span>
+              </Link>
+            ))}
 
-            {/* 分隔线 */}
-            {hasCourses && hasTasks && (
-              <div className="border-t border-border pt-1" />
+            {planCourses.length > 0 && tasks.length > 0 && (
+              <div style={{ borderTop: "1px solid var(--color-border)", margin: "6px 0" }} />
             )}
 
-            {/* 个人任务卡片 */}
-            {tasks.map((task) => {
-              const pct = task.completed ? 100 : 0;
-              return (
-                <div
-                  key={task.id}
-                  className="border border-border rounded-lg p-2 hover:shadow-sm transition-shadow"
+            {tasks.map((t) => (
+              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px" }}>
+                <input
+                  type="checkbox" checked={t.completed} onChange={() => handleToggle(t)}
+                  style={{ width: 14, height: 14, accentColor: "var(--color-primary)", cursor: "pointer", flexShrink: 0 }}
+                />
+                <span
+                  style={{
+                    fontSize: 13, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    color: t.completed ? "var(--color-text-muted)" : "var(--color-text-base)",
+                    textDecoration: t.completed ? "line-through" : "none",
+                  }}
                 >
-                  <div className="flex items-center justify-between gap-1">
-                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <input
-                        type="checkbox"
-                        checked={task.completed}
-                        onChange={() => handleToggle(task)}
-                        className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer shrink-0"
-                      />
-                      <span
-                        className={`text-xs truncate ${
-                          task.completed ? "line-through text-text-secondary" : "text-text-base"
-                        }`}
-                      >
-                        {task.title}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => handleDelete(task.id)}
-                      className="text-[11px] text-red-400 opacity-0 hover:opacity-100 transition-opacity shrink-0"
-                    >
-                      删除
-                    </button>
-                  </div>
-                  <div className="ml-5 mt-1 flex items-center gap-1">
-                    <div className="flex-1 bg-bg-layout rounded-full h-1">
-                      <div
-                        className="h-1 rounded-full transition-all bg-primary"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <span className="text-[11px] text-text-secondary shrink-0">{pct}%</span>
-                  </div>
-                </div>
-              );
-            })}
+                  {t.title}
+                </span>
+                <button
+                  type="button" onClick={() => handleDelete(t.id)}
+                  style={{
+                    marginLeft: "auto", background: "none", border: "none", cursor: "pointer",
+                    color: "var(--color-text-muted)", display: "flex", padding: 2, flexShrink: 0,
+                  }}
+                  aria-label="删除任务"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tasks.length > 0 && (
+          <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--color-border)" }}>
+            个人任务 {doneCount}/{tasks.length} 完成
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
+// ── 即将到期 ──
+
+function DueSoonCard({ items, loading }: { items: { c: CourseWithProgress; d: number }[]; loading: boolean }) {
+  if (loading) {
+    return (
+      <section className="k-card" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <CardHead title="即将到期" />
+        <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <Skeleton height={16} /><Skeleton width="70%" height={16} />
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="k-card" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <CardHead
+        title="即将到期"
+        extra={<Link to="/student/courses" className="k-link" style={{ fontSize: 12 }}>全部课程</Link>}
+      />
+      <div style={{ padding: "6px 16px 10px", display: "flex", flexDirection: "column", flex: 1 }}>
+        {items.length === 0 ? (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <EmptyState text="近期没有到期的课程" />
+          </div>
+        ) : (
+          items.map(({ c, d }) => (
+            <Link
+              key={c.id} to={`/student/courses/${c.id}`}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, padding: "10px 0",
+                borderBottom: "1px solid var(--color-border)", textDecoration: "none",
+              }}
+            >
+              <span style={{ fontSize: 13, color: "var(--color-text-base)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {c.title}
+              </span>
+              <span style={{ marginLeft: "auto", flexShrink: 0 }}>
+                {d < 0 ? (
+                  <span className="k-tag k-tag-danger">已逾期 {Math.abs(d)} 天</span>
+                ) : d <= 3 ? (
+                  <span className="k-tag k-tag-danger">剩 {d} 天</span>
+                ) : d <= 7 ? (
+                  <span className="k-tag k-tag-warning">剩 {d} 天</span>
+                ) : (
+                  <span className="k-tag">剩 {d} 天</span>
+                )}
+              </span>
+            </Link>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ── 学习概览 ──
+
+function StatsCard({
+  stats, profile, loading,
+}: {
+  stats: { done: number; inProgress: number; pendingExam: number; totalVideos: number; doneVideos: number; rate: number };
+  profile: StudentProfile | null;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <section className="k-card" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        <CardHead title="学习概览" />
+        <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 14, flex: 1, minHeight: 0 }}>
+          <Skeleton height={16} /><Skeleton height={40} />
+          <div style={{ flex: 1, minHeight: 0 }} />
+        </div>
+      </section>
+    );
+  }
+
+  const cells = [
+    { label: "进行中", value: stats.inProgress },
+    { label: "已完成", value: stats.done },
+    { label: "待考试", value: stats.pendingExam },
+    { label: "完成率", value: `${stats.rate}%` },
+  ];
+
+  return (
+    <section className="k-card" style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <CardHead title="学习概览" />
+      <div style={{ padding: "12px 16px 16px", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--color-text-secondary)" }}>
+          <Clock size={13} /> 累计学习时长
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 500, color: "var(--color-primary)", margin: "2px 0 12px" }}>
+          {fmtDuration(profile?.total_watched_seconds ?? 0)}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <Bar pct={stats.rate} />
+          <span style={{ fontSize: 12, color: "var(--color-text-secondary)", flexShrink: 0 }}>
+            视频 {stats.doneVideos}/{stats.totalVideos}
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 12px" }}>
+          {cells.map((c) => (
+            <div key={c.label}>
+              <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>{c.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 500, color: "var(--color-text-base)" }}>{c.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0 }} />
+      </div>
+    </section>
+  );
+}
+
+// ── 系统公告 ──
+
+function NoticeCard() {
+  const [notices, setNotices] = useState<NoticeItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [active, setActive] = useState<NoticeItem | null>(null);
+  const mountedRef = useRef(true);
+
+  const load = useCallback(() => {
+    api<{ notices: NoticeItem[] }>("/notices/published")
+      .then((data) => {
+        if (!mountedRef.current) return;
+        setNotices(data.notices ?? []);
+        setLoading(false);
+      })
+      .catch(() => { if (mountedRef.current) setLoading(false); });
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    load();
+    return () => { mountedRef.current = false; };
+  }, [load]);
+
+  const open = async (n: NoticeItem) => {
+    setActive(n);
+    if (n.is_read) return;
+    try {
+      await api(`/notices/${n.id}/read`, { method: "POST" });
+      load();
+    } catch {
+      /* 已读标记失败不影响阅读 */
+    }
+  };
+
+  return (
+    <>
+      <section className="k-card">
+        <CardHead title="系统公告" extra={<span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{notices.length} 条</span>} />
+        <div className="k-scroll" style={{ padding: "6px 16px 10px", maxHeight: 320, overflowY: "auto" }}>
+          {loading ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 8 }}>
+              <Skeleton height={14} /><Skeleton width="80%" height={14} />
+            </div>
+          ) : notices.length === 0 ? (
+            <div style={{ padding: "8px 0" }}><EmptyState text="暂无公告" /></div>
+          ) : (
+            notices.map((n) => (
+              <button
+                key={n.id} type="button" onClick={() => open(n)}
+                style={{
+                  display: "flex", alignItems: "flex-start", gap: 8, width: "100%",
+                  padding: "12px 0", background: "none", border: "none", cursor: "pointer",
+                  borderBottom: "1px solid var(--color-border)", textAlign: "left",
+                }}
+              >
+                <span
+                  style={{
+                    width: 5, height: 5, borderRadius: "50%", marginTop: 6, flexShrink: 0,
+                    background: n.is_read ? "var(--color-border-dark)" : "var(--color-primary)",
+                  }}
+                />
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span
+                    style={{
+                      fontSize: 13, display: "block", overflow: "hidden",
+                      textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      color: n.is_read ? "var(--color-text-secondary)" : "var(--color-text-base)",
+                    }}
+                  >
+                    {n.is_pinned && <span style={{ color: "var(--color-warning)" }}>[置顶] </span>}
+                    {n.title}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11, color: "var(--color-text-muted)", display: "block",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2,
+                    }}
+                  >
+                    {n.content}
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>
+                    {new Date(n.created_at).toLocaleDateString("zh-CN")}
+                  </span>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+
+      {active && (
+        <div className="k-overlay" onClick={() => setActive(null)}>
+          <div className="k-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="k-title" style={{ fontSize: 17, margin: "0 0 6px", color: "var(--color-primary)" }}>
+              {active.title}
+            </h3>
+            <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginBottom: 14 }}>
+              {new Date(active.created_at).toLocaleString("zh-CN")}
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.75, whiteSpace: "pre-wrap", color: "var(--color-text-base)" }}>
+              {active.content}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+              <button type="button" className="k-btn k-btn-default" onClick={() => setActive(null)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── 首页 ──
+
 export default function StudentDashboard() {
-  const [selectedDate, setSelectedDate] = useState(
-    () => new Date().toISOString().split("T")[0]
+  const [date, setDate] = useState(todayStr);
+  const [courses, setCourses] = useState<CourseWithProgress[]>([]);
+  const [profile, setProfile] = useState<StudentProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    Promise.all([
+      api<CourseWithProgress[]>("/student/courses-with-progress"),
+      api<StudentProfile>("/student/profile"),
+    ])
+      .then(([c, p]) => {
+        if (!mountedRef.current) return;
+        setCourses(c ?? []);
+        setProfile(p ?? null);
+        setLoading(false);
+      })
+      .catch(() => { if (mountedRef.current) setLoading(false); });
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const stats = useMemo(() => {
+    const done = courses.filter(isDone).length;
+    const inProgress = courses.filter((c) => isStarted(c) && !isDone(c)).length;
+    const pendingExam = courses.filter((c) => c.has_exam && !c.exam_passed).length;
+    const totalVideos = courses.reduce((s, c) => s + c.total_count, 0);
+    const doneVideos = courses.reduce((s, c) => s + c.completed_count, 0);
+    return {
+      done, inProgress, pendingExam, totalVideos, doneVideos,
+      rate: totalVideos ? Math.round((doneVideos / totalVideos) * 100) : 0,
+    };
+  }, [courses]);
+
+  const nextCourse = useMemo(() => {
+    const active = courses.filter((c) => isStarted(c) && !isDone(c));
+    if (active.length) return active[0];
+    return courses.find((c) => !isStarted(c)) ?? null;
+  }, [courses]);
+
+  const dueSoon = useMemo(
+    () =>
+      courses
+        .filter((c) => c.end_date && !isDone(c))
+        .map((c) => ({ c, d: daysLeft(c.end_date as string) }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 4),
+    [courses]
   );
 
   return (
-    <div className="space-y-4">
-      <NoticeSection />
-      <div className="flex gap-4 items-stretch">
-        {/* 左侧 1/3：月历（决定行高） */}
-        <div className="w-1/3">
-          <Calendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.9fr)_minmax(0,1fr)] gap-3">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%" }}>
+          <ContinueCard course={nextCourse} loading={loading} />
+          <TodayPlanCard date={date} onDateChange={setDate} />
+          <DueSoonCard items={dueSoon} loading={loading} />
         </div>
-        {/* 右侧 2/3：当日任务列表（与日历齐平，内部滚动） */}
-        <div className="w-2/3 relative">
-          <TodoPanel selectedDate={selectedDate} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, height: "100%" }}>
+          <NoticeCard />
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+            <StatsCard stats={stats} profile={profile} loading={loading} />
+          </div>
         </div>
       </div>
     </div>

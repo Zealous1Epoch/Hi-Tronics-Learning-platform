@@ -1,9 +1,13 @@
-import { Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Routes, Route, Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { api } from "../lib/api";
 import {
   BookOpen, Library, Pencil, ClipboardList, ScrollText,
   Users, BarChart3, LayoutDashboard, FileText,
+  ChevronsLeft, ChevronsRight, ChevronDown, Search, Bell, LogOut, UserCog,
 } from "lucide-react";
+import logoImg from "../assets/logo.png";
 import AdminDashboard from "../pages/admin/Dashboard";
 import CourseManage from "../pages/admin/CourseManage";
 import QuestionBank from "../pages/admin/QuestionBank";
@@ -14,15 +18,16 @@ import PaperDetail from "../pages/admin/PaperDetail";
 import ExamResults from "../pages/admin/ExamResults";
 import UserProgress from "../pages/admin/UserProgress";
 import DepartmentUserManage from "../pages/admin/DepartmentUserManage";
+import UserManage from "../pages/admin/UserManage";
+import QuestionManage from "../pages/admin/QuestionManage";
 import KnowledgeManage from "../pages/admin/KnowledgeManage";
 import LogViewer from "../pages/admin/LogViewer";
+import CommandPalette, { useCommandHotkey } from "../components/CommandPalette";
 
 const menuGroups = [
   {
     label: "",
-    items: [
-      { icon: LayoutDashboard, label: "首页", path: "/admin" },
-    ],
+    items: [{ icon: LayoutDashboard, label: "首页", path: "/admin" }],
   },
   {
     label: "资源管理",
@@ -54,22 +59,82 @@ const menuGroups = [
   },
 ];
 
+interface LogItem {
+  id: string;
+  operator: string;
+  action: string;
+  resource_name: string;
+  level: string;
+  created_at: string;
+}
+
 export default function AdminLayout() {
   const { user, logout, loading } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem("lp_admin_sidebar_collapsed") === "1"
+  );
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("lp_admin_open_groups") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [logs, setLogs] = useState<LogItem[]>([]);
+  const [unread, setUnread] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useCommandHotkey(setPaletteOpen);
+
+  useEffect(() => {
+    localStorage.setItem("lp_admin_sidebar_collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("lp_admin_open_groups", JSON.stringify(openGroups));
+  }, [openGroups]);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setBellOpen(false);
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  useEffect(() => {
+    api<{ items: LogItem[]; total: number }>("/admin/system-logs?level=error&page_size=8")
+      .then((data) => {
+        setLogs(data.items ?? []);
+        setUnread(data.total ?? 0);
+      })
+      .catch(() => {});
+  }, [location.pathname]);
 
   if (loading) return null;
   if (!user || user.role !== "admin") return <Navigate to="/student" replace />;
 
   const isActive = (path: string) => {
-    if (path === "/admin") return location.pathname === "/admin";
     const p = location.pathname;
+    if (path === "/admin") return p === "/admin";
     if (p === path) return true;
     if (!p.startsWith(path + "/")) return false;
-    // 检查是否有其他菜单项路径更长且更匹配
     for (const group of menuGroups) {
       for (const item of group.items) {
-        if (item.path !== path && (p === item.path || p.startsWith(item.path + "/")) && item.path.length > path.length) {
+        if (
+          item.path !== path &&
+          (p === item.path || p.startsWith(item.path + "/")) &&
+          item.path.length > path.length
+        ) {
           return false;
         }
       }
@@ -77,54 +142,340 @@ export default function AdminLayout() {
     return true;
   };
 
+  const groupOpen = (label: string) => openGroups[label] !== false;
+
   return (
-    <div className="min-h-screen flex bg-bg-layout">
-      <aside className="w-36 bg-primary text-white min-h-screen flex-shrink-0 flex flex-col">
-        <h2 className="text-sm font-bold px-4 py-4 border-b border-white/10">学习管理后台</h2>
-        <nav className="flex-1 py-2 overflow-y-auto">
-          {menuGroups.map((group) => (
-            <div key={group.label || "home"} className="mb-3">
-              {group.label && (
-                <p className="px-4 py-1 text-[10px] text-white/40 uppercase tracking-wider">
-                  {group.label}
-                </p>
-              )}
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                const active = isActive(item.path);
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`flex items-center gap-2.5 px-4 py-2 text-sm transition-colors ${
-                      active
-                        ? "bg-white/15 text-white font-medium"
-                        : "text-white/70 hover:bg-white/8 hover:text-white"
-                    }`}
+    <div ref={rootRef} className="min-h-screen flex" style={{ background: "var(--color-bg-layout)" }}>
+      <aside
+        className="shrink-0 flex flex-col"
+        style={{
+          width: collapsed ? 60 : 200,
+          background: "var(--color-bg-card)",
+          borderRight: "1px solid var(--color-border)",
+          transition: "width 180ms ease",
+        }}
+      >
+        <div
+          className="flex items-center gap-2"
+          style={{
+            height: 52,
+            padding: collapsed ? "0 12px" : "0 14px",
+            borderBottom: "1px solid var(--color-border)",
+            justifyContent: "center",
+          }}
+        >
+          {!collapsed && (
+            <span
+              className="k-title"
+              style={{ fontSize: 13, color: "var(--color-primary)", whiteSpace: "nowrap" }}
+            >
+              海创在线学堂
+            </span>
+          )}
+        </div>
+
+        <nav className="flex-1 overflow-y-auto" style={{ padding: "8px 8px 12px" }}>
+          {menuGroups.map((group, gi) => {
+            const key = group.label || `g${gi}`;
+            const open = group.label === "" ? true : groupOpen(key);
+            return (
+              <div key={key} style={{ marginBottom: 2 }}>
+                {group.label && !collapsed && (
+                  <button
+                    onClick={() =>
+                      setOpenGroups((prev) => ({ ...prev, [key]: !open }))
+                    }
+                    className="k-nav-group-label"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      width: "100%",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
                   >
-                    <Icon size={16} />
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+                    {group.label}
+                    <ChevronDown
+                      size={11}
+                      style={{
+                        transform: open ? "rotate(0deg)" : "rotate(-90deg)",
+                        transition: "transform 160ms ease",
+                      }}
+                    />
+                  </button>
+                )}
+                {group.label && collapsed && (
+                  <div style={{ height: 1, background: "var(--color-border)", margin: "10px 6px" }} />
+                )}
+                {(open || collapsed) &&
+                  group.items.map((item) => {
+                    const Icon = item.icon;
+                    const active = isActive(item.path);
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        title={collapsed ? item.label : undefined}
+                        className={`k-nav-item ${active ? "k-nav-item-active" : ""}`}
+                        style={{
+                          justifyContent: collapsed ? "center" : "flex-start",
+                          padding: collapsed ? "8px 0" : undefined,
+                          position: "relative",
+                        }}
+                      >
+                        {active && (
+                          <span
+                            style={{
+                              position: "absolute",
+                              left: -8,
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              width: 2,
+                              height: 16,
+                              background: "var(--color-primary)",
+                              borderRadius: 1,
+                            }}
+                          />
+                        )}
+                        <Icon size={16} strokeWidth={1.6} />
+                        {!collapsed && <span>{item.label}</span>}
+                      </Link>
+                    );
+                  })}
+              </div>
+            );
+          })}
         </nav>
+
+        <button
+          onClick={() => setCollapsed((v) => !v)}
+          className="k-link"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            height: 36,
+            borderTop: "1px solid var(--color-border)",
+            fontSize: 12,
+          }}
+        >
+          {collapsed ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
+          {!collapsed && "收起侧边栏"}
+        </button>
       </aside>
+
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-bg-base border-b border-border px-6 py-3 flex items-center justify-between">
-          <span className="text-sm text-text-secondary">管理后台</span>
-          <div className="flex items-center gap-3">
-            <Link to="/student" className="text-sm text-primary hover:underline">切换学员视图</Link>
-            <span className="text-sm text-text-secondary">{user?.name}</span>
-            <button onClick={logout} className="text-sm text-text-secondary hover:text-text-base">退出</button>
+        <header
+          className="flex items-center justify-between"
+          style={{
+            height: 52,
+            padding: "0 20px",
+            background: "var(--color-bg-card)",
+            borderBottom: "1px solid var(--color-border)",
+            gap: 16,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <img src={logoImg} alt="海创光电" style={{ height: 18 }} />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className="k-btn k-btn-default k-btn-sm"
+              style={{ color: "var(--color-text-muted)", gap: 8 }}
+            >
+              <Search size={13} /> 搜索
+              <span style={{ fontSize: 10, opacity: 0.7 }}>⌘K</span>
+            </button>
+
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => {
+                  setBellOpen((v) => !v);
+                  setMenuOpen(false);
+                }}
+                className="k-btn k-btn-ghost k-btn-sm"
+                style={{ padding: "5px 8px", position: "relative" }}
+                aria-label="异常日志"
+              >
+                <Bell size={15} />
+                {unread > 0 && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 2,
+                      right: 2,
+                      minWidth: 14,
+                      height: 14,
+                      borderRadius: 7,
+                      background: "var(--color-danger)",
+                      color: "#fff",
+                      fontSize: 10,
+                      lineHeight: "14px",
+                      padding: "0 3px",
+                    }}
+                  >
+                    {unread > 99 ? "99+" : unread}
+                  </span>
+                )}
+              </button>
+              {bellOpen && (
+                <div
+                  className="k-card"
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    top: 34,
+                    width: 300,
+                    zIndex: 50,
+                    boxShadow: "0 4px 16px rgba(20,20,19,0.08)",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "9px 14px",
+                      borderBottom: "1px solid var(--color-border)",
+                      fontSize: 12,
+                      color: "var(--color-text-secondary)",
+                    }}
+                  >
+                    异常日志 · 共 {unread} 条
+                  </div>
+                  <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                    {logs.length === 0 ? (
+                      <div className="k-empty" style={{ padding: "20px 12px" }}>
+                        暂无异常记录
+                      </div>
+                    ) : (
+                      logs.map((l) => (
+                        <div
+                          key={l.id}
+                          style={{
+                            padding: "9px 14px",
+                            borderBottom: "1px solid rgba(232,230,220,0.7)",
+                          }}
+                        >
+                          <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                            {l.operator} · {l.action}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--color-text-muted)" }}>
+                            {l.resource_name || "-"} ·{" "}
+                            {new Date(l.created_at).toLocaleString("zh-CN")}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <Link
+                    to="/admin/logs"
+                    onClick={() => setBellOpen(false)}
+                    className="k-link"
+                    style={{
+                      display: "block",
+                      textAlign: "center",
+                      padding: "8px 0",
+                      borderTop: "1px solid var(--color-border)",
+                      fontSize: 12,
+                    }}
+                  >
+                    查看全部日志
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => {
+                  setMenuOpen((v) => !v);
+                  setBellOpen(false);
+                }}
+                className="k-btn k-btn-ghost k-btn-sm"
+                style={{ gap: 6 }}
+              >
+                <span
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    background: "rgba(27,54,93,0.08)",
+                    color: "var(--color-primary)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 11,
+                  }}
+                >
+                  {user?.name?.slice(0, 1) ?? "管"}
+                </span>
+                <span style={{ fontSize: 12 }}>{user?.name}</span>
+                <ChevronDown size={12} />
+              </button>
+              {menuOpen && (
+                <div
+                  className="k-card"
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    top: 34,
+                    width: 168,
+                    zIndex: 50,
+                    padding: "4px 0",
+                    boxShadow: "0 4px 16px rgba(20,20,19,0.08)",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "8px 14px",
+                      borderBottom: "1px solid var(--color-border)",
+                      fontSize: 12,
+                      color: "var(--color-text-muted)",
+                    }}
+                  >
+                    {user?.department || "管理员"} · {user?.role === "admin" ? "管理员" : "学员"}
+                  </div>
+                  <Link
+                    to="/student"
+                    className="k-nav-item"
+                    style={{ borderRadius: 0, fontSize: 13 }}
+                  >
+                    <UserCog size={14} /> 切换学员视图
+                  </Link>
+                  <button
+                    onClick={() => {
+                      logout();
+                      navigate("/login");
+                    }}
+                    className="k-nav-item"
+                    style={{
+                      width: "100%",
+                      borderRadius: 0,
+                      fontSize: 13,
+                      background: "none",
+                      border: "none",
+                      fontFamily: "inherit",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <LogOut size={14} /> 退出登录
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
-        <main className="flex-1 p-6">
+
+        <main className="flex-1" style={{ padding: 22, minWidth: 0 }}>
           <Routes>
             <Route index element={<AdminDashboard />} />
             <Route path="courses" element={<CourseManage />} />
             <Route path="question-bank" element={<QuestionBank />} />
+            <Route path="questions" element={<QuestionManage />} />
             <Route path="knowledge" element={<KnowledgeManage />} />
             <Route path="papers" element={<PaperManage />} />
             <Route path="papers/:id" element={<PaperDetail />} />
@@ -132,12 +483,15 @@ export default function AdminLayout() {
             <Route path="exams/:id/paper" element={<ExamPaper />} />
             <Route path="exams/:id/results" element={<ExamResults />} />
             <Route path="users/progress" element={<UserProgress />} />
+            <Route path="users/manage" element={<UserManage />} />
             <Route path="users" element={<DepartmentUserManage />} />
             <Route path="logs" element={<LogViewer />} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Routes>
         </main>
       </div>
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }

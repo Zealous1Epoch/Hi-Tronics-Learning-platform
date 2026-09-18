@@ -1,9 +1,11 @@
 """用户模型"""
 
+from __future__ import annotations
 import uuid
+from typing import Optional
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
@@ -19,7 +21,15 @@ class User(Base):
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False, index=True, comment="姓名")
     employee_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True, comment="工号")
-    department: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True, comment="部门")
+    department: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True, comment="部门路径（如 IT部-开发组）")
+    department_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True, comment="部门 ID"
+    )
+
+    # 关联关系
+    department_rel: Mapped[Optional["Department"]] = relationship(
+        "Department", back_populates="users", foreign_keys=[department_id]
+    )
     role: Mapped[str] = mapped_column(
         String(20), default="student", nullable=False, index=True, comment="student / admin"
     )

@@ -9,6 +9,8 @@ from app.schemas.user import UserOut, UserUpdateRole, UserCreate, UserUpdate, Us
 from app.routers.auth import get_current_user, require_admin, invalidate_user_cache
 from app.services.auth_service import hash_password
 from app.services.log_service import write_log
+from app.services.department_sync import ensure_department_path
+from app.models.department import Department
 import io
 import openpyxl
 
@@ -20,6 +22,7 @@ def list_users(
     search: str | None = Query(None, description="搜索姓名/用户名/工号"),
     role: str | None = Query(None, description="筛选角色"),
     status: str | None = Query(None, description="筛选状态"),
+    department_id: str | None = Query(None, description="筛选部门 ID"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(50, ge=1, le=200, description="每页数量"),
     db: Session = Depends(get_db),
@@ -37,6 +40,8 @@ def list_users(
         q = q.filter(User.role == role)
     if status:
         q = q.filter(User.status == status)
+    if department_id:
+        q = q.filter(User.department_id == department_id)
     return q.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
 
@@ -52,12 +57,36 @@ def create_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
     if data.role not in ("student", "admin"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色无效")
+
+    # 处理部门关联
+    department_text = data.department
+    department_id = data.department_id
+
+    if department_id:
+        # department_id 优先：查找部门并计算完整路径
+        dept = db.query(Department).filter(Department.id == department_id).first()
+        if not dept:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="部门不存在")
+        # 从叶子节点向上构建完整路径
+        parts = []
+        cur = dept
+        while cur:
+            parts.insert(0, cur.name)
+            cur = db.query(Department).filter(Department.id == cur.parent_id).first() if cur.parent_id else None
+        department_text = "-".join(parts)
+    elif department_text and not department_id:
+        # 只有文本路径：自动同步到 Department 树
+        leaf = ensure_department_path(db, department_text)
+        if leaf:
+            department_id = leaf.id
+
     user = User(
         username=data.username,
         password_hash=hash_password(data.password),
         name=data.name,
         employee_id=data.employee_id,
-        department=data.department,
+        department=department_text,
+        department_id=department_id,
         role=data.role,
         status="active",
     )
@@ -88,8 +117,35 @@ def update_user(
         user.username = data.username
     if data.employee_id is not None:
         user.employee_id = data.employee_id or None
-    if data.department is not None:
-        user.department = data.department or None
+
+    # 处理部门关联
+    if data.department_id is not None:
+        # department_id 更新：查找部门并计算路径
+        if data.department_id:
+            dept = db.query(Department).filter(Department.id == data.department_id).first()
+            if not dept:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="部门不存在")
+            # 从叶子节点向上构建完整路径
+            parts = []
+            cur = dept
+            while cur:
+                parts.insert(0, cur.name)
+                cur = db.query(Department).filter(Department.id == cur.parent_id).first() if cur.parent_id else None
+            user.department = "-".join(parts)
+            user.department_id = data.department_id
+        else:
+            # department_id 设为空 → 清除部门
+            user.department = None
+            user.department_id = None
+    elif data.department is not None:
+        # 只有文本路径更新：自动同步 Department 树
+        if data.department:
+            user.department = data.department
+            leaf = ensure_department_path(db, data.department)
+            user.department_id = leaf.id if leaf else None
+        else:
+            user.department = None
+            user.department_id = None
     if data.role is not None:
         if data.role not in ("student", "admin"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色无效")

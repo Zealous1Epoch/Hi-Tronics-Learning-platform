@@ -14,6 +14,7 @@ from app.models.user import User
 from app.services.auth_service import create_access_token, decode_access_token
 from app.services.oa_client import fetch_employee_by_workcode, fetch_full_department_path
 from app.services.wechat_service import get_user_info, get_user_detail
+from app.services.department_sync import ensure_department_path
 from app.routers.auth import require_admin
 from app.logger import get_logger
 
@@ -126,6 +127,19 @@ def _find_user_by_workcode_hash(db: Session, workcode_hash: str) -> User | None:
     return db.query(User).filter(User.workcode_hash == workcode_hash).first()
 
 
+def _sync_user_department(db: Session, user: User, department_path: str | None):
+    """同步用户部门：将路径字符串同步到 Department 树，设置 department + department_id"""
+    if not department_path:
+        user.department = None
+        user.department_id = None
+        return
+
+    user.department = department_path
+    leaf = ensure_department_path(db, department_path)
+    if leaf:
+        user.department_id = leaf.id
+
+
 async def _create_user_from_oa(db: Session, workcode: str, workcode_hash: str) -> User | None:
     """从 OA 获取员工信息并创建用户"""
     employee = await fetch_employee_by_workcode(workcode)
@@ -139,19 +153,29 @@ async def _create_user_from_oa(db: Session, workcode: str, workcode_hash: str) -
         return existing
 
     name = employee.get("lastname", workcode)
-    department = employee.get("departmentid", "")
+    raw_dept_id = employee.get("departmentid", "")
     email = employee.get("email", "")
+
+    # 将 OA 部门 ID 转为完整路径
+    department_path = None
+    if raw_dept_id:
+        try:
+            department_path = await fetch_full_department_path(raw_dept_id, operator=workcode)
+        except Exception:
+            logger.warning("无法获取部门完整路径: id=%s", raw_dept_id)
 
     user = User(
         username=workcode,
         name=name,
         employee_id=workcode,
-        department=department,
+        department=department_path or raw_dept_id,
         role="student",  # SSO 自动创建的用户默认角色为 student，非 admin
         status="active",
         password_hash=None,
     )
     db.add(user)
+    db.flush()
+    _sync_user_department(db, user, department_path)
     db.commit()
     db.refresh(user)
     logger.info("SSO 自动创建用户: username=%s, name=%s, role=student", workcode, name)
@@ -305,6 +329,10 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
                 password_hash=None,
             )
             db.add(user)
+            db.flush()
+            # 如果路径未成功扩展（不含 "-"），说明是原始部门 ID，不创建部门节点
+            sync_path = dept_path if dept_path and "-" in dept_path else None
+            _sync_user_department(db, user, sync_path)
             db.commit()
             db.refresh(user)
             logger.info(
@@ -325,6 +353,8 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
                 password_hash=None,
             )
             db.add(user)
+            db.flush()
+            _sync_user_department(db, user, None)  # 无 OA 数据，无部门
             db.commit()
             db.refresh(user)
             logger.info("企微 SSO 直接创建用户: username=%s, name=%s", username, wechat_name or userid)
@@ -335,6 +365,7 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
         if wechat_name:
             user.name = wechat_name
         # 每次登录尝试从 OA 同步最新信息
+        dept_path = None
         try:
             oa_info = await fetch_employee_by_workcode(workcode)
             if oa_info:
@@ -343,9 +374,11 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
                 dept_id = oa_info.get("departmentid", "")
                 if dept_id:
                     dept_path = await fetch_full_department_path(dept_id, operator=workcode)
-                    user.department = dept_path or dept_id
         except Exception:
             pass
+        # 同步部门树
+        if dept_path:
+            _sync_user_department(db, user, dept_path)
         db.commit()
         logger.info("企微 SSO 登录成功: username=%s, name=%s", user.username, user.name)
 

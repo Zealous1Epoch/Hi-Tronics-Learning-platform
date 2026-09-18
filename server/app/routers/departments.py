@@ -144,28 +144,37 @@ def get_department_users(
     if not dept:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="部门不存在")
 
-    # 一次性加载所有部门，在内存中收集子部门名称
+    # 一次性加载所有部门，在内存中收集后代部门 ID 和名称
     all_depts = db.query(Department).all()
     dept_map: dict[str, list[Department]] = {}
     for d in all_depts:
         parent_key = d.parent_id or ""
         dept_map.setdefault(parent_key, []).append(d)
 
-    def collect_names_in_memory(parent_id: str) -> list[str]:
+    def collect_descendants(parent_id: str) -> tuple[list[str], list[str]]:
+        ids: list[str] = []
         names: list[str] = []
         children = dept_map.get(parent_id, [])
         for child in children:
+            ids.append(child.id)
             names.append(child.name)
-            names.extend(collect_names_in_memory(child.id))
-        return names
+            child_ids, child_names = collect_descendants(child.id)
+            ids.extend(child_ids)
+            names.extend(child_names)
+        return ids, names
 
-    dept_names = [dept.name] + collect_names_in_memory(dept_id)
+    descendant_ids, descendant_names = collect_descendants(dept_id)
 
-    # 兼容：精确匹配叶子名 / 后缀匹配完整路径（父-子）
-    dept_conditions = [User.department.in_(dept_names)]
-    for name in dept_names:
-        dept_conditions.append(User.department.like(f"%-{name}"))
-    q = db.query(User).filter(or_(*dept_conditions))
+    # department_id 精确匹配（优先） + 文本路径兼容匹配
+    dept_ids = [dept_id] + descendant_ids
+    dept_text_names = [dept.name] + descendant_names
+
+    conditions = [User.department_id.in_(dept_ids)]
+    conditions.append(User.department.in_(dept_text_names))
+    for name in dept_text_names:
+        conditions.append(User.department.like(f"%-{name}"))
+
+    q = db.query(User).filter(or_(*conditions))
     if search:
         q = q.filter(
             User.name.contains(search)

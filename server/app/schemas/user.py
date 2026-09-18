@@ -10,6 +10,7 @@ class UserOut(BaseModel):
     name: str
     employee_id: str | None = None
     department: str | None = None
+    department_id: str | None = None
     role: str
     wechat_user_id: str | None = None
     status: str
@@ -29,6 +30,7 @@ class UserCreate(BaseModel):
     name: str
     employee_id: str | None = None
     department: str | None = None
+    department_id: str | None = None
     role: str = "student"
 
 
@@ -37,6 +39,7 @@ class UserUpdate(BaseModel):
     username: str | None = None
     employee_id: str | None = None
     department: str | None = None
+    department_id: str | None = None
     role: str | None = None
     password: str | None = None
 

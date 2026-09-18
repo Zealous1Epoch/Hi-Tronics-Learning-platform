@@ -1,32 +1,14 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { api, BASE } from "../../lib/api";
 import type { UserInfo } from "../../lib/api";
-import { ChevronRight, ChevronDown, Plus, Search, Pencil, Trash2 } from "lucide-react";
-
-interface DeptNode {
-  id: string; name: string; parent_id: string | null;
-  children: DeptNode[];
-}
-interface FlatDept {
-  id: string; name: string; parent_id: string | null;
-}
+import DepartmentTree from "../../components/DepartmentTree";
+import type { FlatDept } from "../../components/DepartmentTree";
+import { Plus, Search } from "lucide-react";
 
 export default function DepartmentUserManage() {
-  // 部门树
-  const [tree, setTree] = useState<DeptNode[]>([]);
+  // 部门数据（通过 onFlatDeptsReady 回调填充）
   const [flatDepts, setFlatDepts] = useState<FlatDept[]>([]);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [searchText, setSearchText] = useState("");
-  const [loadingTree, setLoadingTree] = useState(true);
-
-  // 树编辑
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renamingName, setRenamingName] = useState("");
-  const [addingRoot, setAddingRoot] = useState(false);
-  const [newRootName, setNewRootName] = useState("");
-  const [addingChildUnder, setAddingChildUnder] = useState<string | null>(null);
-  const [newChildName, setNewChildName] = useState("");
 
   // 用户列表
   const [users, setUsers] = useState<UserInfo[]>([]);
@@ -49,18 +31,6 @@ export default function DepartmentUserManage() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<{ success_count: number; skip_count: number; total: number; errors: string[] } | null>(null);
 
-  const fetchTree = async () => {
-    const [treeData, flatData] = await Promise.all([
-      api<DeptNode[]>("/departments"),
-      api<FlatDept[]>("/departments/flat"),
-    ]);
-    setTree(treeData);
-    setFlatDepts(flatData);
-    setLoadingTree(false);
-  };
-
-  useEffect(() => { fetchTree(); }, []);
-
   const fetchUsers = async () => {
     setLoadingUsers(true);
     const params = new URLSearchParams();
@@ -76,68 +46,6 @@ export default function DepartmentUserManage() {
   };
 
   useEffect(() => { fetchUsers(); }, [selectedId]);
-
-  // 树操作
-  const toggleExpand = (id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const handleSelect = (nodeId: string) => {
-    setSelectedId(nodeId);
-    setUserSearch("");
-    setRenamingId(null);
-  };
-
-  const handleRename = async (deptId: string) => {
-    if (!renamingName.trim()) { setRenamingId(null); return; }
-    await api(`/departments/${deptId}`, {
-      method: "PUT",
-      body: JSON.stringify({ name: renamingName.trim() }),
-    });
-    setRenamingId(null);
-    setRenamingName("");
-    fetchTree();
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("删除此部门将同时删除其子部门，确定？")) return;
-    await api(`/departments/${id}`, { method: "DELETE" });
-    if (selectedId === id) setSelectedId(null);
-    fetchTree();
-  };
-
-  const handleAddRoot = async () => {
-    if (!newRootName.trim()) return;
-    await api("/departments", {
-      method: "POST",
-      body: JSON.stringify({ name: newRootName.trim() }),
-    });
-    setNewRootName("");
-    setAddingRoot(false);
-    fetchTree();
-  };
-
-  const handleAddChild = async (parentId: string) => {
-    if (!newChildName.trim()) return;
-    await api("/departments", {
-      method: "POST",
-      body: JSON.stringify({ name: newChildName.trim(), parent_id: parentId }),
-    });
-    setNewChildName("");
-    setAddingChildUnder(null);
-    fetchTree();
-  };
-
-  const startAddChild = () => {
-    if (!selectedId) return;
-    setNewChildName("");
-    setAddingChildUnder(selectedId);
-    setExpandedIds(prev => new Set(prev).add(selectedId));
-  };
 
   // 用户操作
   const handleRoleChange = async (userId: string, role: string) => {
@@ -203,38 +111,7 @@ export default function DepartmentUserManage() {
     fetchUsers();
   };
 
-  // 搜索过滤树
-  const filterTree = (nodes: DeptNode[], term: string): DeptNode[] => {
-    if (!term) return nodes;
-    const lower = term.toLowerCase();
-    const result: DeptNode[] = [];
-    for (const node of nodes) {
-      const filteredChildren = filterTree(node.children, term);
-      if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
-        result.push({ ...node, children: filteredChildren });
-      }
-    }
-    return result;
-  };
-
-  const filteredTree = useMemo(
-    () => (searchText ? filterTree(tree, searchText) : tree),
-    [tree, searchText]
-  );
-
-  useEffect(() => {
-    if (!searchText) return;
-    const collectIds = (nodes: DeptNode[]): string[] => {
-      const ids: string[] = [];
-      for (const node of nodes) {
-        ids.push(node.id);
-        ids.push(...collectIds(node.children));
-      }
-      return ids;
-    };
-    setExpandedIds(new Set(collectIds(filteredTree)));
-  }, [searchText]);
-
+  // 构建部门路径
   const getDeptPath = (deptId: string | null): string => {
     if (!deptId) return "-";
     const parts: string[] = [];
@@ -246,87 +123,6 @@ export default function DepartmentUserManage() {
     return parts.join(" > ");
   };
 
-  const renderTree = (nodes: DeptNode[], depth: number = 0) => {
-    return nodes.map(node => {
-      const isExpanded = expandedIds.has(node.id);
-      const isSelected = selectedId === node.id;
-      const hasChildren = node.children.length > 0;
-      const isAddingChild = addingChildUnder === node.id;
-      const isRenaming = renamingId === node.id;
-
-      return (
-        <div key={node.id}>
-          {isRenaming ? (
-            <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${8 + depth * 16}px` }}>
-              <span className="w-5 shrink-0" />
-              <input
-                type="text"
-                value={renamingName}
-                onChange={e => setRenamingName(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === "Enter") handleRename(node.id);
-                  if (e.key === "Escape") { setRenamingId(null); setRenamingName(""); }
-                }}
-                onBlur={() => {
-                  if (!renamingName.trim()) { setRenamingId(null); setRenamingName(""); }
-                }}
-                className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                autoFocus
-              />
-            </div>
-          ) : (
-            <div
-              className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer hover:bg-bg-layout rounded text-sm ${
-                isSelected ? "bg-primary/10 text-primary font-medium" : ""
-              }`}
-              style={{ paddingLeft: `${8 + depth * 16}px` }}
-              onClick={() => {
-                handleSelect(node.id);
-                if (hasChildren) {
-                  setExpandedIds(prev => {
-                    const next = new Set(prev);
-                    next.has(node.id) ? next.delete(node.id) : next.add(node.id);
-                    return next;
-                  });
-                }
-              }}
-            >
-              {hasChildren ? (
-                <button
-                  onClick={e => { e.stopPropagation(); toggleExpand(node.id); }}
-                  className="p-0.5 shrink-0 text-text-secondary"
-                >
-                  {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                </button>
-              ) : (
-                <span className="w-5 shrink-0" />
-              )}
-              <span className="truncate">{node.name}</span>
-            </div>
-          )}
-          {isExpanded && hasChildren && renderTree(node.children, depth + 1)}
-          {isAddingChild && (
-            <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${8 + (depth + 1) * 16}px` }}>
-              <span className="w-5 shrink-0" />
-              <input
-                type="text"
-                value={newChildName}
-                onChange={e => setNewChildName(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === "Enter") handleAddChild(node.id);
-                  if (e.key === "Escape") { setAddingChildUnder(null); setNewChildName(""); }
-                }}
-                placeholder="输入名称..."
-                className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                autoFocus
-              />
-            </div>
-          )}
-        </div>
-      );
-    });
-  };
-
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4 pb-3 border-b border-border">用户管理</h2>
@@ -334,89 +130,13 @@ export default function DepartmentUserManage() {
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧部门树 */}
         <div className="w-56 shrink-0 pr-4 border-r border-border">
-          <div
-            onClick={() => { setSelectedId(null); setUsers([]); }}
-            className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
-              selectedId === null ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-bg-layout"
-            }`}
-          >
-            全部用户
-          </div>
-          <div className="relative mb-2">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
-            <input
-              type="text" placeholder="搜索部门..."
-              value={searchText} onChange={e => setSearchText(e.target.value)}
-              className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
-            />
-          </div>
-          <div className="bg-bg-base rounded-lg border border-border max-h-[calc(100vh-240px)] overflow-y-auto">
-            {loadingTree ? (
-              <p className="p-4 text-sm text-text-secondary">加载中...</p>
-            ) : filteredTree.length === 0 && !addingRoot ? (
-              <div className="p-4 text-center text-sm text-text-secondary">
-                {searchText ? "无匹配结果" : "暂无部门，点击下方按钮添加"}
-              </div>
-            ) : (
-              <div className="py-1">
-                {filteredTree.length > 0 && renderTree(filteredTree)}
-                {addingRoot && (
-                  <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
-                    <span className="w-5 shrink-0" />
-                    <input
-                      type="text"
-                      value={newRootName}
-                      onChange={e => setNewRootName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") handleAddRoot();
-                        if (e.key === "Escape") { setAddingRoot(false); setNewRootName(""); }
-                      }}
-                      onBlur={() => {
-                        if (!newRootName.trim()) { setAddingRoot(false); setNewRootName(""); }
-                      }}
-                      placeholder="输入名称..."
-                      className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                      autoFocus
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => { setAddingRoot(true); setNewRootName(""); }}
-            className="mt-2 w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-primary/5"
-          >
-            <Plus size={12} /> 添加部门
-          </button>
-          {selectedId && (
-            <div className="mt-1.5 space-y-1.5">
-              <button
-                onClick={startAddChild}
-                className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-light border border-primary"
-              >
-                <Plus size={12} /> 添加车间
-              </button>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => {
-                    const node = flatDepts.find(d => d.id === selectedId);
-                    setRenamingId(selectedId);
-                    setRenamingName(node?.name || "");
-                  }}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout"
-                >
-                  <Pencil size={12} /> 改名
-                </button>
-                <button
-                  onClick={() => handleDelete(selectedId)}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-red-200 text-red-500 rounded-md hover:bg-red-50"
-                >
-                  <Trash2 size={12} /> 删除
-                </button>
-              </div>
-            </div>
-          )}
+          <DepartmentTree
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            editable
+            onTreeChange={fetchUsers}
+            onFlatDeptsReady={setFlatDepts}
+          />
         </div>
 
         {/* 右侧用户列表 */}
@@ -542,7 +262,7 @@ export default function DepartmentUserManage() {
               </div>
         </div>
       </div>
-    {/* 批量导入弹窗 */}
+    {/* 批量导入弹窗（内容不变，略缩） */}
       {showImport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowImport(false)}>
           <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
@@ -551,7 +271,6 @@ export default function DepartmentUserManage() {
               <button onClick={() => setShowImport(false)} className="text-text-secondary hover:text-text-base text-xl leading-none">&times;</button>
             </div>
             <div className="p-6 space-y-6">
-              {/* 步骤 1: 下载模板 */}
               <div className="flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
                 <div className="flex-1 min-w-0">
@@ -590,7 +309,6 @@ export default function DepartmentUserManage() {
                 </div>
               </div>
 
-              {/* 步骤 2: 上传文件 */}
               <div className="flex items-start gap-3">
                 <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
                 <div className="flex-1 min-w-0">
@@ -621,7 +339,6 @@ export default function DepartmentUserManage() {
                 </div>
               </div>
 
-              {/* 导入结果 */}
               {importResult && (
                 <div className={`rounded-lg border p-4 text-sm ${
                   importResult.errors.length > 0 ? "border-yellow-200 bg-yellow-50" : "border-emerald-200 bg-emerald-50"

@@ -1,15 +1,8 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api, BASE } from "../../lib/api";
-import { Search, ChevronRight, ChevronDown } from "lucide-react";
-
-// 部门树
-interface DeptNode {
-  id: string; name: string; parent_id: string | null;
-  children: DeptNode[];
-}
-interface FlatDept {
-  id: string; name: string; parent_id: string | null;
-}
+import DepartmentTree from "../../components/DepartmentTree";
+import type { DeptNode } from "../../components/DepartmentTree";
+import { Search } from "lucide-react";
 
 // 课程进度概览
 interface CourseOverview {
@@ -67,12 +60,9 @@ function formatSeconds(seconds: number): string {
 }
 
 export default function UserProgress() {
-  // 部门
+  // 部门树数据（通过 onTreeData 回调填充，用于构建部门名称映射）
   const [deptTree, setDeptTree] = useState<DeptNode[]>([]);
-  const [, setFlatDepts] = useState<FlatDept[]>([]);
-  const [expandedDeptIds, setExpandedDeptIds] = useState<Set<string>>(new Set());
   const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null);
-  const [deptSearch, setDeptSearch] = useState("");
 
   // 数据
   const [overviewData, setOverviewData] = useState<UserProgressOverview[]>([]);
@@ -94,13 +84,9 @@ export default function UserProgress() {
     setLoading(true);
     setError("");
     Promise.all([
-      api<DeptNode[]>("/departments"),
-      api<FlatDept[]>("/departments/flat"),
       api<UserProgressOverview[]>("/admin/progress/overview"),
       api<CourseItem[]>("/courses"),
-    ]).then(([tree, flat, overview, coursesData]) => {
-      setDeptTree(tree);
-      setFlatDepts(flat);
+    ]).then(([overview, coursesData]) => {
       setOverviewData(overview);
       setCourses(coursesData);
       setLoading(false);
@@ -136,7 +122,11 @@ export default function UserProgress() {
     // 部门过滤
     if (selectedDeptId && deptNameMap[selectedDeptId]) {
       const names = deptNameMap[selectedDeptId];
-      data = data.filter((u) => u.department && names.has(u.department));
+      data = data.filter((u) => {
+        if (!u.department) return false;
+        // department 存的是完整路径（如 "IT部-开发组"），需匹配任意层级
+        return u.department.split("-").some((part) => names.has(part));
+      });
     }
 
     // 课程过滤
@@ -160,7 +150,7 @@ export default function UserProgress() {
     return data;
   }, [overviewData, selectedDeptId, deptNameMap, courseFilter, studentSearch]);
 
-  // 计算单门课程的进度百分比（80%视频 + 20%考试）
+  // 计算单门课程的进度百分比
   const getCoursePct = (c: CourseOverview) => {
     if (c.has_exam) {
       const videoPct = c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 80) : 0;
@@ -171,7 +161,7 @@ export default function UserProgress() {
     }
   };
 
-  // 获取用户总体进度（各课程进度平均值）
+  // 获取用户总体进度
   const getUserOverallPct = (user: UserProgressOverview) => {
     if (user.courses.length === 0) return 0;
     const totalPct = user.courses.reduce((s, c) => s + getCoursePct(c), 0);
@@ -197,94 +187,6 @@ export default function UserProgress() {
     setLoadingDetail(false);
   };
 
-  // 部门树搜索过滤
-  const filterTree = useCallback((nodes: DeptNode[], term: string): DeptNode[] => {
-    if (!term) return nodes;
-    const lower = term.toLowerCase();
-    const result: DeptNode[] = [];
-    for (const node of nodes) {
-      const filteredChildren = filterTree(node.children, term);
-      if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
-        result.push({ ...node, children: filteredChildren });
-      }
-    }
-    return result;
-  }, []);
-
-  const filteredTree = useMemo(
-    () => (deptSearch ? filterTree(deptTree, deptSearch) : deptTree),
-    [deptTree, deptSearch, filterTree]
-  );
-
-  // 搜索时自动展开，搜索清空时重置展开状态
-  useEffect(() => {
-    if (!deptSearch) {
-      setExpandedDeptIds(new Set());
-      return;
-    }
-    const collectIds = (nodes: DeptNode[]): string[] => {
-      const ids: string[] = [];
-      for (const node of nodes) {
-        ids.push(node.id);
-        ids.push(...collectIds(node.children));
-      }
-      return ids;
-    };
-    setExpandedDeptIds(new Set(collectIds(filteredTree)));
-  }, [deptSearch, filteredTree]);
-
-  const toggleExpand = (id: string) => {
-    setExpandedDeptIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const handleSelectDept = (nodeId: string) => {
-    setSelectedDeptId((prev) => (prev === nodeId ? null : nodeId));
-  };
-
-  // 渲染部门树
-  const renderTree = (nodes: DeptNode[], depth: number = 0) => {
-    return nodes.map((node) => {
-      const isExpanded = expandedDeptIds.has(node.id);
-      const isSelected = selectedDeptId === node.id;
-      const hasChildren = node.children.length > 0;
-
-      return (
-        <div key={node.id}>
-          <div
-            className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer hover:bg-bg-layout rounded text-sm ${
-              isSelected ? "bg-primary/10 text-primary font-medium" : ""
-            }`}
-            style={{ paddingLeft: `${8 + depth * 16}px` }}
-            onClick={() => {
-              handleSelectDept(node.id);
-              if (hasChildren) toggleExpand(node.id);
-            }}
-          >
-            {hasChildren ? (
-              <button
-                onClick={(e) => { e.stopPropagation(); toggleExpand(node.id); }}
-                className="p-0.5 shrink-0 text-text-secondary"
-              >
-                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              </button>
-            ) : (
-              <span className="w-5 shrink-0" />
-            )}
-            <span className="truncate">{node.name}</span>
-            {isSelected && (
-              <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-            )}
-          </div>
-          {isExpanded && hasChildren && renderTree(node.children, depth + 1)}
-        </div>
-      );
-    });
-  };
-
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">学员进度</h2>
@@ -299,41 +201,12 @@ export default function UserProgress() {
       <div className="flex gap-4">
         {/* 左侧部门树 */}
         <div className="w-56 shrink-0 pr-4 border-r border-border">
-          <div
-            onClick={() => setSelectedDeptId(null)}
-            className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
-              selectedDeptId === null ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-bg-layout"
-            }`}
-          >
-            全部学员
-          </div>
-          <div className="relative mb-2">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
-            <input
-              type="text"
-              placeholder="搜索部门..."
-              value={deptSearch}
-              onChange={(e) => setDeptSearch(e.target.value)}
-              className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
-            />
-          </div>
-          <div className="bg-bg-base rounded-lg border border-border max-h-[calc(100vh-220px)] overflow-y-auto">
-            {filteredTree.length === 0 ? (
-              <p className="p-4 text-sm text-text-secondary text-center">
-                {deptSearch ? "无匹配结果" : "暂无部门"}
-              </p>
-            ) : (
-              <div className="py-1">{renderTree(filteredTree)}</div>
-            )}
-          </div>
-          {selectedDeptId && (
-            <button
-              onClick={() => setSelectedDeptId(null)}
-              className="mt-2 w-full text-xs text-text-secondary hover:text-primary"
-            >
-              清除筛选
-            </button>
-          )}
+          <DepartmentTree
+            selectedId={selectedDeptId}
+            onSelect={setSelectedDeptId}
+            onTreeData={setDeptTree}
+            allLabel="全部学员"
+          />
         </div>
 
         {/* 右侧 */}
@@ -438,7 +311,7 @@ export default function UserProgress() {
                       </button>
                     </div>
 
-                    {/* 课程列表（可折叠） */}
+                    {/* 课程列表 */}
                     {isUserExpanded && (
                       <div className="px-4 pb-1 border-t border-border">
                         {user.courses.map((c) => {
@@ -488,9 +361,6 @@ export default function UserProgress() {
                                 </div>
                                 <span className={`text-xs shrink-0 w-20 text-right ${statusClass}`}>
                                   {statusLabel}
-                                  {c.exam_passed && statusLabel !== "已完成" && statusLabel !== "考试已通过" && (
-                                    <span className="text-primary ml-1">+ 考试</span>
-                                  )}
                                 </span>
                                 <button
                                   onClick={() => loadDetail(user.user_id, c.course_id)}

@@ -3,7 +3,7 @@ import { api, BASE } from "../../lib/api";
 import type { UserInfo } from "../../lib/api";
 import DepartmentTree from "../../components/DepartmentTree";
 import type { FlatDept } from "../../components/DepartmentTree";
-import { Plus, Search } from "lucide-react";
+import { Plus } from "lucide-react";
 
 export default function DepartmentUserManage() {
   // 部门数据（通过 onFlatDeptsReady 回调填充）

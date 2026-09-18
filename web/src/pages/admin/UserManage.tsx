@@ -99,7 +99,7 @@ export default function UserManage() {
               users.map((u) => (
                 <tr key={u.id} className="border-b border-border/40 hover:bg-bg-layout">
                   <td className="px-4 py-3">{u.name}</td>
-                  <td className="px-4 py-3 text-text-secondary">{u.username}</td>
+                  <td className="px-4 py-3 text-text-secondary">{u.username.replace(/^wx_/i, '')}</td>
                   <td className="px-4 py-3 text-text-secondary">{u.employee_id || "-"}</td>
                   <td className="px-4 py-3 text-text-secondary">{u.department || "-"}</td>
                   <td className="px-4 py-3 whitespace-nowrap">

@@ -281,7 +281,7 @@ export default function UserProgress() {
                     {/* 用户头部 */}
                     <div className="flex items-center gap-3 px-4 py-3">
                       <span className="font-bold text-sm">{user.user_name}</span>
-                      <span className="text-xs text-text-secondary">{user.username}</span>
+                      <span className="text-xs text-text-secondary">{user.username.replace(/^wx_/i, '')}</span>
                       {user.department && (
                         <span className="text-xs text-text-secondary bg-bg-layout px-1.5 py-0.5 rounded border border-border">
                           {user.department}

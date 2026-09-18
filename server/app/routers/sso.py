@@ -12,6 +12,8 @@ from app.config import settings
 from app.database import get_db, engine
 from app.models.user import User
 from app.services.auth_service import create_access_token, decode_access_token
+from app.services.log_service import write_log
+from app.models.system_log import SystemLog
 from app.services.oa_client import fetch_employee_by_workcode, fetch_full_department_path
 from app.services.wechat_service import get_user_info, get_user_detail
 from app.services.department_sync import ensure_department_path
@@ -178,6 +180,7 @@ async def _create_user_from_oa(db: Session, workcode: str, workcode_hash: str) -
     _sync_user_department(db, user, department_path)
     db.commit()
     db.refresh(user)
+    write_log(db=db, operator="系统(OA)", operator_id="", category="user", action="create", resource_type="用户", resource_name=name, description=f"系统通过 OA 自动创建了用户「{name}」", level="info")
     logger.info("SSO 自动创建用户: username=%s, name=%s, role=student", workcode, name)
     return user
 
@@ -335,6 +338,7 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
             _sync_user_department(db, user, sync_path)
             db.commit()
             db.refresh(user)
+            write_log(db=db, operator="系统(企微)", operator_id="", category="user", action="create", resource_type="用户", resource_name=oa_info.get("lastname", username), description=f"企微从 OA 同步创建了用户「{oa_info.get('lastname', username)}」", level="info")
             logger.info(
                 "企微 SSO 从 OA 同步创建用户: username=%s, name=%s, dept=%s",
                 username, oa_info.get("lastname"), oa_info.get("departmentid"),
@@ -357,6 +361,7 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
             _sync_user_department(db, user, None)  # 无 OA 数据，无部门
             db.commit()
             db.refresh(user)
+            write_log(db=db, operator="系统(企微)", operator_id="", category="user", action="create", resource_type="用户", resource_name=wechat_name or userid, description=f"企微自动创建了用户「{wechat_name or userid}」", level="info")
             logger.info("企微 SSO 直接创建用户: username=%s, name=%s", username, wechat_name or userid)
     else:
         # 更新信息
@@ -387,7 +392,32 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
         logger.warning("企微 SSO 用户已被禁用: username=%s", user.username)
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
 
-    # 步骤 6: 生成 JWT 和一次性 code
+    # 步骤 6: 首次登录检测
+    if not user.has_logged_in:
+        user.has_logged_in = True
+        db.commit()
+        creation_log = db.query(SystemLog).filter(
+            SystemLog.category == "user",
+            SystemLog.action == "create",
+            SystemLog.resource_name == user.name,
+        ).order_by(SystemLog.created_at.asc()).first()
+        if creation_log:
+            first_desc = f"用户「{user.name}」首次登录。该用户由 {creation_log.operator} 于 {creation_log.created_at.strftime('%Y-%m-%d %H:%M')} 创建。"
+        else:
+            first_desc = f"用户「{user.name}」首次登录。"
+        write_log(
+            db=db,
+            operator=user.name,
+            operator_id=user.id,
+            category="system",
+            action="first_login",
+            resource_type="系统",
+            resource_name=user.name,
+            description=first_desc,
+            level="info",
+        )
+
+    # 步骤 7: 生成 JWT 和一次性 code
     token = create_access_token(user.id, user.role)
     code_value = str(_uuid.uuid4())
     _sso_codes[code_value] = {

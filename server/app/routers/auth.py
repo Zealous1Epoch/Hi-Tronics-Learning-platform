@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
+from app.models.system_log import SystemLog
 from app.schemas.auth import LoginRequest, TokenResponse, UserInfo
 from app.services.auth_service import verify_password, create_access_token, decode_access_token
 from app.services.log_service import write_log
@@ -133,6 +134,31 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
         description=f"{user.name} 登录了系统",
         level="info",
     )
+
+    # 首次登录检测：记录创建者信息
+    if not user.has_logged_in:
+        user.has_logged_in = True
+        db.commit()
+        creation_log = db.query(SystemLog).filter(
+            SystemLog.category == "user",
+            SystemLog.action == "create",
+            SystemLog.resource_name == user.name,
+        ).order_by(SystemLog.created_at.asc()).first()
+        if creation_log:
+            first_desc = f"用户「{user.name}」首次登录。该用户由 {creation_log.operator} 于 {creation_log.created_at.strftime('%Y-%m-%d %H:%M')} 创建。"
+        else:
+            first_desc = f"用户「{user.name}」首次登录。"
+        write_log(
+            db=db,
+            operator=user.name,
+            operator_id=user.id,
+            category="system",
+            action="first_login",
+            resource_type="系统",
+            resource_name=user.name,
+            description=first_desc,
+            level="info",
+        )
 
     token = create_access_token(user.id, user.role)
     return TokenResponse(

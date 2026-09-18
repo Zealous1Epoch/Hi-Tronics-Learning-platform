@@ -155,7 +155,7 @@ export default function LogViewer() {
             <thead className="bg-bg-layout border-b border-border">
               <tr>
                 <th className="text-center px-3 py-3 font-medium text-text-secondary w-40">时间</th>
-                <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">操作人</th>
+                <th className="text-center px-3 py-3 font-medium text-text-secondary w-32">操作人</th>
                 <th className="text-center px-3 py-3 font-medium text-text-secondary w-24">分类</th>
                 <th className="text-center px-2 py-3 font-medium text-text-secondary w-16">级别</th>
                 <th className="text-left px-3 py-3 font-medium text-text-secondary">操作描述</th>
@@ -170,7 +170,7 @@ export default function LogViewer() {
                       hour: "2-digit", minute: "2-digit", second: "2-digit",
                     })}
                   </td>
-                  <td className="px-3 py-2.5 font-medium text-center">{log.operator}</td>
+                  <td className="px-3 py-2.5 font-medium text-center whitespace-nowrap">{log.operator}</td>
                   <td className="px-3 py-2.5 text-center">
                     <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded">
                       {CATEGORY_LABELS[log.category] || log.category}

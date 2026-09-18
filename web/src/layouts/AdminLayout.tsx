@@ -22,6 +22,7 @@ import UserManage from "../pages/admin/UserManage";
 import QuestionManage from "../pages/admin/QuestionManage";
 import KnowledgeManage from "../pages/admin/KnowledgeManage";
 import LogViewer from "../pages/admin/LogViewer";
+import CoursePreview from "../pages/admin/CoursePreview";
 import CommandPalette, { useCommandHotkey } from "../components/CommandPalette";
 
 const menuGroups = [
@@ -473,6 +474,7 @@ export default function AdminLayout() {
         <main className="flex-1" style={{ padding: 22, minWidth: 0 }}>
           <Routes>
             <Route index element={<AdminDashboard />} />
+            <Route path="courses/:id" element={<CoursePreview />} />
             <Route path="courses" element={<CourseManage />} />
             <Route path="question-bank" element={<QuestionBank />} />
             <Route path="questions" element={<QuestionManage />} />

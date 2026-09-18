@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, uploadToOSS } from "../../lib/api";
 import CourseTree, { type TreeNode, type FlatCategory, getCategoryPath } from "../../components/CourseTree";
 import { ChevronRight, ChevronDown, Plus, Pencil, Trash2, X, Upload } from "lucide-react";
@@ -59,6 +60,7 @@ function probeVideoDuration(file: File): Promise<number | null> {
 }
 
 export default function CourseManage() {
+  const navigate = useNavigate();
   // 树状态
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
@@ -618,6 +620,7 @@ export default function CourseManage() {
         )}
       </div>
       <div className="flex items-center gap-1.5">
+        <button onClick={() => navigate(`/admin/courses/${c.id}`)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">预览</button>
         <button onClick={() => openEdit(c.id)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">编辑</button>
         <button onClick={() => openAssign(c)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">分配</button>
         <button onClick={() => handleDeleteCourse(c.id)} className="shrink-0 px-3 py-1.5 text-xs text-text-secondary hover:text-red-500 hover:bg-red-50 rounded-md transition-colors">删除</button>

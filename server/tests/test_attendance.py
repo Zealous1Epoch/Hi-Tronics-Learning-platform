@@ -534,6 +534,48 @@ def test_delete_session_blocked_when_records_exist(client, admin_headers, studen
     assert res.status_code == 200
 
 
+def test_delete_course_cleans_attendance(client, admin_headers, student_headers, db):
+    """删除课程必须连带清理签到场次与签到记录。
+
+    回归：原先 delete_course 未清理 attendance_sessions / attendance_records，
+    而两表都以 course_id 外键引用 courses，真实 MySQL 上会抛 1451
+    「Cannot delete or update a parent row」导致接口 500。
+    这里断言子表确实被清空（SQLite 默认不校验外键，只看返回码会漏掉该 bug）。
+    """
+    course = _make_offline_course(db)
+    user = _student(db)
+    _assign(client, admin_headers, course.id, user.id)
+    session = _make_session(db, course)
+    assert _checkin(client, student_headers, session, _valid_code(session)).status_code == 200
+
+    cid, sid = course.id, session.id
+
+    # 已有签到记录：默认拒绝删除，且提示里带上签到记录条数（前端据此走二次确认）
+    res = client.delete(f"/api/courses/{cid}?confirm=true", headers=admin_headers)
+    assert res.status_code == 409, res.text
+    assert "签到记录" in res.json()["detail"]
+
+    # force=true 才连历史一起删
+    res = client.delete(f"/api/courses/{cid}?confirm=true&force=true", headers=admin_headers)
+    assert res.status_code == 200, res.text
+
+    # 子表必须已清理干净，否则真实 MySQL 仍会因外键约束删除失败
+    assert db.query(AttendanceSession).filter(AttendanceSession.id == sid).count() == 0
+    assert db.query(AttendanceRecord).filter(AttendanceRecord.course_id == cid).count() == 0
+    assert db.query(Course).filter(Course.id == cid).count() == 0
+
+
+def test_delete_course_without_history_succeeds(client, admin_headers, db):
+    """无任何历史的课程（含开启签到但未产生记录）应能直接删除。"""
+    course = _make_offline_course(db)
+    _make_session(db, course)  # 有场次但没有签到记录
+    cid = course.id
+
+    res = client.delete(f"/api/courses/{cid}?confirm=true", headers=admin_headers)
+    assert res.status_code == 200, res.text
+    assert db.query(AttendanceSession).filter(AttendanceSession.course_id == cid).count() == 0
+
+
 # ───────────────────────── 考试闸门 ─────────────────────────
 
 def test_offline_course_exam_blocked_before_checkin(client, student_headers, admin_headers, db):

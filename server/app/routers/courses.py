@@ -254,13 +254,18 @@ def delete_course(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """删除课程（级联删除章节、视频、考试、分配、学习进度）。
+    """删除课程（级联删除章节、视频、考试、分配、学习进度、签到场次与记录）。
 
     修复（防误删 + 保护历史）：
     - 必须显式 `confirm=true`
-    - 若课程下已有学习进度或考试记录，默认**拒绝删除**（返回 409），
+    - 若课程下已有学习进度、考试记录或签到记录，默认**拒绝删除**（返回 409），
       请改用「下架（status=draft）」保留历史；确实要连历史一起删，再传 `force=true`
     - 同步清理 OSS 上的视频对象（原先只删库，对象永久残留）
+
+    Bug 修复：原先未清理 `attendance_sessions` / `attendance_records`，
+    而这两张表都以 course_id 外键引用 courses，导致开启过签到的课程删除时
+    MySQL 抛 1451 外键约束错误 → 接口 500。现按「签到记录 → 签到场次 → 课程」
+    的顺序清理（records 也引用 sessions，必须先删）。
     """
     if not confirm:
         raise HTTPException(status_code=400, detail="删除课程需要显式确认（confirm=true）")
@@ -272,6 +277,7 @@ def delete_course(
     from app.models.course import CourseAssignment
     from app.models.learning_progress import LearningProgress
     from app.models.exam import Exam, ExamPaper, ExamResult
+    from app.models.attendance import AttendanceRecord, AttendanceSession
 
     exam_ids = [e.id for e in db.query(Exam).filter(Exam.course_id == course_id).all()]
 
@@ -281,11 +287,20 @@ def delete_course(
     result_count = (
         db.query(ExamResult).filter(ExamResult.exam_id.in_(exam_ids)).count() if exam_ids else 0
     )
-    if (progress_count or result_count) and not force:
+    session_ids = [
+        s.id for s in db.query(AttendanceSession).filter(AttendanceSession.course_id == course_id).all()
+    ]
+    # 签到记录既可能凭 course_id 关联，也可能只凭 session_id 关联（历史脏数据），两者都算
+    attendance_filter = AttendanceRecord.course_id == course_id
+    if session_ids:
+        attendance_filter = or_(attendance_filter, AttendanceRecord.session_id.in_(session_ids))
+    attendance_count = db.query(AttendanceRecord).filter(attendance_filter).count()
+    if (progress_count or result_count or attendance_count) and not force:
         raise HTTPException(
             status_code=409,
             detail=(
-                f"该课程已产生学习记录（学习进度 {progress_count} 条、考试记录 {result_count} 条），"
+                f"该课程已产生学习记录（学习进度 {progress_count} 条、考试记录 {result_count} 条、"
+                f"签到记录 {attendance_count} 条），"
                 "为避免误删学员历史数据已阻止删除。"
                 "如只需停止发放请改为「下架」；如确认要连历史一并删除，请传 force=true。"
             ),
@@ -304,6 +319,17 @@ def delete_course(
     db.query(CourseAssignment).filter(CourseAssignment.course_id == course_id).delete()
     db.query(Video).filter(Video.course_id == course_id).delete()
     db.query(Chapter).filter(Chapter.course_id == course_id).delete()
+    # 签到：先删记录（引用场次与课程），再删场次，最后才能删课程
+    db.query(AttendanceRecord).filter(
+        AttendanceRecord.course_id == course_id
+    ).delete(synchronize_session=False)
+    if session_ids:
+        db.query(AttendanceRecord).filter(
+            AttendanceRecord.session_id.in_(session_ids)
+        ).delete(synchronize_session=False)
+    db.query(AttendanceSession).filter(
+        AttendanceSession.course_id == course_id
+    ).delete(synchronize_session=False)
     db.delete(course)
     db.commit()
 

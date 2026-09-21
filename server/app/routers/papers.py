@@ -1,7 +1,7 @@
 """试卷管理路由"""
 
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
@@ -20,17 +20,26 @@ router = APIRouter(prefix="/api", tags=["试卷管理"])
 
 @router.get("/papers", response_model=list[PaperOut])
 def list_papers(
+    response: Response,
     category_id: str | None = Query(None),
     status: str | None = Query(None),
+    page: int | None = Query(None, ge=1, description="页码（不传则返回全部，保持向后兼容）"),
+    page_size: int | None = Query(None, ge=1, le=500, description="每页数量"),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
+    """获取试卷列表（新增可选分页：page/page_size + X-Total-Count 响应头）。"""
     q = db.query(Paper)
     if category_id:
         q = q.filter(Paper.category_id == category_id)
     if status:
         q = q.filter(Paper.status == status)
-    return q.order_by(Paper.created_at.desc()).all()
+
+    q = q.order_by(Paper.created_at.desc())
+    if page and page_size:
+        response.headers["X-Total-Count"] = str(q.count())
+        return q.offset((page - 1) * page_size).limit(page_size).all()
+    return q.all()
 
 
 @router.get("/papers/published", response_model=list[PaperOut])

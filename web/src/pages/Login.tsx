@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { login } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 
@@ -9,6 +9,7 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setUser } = useAuth();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -20,7 +21,8 @@ export default function Login() {
       localStorage.setItem("lp_token", res.access_token);
       localStorage.setItem("lp_user", JSON.stringify(res.user));
       setUser(res.user);
-      navigate(res.user.role === "admin" ? "/admin" : "/student");
+      const redirect = searchParams.get("redirect");
+      navigate(redirect || (res.user.role === "admin" ? "/admin" : "/student"), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
     } finally {

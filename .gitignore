@@ -28,3 +28,15 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+# 本地数据库文件（测试库每次跑测试都会变化，不应进入版本库）
+server/test.db
+server/app.db
+test.db
+*.sqlite
+*.sqlite3
+
+# 构建产物
+web/dist/
+
+# 工作区本地数据（记忆、产物快照），仅供本机使用
+.workbuddy/

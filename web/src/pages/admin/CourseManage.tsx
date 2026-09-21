@@ -2,11 +2,18 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, uploadToOSS } from "../../lib/api";
 import CourseTree, { type TreeNode, type FlatCategory, getCategoryPath } from "../../components/CourseTree";
-import { ChevronRight, ChevronDown, Plus, Pencil, Trash2, X, Upload } from "lucide-react";
+import AttendanceSessionModal, { toNaiveLocal } from "../../components/attendance/AttendanceSessionModal";
+import SessionInlineEditor, {
+  type InlineSession,
+  validateInlineSessions,
+} from "../../components/attendance/SessionInlineEditor";
+import { CalendarCheck, ChevronRight, ChevronDown, Plus, Pencil, Trash2, X, Upload } from "lucide-react";
 
 interface CourseItem {
   id: string; title: string; category_id: string | null;
-  status: string; video_count: number; created_at: string;
+  course_type: string;             // 历史字段保留
+  require_attendance: boolean;     // 是否启用现场签到
+  status: string; video_count: number; session_count: number; created_at: string;
   start_date: string | null; end_date: string | null;
 }
 interface VideoItem {
@@ -20,6 +27,8 @@ interface ChapterItem {
 }
 interface CourseDetail {
   id: string; title: string; description: string | null;
+  course_type: string;             // 历史字段保留
+  require_attendance: boolean;     // 是否启用现场签到
   cover_image: string | null; category_id: string | null;
   exam_id: string | null; start_date: string | null;
   end_date: string | null; status: string;
@@ -42,8 +51,14 @@ interface PendingFile {
   duration: number | null;
 }
 
-function probeVideoDuration(file: File): Promise<number | null> {
-  return new Promise((resolve) => {
+/** ISO 时间串 → datetime-local 输入值（本地时区，精确到分钟） */
+function toLocalInputVal(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function probeVideoDuration(file: File): Promise<number | null> {  return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const el = document.createElement("video");
     el.preload = "metadata";
@@ -89,7 +104,12 @@ export default function CourseManage() {
   // 编辑弹窗
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState<CourseDetail | null>(null);
+  const [editRequireAttendance, setEditRequireAttendance] = useState<boolean>(false);
   const [editCategoryId, setEditCategoryId] = useState<string>("");
+  // 线下课程的签到场次（内嵌编辑）：新建时攒在本地，保存课程后批量创建
+  const [editSessions, setEditSessions] = useState<InlineSession[]>([]);
+  // 打开编辑弹窗时后端已存在的场次 id，用于保存时识别「被删除」的场次
+  const [loadedSessionIds, setLoadedSessionIds] = useState<string[]>([]);
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editStartDate, setEditStartDate] = useState("");
@@ -116,6 +136,9 @@ export default function CourseManage() {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assigningCourseId, setAssigningCourseId] = useState<string | null>(null);
   const [assigningTitle, setAssigningTitle] = useState("");
+
+  // 线下课程签到管理弹窗
+  const [attendanceCourse, setAttendanceCourse] = useState<{ id: string; title: string } | null>(null);
   const [allUsers, setAllUsers] = useState<UserItem[]>([]);
   const [allDepts, setAllDepts] = useState<DeptItem[]>([]);
   const [assignedUsers, setAssignedUsers] = useState<UserItem[]>([]);
@@ -277,8 +300,24 @@ export default function CourseManage() {
   // 课程操作
   const handleDeleteCourse = async (id: string) => {
     if (!confirm("确定删除此课程？")) return;
-    await api(`/courses/${id}`, { method: "DELETE" });
-    fetchData();
+    try {
+      await api(`/courses/${id}?confirm=true`, { method: "DELETE" });
+      fetchData();
+    } catch (e: any) {
+      const msg = e?.message || "删除失败";
+      // 课程已有学习/考试记录时后端返回 409，需二次确认才允许连历史一起删除
+      if (msg.includes("学习记录")) {
+        if (!confirm(`${msg}\n\n确定要连同这些学习/考试历史一起删除吗？此操作不可恢复。`)) return;
+        try {
+          await api(`/courses/${id}?confirm=true&force=true`, { method: "DELETE" });
+          fetchData();
+        } catch (e2: any) {
+          alert(e2?.message || "删除失败");
+        }
+        return;
+      }
+      alert(msg);
+    }
   };
 
   // 编辑弹窗
@@ -288,6 +327,9 @@ export default function CourseManage() {
     setEditDescription("");
     setEditStartDate("");
     setEditEndDate("");
+    setEditRequireAttendance(false);
+    setEditSessions([]);
+    setLoadedSessionIds([]);
     setEditCategoryId(selectedId || "");
     setEditVideos([]);
     setPendingFiles([]);
@@ -310,17 +352,30 @@ export default function CourseManage() {
   };
 
   const openEdit = async (courseId: string) => {
-    const [detail, users, depts, assignments] = await Promise.all([
+    const [detail, users, depts, assignments, sessions] = await Promise.all([
       api<CourseDetail>(`/courses/${courseId}`),
       api<UserItem[]>("/users"),
       api<DeptItem[]>("/departments"),
       api<{ users: UserItem[]; departments: DeptItem[] }>(`/courses/${courseId}/assignments`),
+      api<any[]>(`/attendance/sessions?course_id=${courseId}`),
     ]);
     setEditingCourse(detail);
     setEditTitle(detail.title);
     setEditDescription(detail.description || "");
     setEditStartDate(detail.start_date || "");
     setEditEndDate(detail.end_date || "");
+    setEditRequireAttendance(Boolean(detail.require_attendance));
+    // 载入已有签到场次（datetime-local 输入需要本地格式）
+    const inlineSessions: InlineSession[] = sessions.map((s) => ({
+      id: s.id,
+      title: s.title,
+      start_time: toLocalInputVal(s.start_time),
+      end_time: toLocalInputVal(s.end_time),
+      location_name: s.location_name || "",
+      late_after_minutes: s.late_after_minutes == null ? "" : String(s.late_after_minutes),
+    }));
+    setEditSessions(inlineSessions);
+    setLoadedSessionIds(inlineSessions.map((s) => s.id).filter(Boolean) as string[]);
     // 合并所有视频（章节内 + 根级别）
     const allDetailVideos = [
       ...(detail.videos || []),
@@ -344,10 +399,24 @@ export default function CourseManage() {
 
   const handleSaveCourse = async (status: string) => {
     if (!editTitle.trim()) return;
+    // 启用现场签到的课程必须至少 1 个场次，且各场次时间合法
+    if (editRequireAttendance) {
+      if (editSessions.length === 0) {
+        alert("启用了「现场签到」必须至少配置 1 个签到场次");
+        return;
+      }
+      const sessionErr = validateInlineSessions(editSessions);
+      if (sessionErr) {
+        alert(sessionErr);
+        return;
+      }
+    }
     setSaving(true);
     try {
       const body = {
         title: editTitle,
+        // 不再发送 course_type（后端兼容）；新字段 require_attendance 控制行为
+        require_attendance: editRequireAttendance,
         description: editDescription || null,
         category_id: editingCourse ? editingCourse.category_id : (editCategoryId || null),
         start_date: editStartDate || null,
@@ -376,6 +445,43 @@ export default function CourseManage() {
             method: "POST",
             body: JSON.stringify({ user_ids: [...editSelectedUsers], department_ids: [...editSelectedDepts] }),
           });
+        }
+      }
+      // 启用现场签到：同步签到场次（新增/修改/删除），统一按北京时间 naive 时间提交
+      if (editRequireAttendance && courseId) {
+        const bodyFor = (s: InlineSession) => ({
+          title: s.title.trim(),
+          start_time: toNaiveLocal(s.start_time),
+          end_time: toNaiveLocal(s.end_time),
+          location_name: s.location_name.trim() || null,
+          late_after_minutes: s.late_after_minutes === "" ? null : Number(s.late_after_minutes),
+          code_rotate_seconds: 30,
+          dedupe_device: false,
+        });
+        for (const s of editSessions) {
+          if (s.id) {
+            await api(`/attendance/sessions/${s.id}`, { method: "PUT", body: JSON.stringify(bodyFor(s)) });
+          } else {
+            await api(`/attendance/sessions?course_id=${courseId}`, { method: "POST", body: JSON.stringify(bodyFor(s)) });
+          }
+        }
+        const keptIds = new Set(editSessions.map((s) => s.id).filter(Boolean) as string[]);
+        for (const oldId of loadedSessionIds) {
+          if (!keptIds.has(oldId)) {
+            try {
+              await api(`/attendance/sessions/${oldId}?confirm=true`, { method: "DELETE" });
+            } catch (e: any) {
+              const msg = String(e?.message || e);
+              if (msg.includes("签到记录")) {
+                // 已有签到记录：需二次确认才能连带删除
+                if (confirm("该场次已有签到记录，确定连记录一起删除吗？此操作不可恢复。")) {
+                  await api(`/attendance/sessions/${oldId}?confirm=true&force=true`, { method: "DELETE" });
+                }
+              } else {
+                throw e;
+              }
+            }
+          }
         }
       }
       if (courseId && pendingFiles.length > 0) {
@@ -446,7 +552,7 @@ export default function CourseManage() {
 
   const handleDeleteVideo = async (videoId: string) => {
     if (!editingCourse || !confirm("删除此视频？")) return;
-    await api(`/videos/${videoId}`, { method: "DELETE" });
+    await api(`/videos/${videoId}?confirm=true`, { method: "DELETE" });
     setEditVideos(prev => prev.filter(v => v.id !== videoId));
     const data = await api<CourseDetail>(`/courses/${editingCourse.id}`);
     setEditVideos([...data.videos, ...data.chapters.flatMap(ch => ch.videos)]);
@@ -599,20 +705,32 @@ export default function CourseManage() {
     openEdit: (id: string) => void;
     openAssign: (course: CourseItem) => void;
     handleDeleteCourse: (id: string) => void;
-  }) => (
+  }) => {
+    const requireAttendance = c.require_attendance;
+    return (
     <div className="bg-bg-base rounded-lg border border-border p-4 hover:border-primary/20 hover:shadow-sm transition-all">
       <div className="flex items-start justify-between mb-2.5">
         <h4 className="font-bold text-base truncate flex-1 min-w-0 text-primary">{c.title}</h4>
-        <span className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 ml-2 font-medium ${
-          c.status === "published" ? "bg-emerald-50 text-emerald-600" : "bg-bg-layout text-text-secondary"
-        }`}>
-          {c.status === "published" ? "已发布" : "草稿"}
-        </span>
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+            requireAttendance ? "bg-violet-50 text-violet-600" : "bg-sky-50 text-sky-600"
+          }`}>
+            {requireAttendance ? "现场签到" : "线上学习"}
+          </span>
+          <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+            c.status === "published" ? "bg-emerald-50 text-emerald-600" : "bg-bg-layout text-text-secondary"
+          }`}>
+            {c.status === "published" ? "已发布" : "草稿"}
+          </span>
+        </div>
       </div>
       <div className="space-y-1 text-xs text-text-secondary/70 mb-4">
         <p className="truncate">{getCategoryPath(c.category_id, flatCategories) || "未分类"}</p>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <span>{c.video_count} 个视频</span>
+          {requireAttendance && (
+            <span className="text-violet-600">{c.session_count} 个签到场次</span>
+          )}
           <span>{new Date(c.created_at).toLocaleDateString("zh-CN")}</span>
         </div>
         {c.start_date && c.end_date && (
@@ -623,10 +741,20 @@ export default function CourseManage() {
         <button onClick={() => navigate(`/admin/courses/${c.id}`)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">预览</button>
         <button onClick={() => openEdit(c.id)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">编辑</button>
         <button onClick={() => openAssign(c)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">分配</button>
+        {requireAttendance && (
+          <button
+            onClick={() => setAttendanceCourse({ id: c.id, title: c.title })}
+            className="flex-1 text-xs text-violet-600 hover:bg-violet-50 rounded-md py-1.5 border border-violet-200 hover:border-violet-400 transition-colors flex items-center justify-center gap-1"
+            title="管理签到场次"
+          >
+            <CalendarCheck size={12} /> 签到
+          </button>
+        )}
         <button onClick={() => handleDeleteCourse(c.id)} className="shrink-0 px-3 py-1.5 text-xs text-text-secondary hover:text-red-500 hover:bg-red-50 rounded-md transition-colors">删除</button>
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div>
@@ -846,6 +974,31 @@ export default function CourseManage() {
                   className="w-full border border-border rounded-md px-3 py-2 text-sm"
                   placeholder="输入课程标题"
                 />
+              </div>
+              <div>
+                <label className="block text-sm text-text-secondary mb-1">现场签到</label>
+                <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={editRequireAttendance}
+                    onChange={(e) => setEditRequireAttendance(e.target.checked)}
+                    className="appearance-none w-9 h-5 rounded-full bg-border checked:bg-primary transition-colors relative
+                               before:content-[''] before:absolute before:top-0.5 before:left-0.5 before:w-4 before:h-4
+                               before:rounded-full before:bg-white before:transition-transform
+                               checked:before:translate-x-4"
+                  />
+                  <span className="text-sm">启用现场签到</span>
+                </label>
+                {editRequireAttendance ? (
+                  <p className="text-xs text-text-secondary/70 mt-1.5">
+                    开启后学员可通过扫码/输码在现场签到；请在下方配置签到场次（签到不影响考试解锁）。
+                  </p>
+                ) : (
+                  <p className="text-xs text-text-secondary/70 mt-1.5">
+                    关闭时课程为纯线上学习：学员看视频 → 考试，无签到环节。
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm text-text-secondary mb-1">课程分类</label>
@@ -1075,7 +1228,7 @@ export default function CourseManage() {
                 )}
               </div>
 
-              {/* 已有视频 */}
+              {/* 已有视频（统一线上课程始终可上传；编辑态有视频才显示） */}
               {editingCourse && editVideos.length > 0 && (
                 <div>
                   <label className="block text-sm text-text-secondary mb-2">已有视频 ({editVideos.length})</label>
@@ -1097,7 +1250,16 @@ export default function CourseManage() {
                 </div>
               )}
 
-              {/* 拖拽上传区 */}
+              {/* 启用现场签到：内嵌签到场次设置 */}
+              {editRequireAttendance && (
+                <div>
+                  <label className="block text-sm text-text-secondary mb-2">签到场次设置</label>
+                  <SessionInlineEditor sessions={editSessions} onChange={setEditSessions} />
+                </div>
+              )}
+
+              {/* 拖拽上传区（统一线上课程始终可用） */}
+              {true && (
               <div>
                 <label className="block text-sm text-text-secondary mb-2">
                   上传视频{pendingFiles.length > 0 ? ` (${pendingFiles.length} 个待上传)` : ""}
@@ -1119,6 +1281,7 @@ export default function CourseManage() {
                     onChange={e => { if (e.target.files) handleFiles(e.target.files); }} />
                 </div>
               </div>
+              )}
 
               {/* 待上传文件列表 */}
               {pendingFiles.length > 0 && (
@@ -1342,6 +1505,18 @@ export default function CourseManage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 线下课程签到管理弹窗 */}
+      {attendanceCourse && (
+        <AttendanceSessionModal
+          courseId={attendanceCourse.id}
+          courseTitle={attendanceCourse.title}
+          onClose={() => {
+            setAttendanceCourse(null);
+            fetchData();
+          }}
+        />
       )}
 
       {/* 删除影响确认弹窗 */}

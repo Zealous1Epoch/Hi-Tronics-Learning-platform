@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Integer, Text, Date, DateTime, ForeignKey, func
+from sqlalchemy import String, Integer, Text, Date, DateTime, ForeignKey, Index, UniqueConstraint, Boolean, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -14,6 +14,17 @@ class Course(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False, comment="课程标题")
+    # 课程形态：online=线上（看视频 → 考试）；offline=线下（现场签到 → 考试）
+    # 历史字段保留（不再写入新值）；新增「是否启用现场签到」开关以统一课程形态
+    course_type: Mapped[str] = mapped_column(
+        String(20), default="online", nullable=False, index=True,
+        comment="online / offline（历史字段，仅保留兼容）",
+    )
+    # 启用现场签到的课程可选创建 attendance_sessions；进度仍按视频统计，签到作为可选项
+    require_attendance: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, index=True,
+        comment="是否启用现场签到",
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True, comment="课程简介")
     cover_image: Mapped[str | None] = mapped_column(
         String(500), nullable=True, comment="封面图 URL"
@@ -45,7 +56,17 @@ class Course(Base):
 
 
 class CourseAssignment(Base):
+    """课程分配记录：按学员（user_id）或按部门（department_id）二选一。
+
+    新增唯一约束：原先依赖应用层「先查再插」，并发请求会写入重复分配行。
+    MySQL 唯一索引允许多个 NULL，因此只填一侧的行不会互相冲突。
+    """
+
     __tablename__ = "course_assignments"
+    __table_args__ = (
+        UniqueConstraint("course_id", "user_id", name="uq_assign_course_user"),
+        UniqueConstraint("course_id", "department_id", name="uq_assign_course_dept"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())

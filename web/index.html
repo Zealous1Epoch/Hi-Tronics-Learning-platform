@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/learning-platform/favicon.svg" />
+    <!-- 使用 %BASE_URL% 占位符，避免 Vite 再拼接一次 base 导致
+         /learning-platform/learning-platform/favicon.svg 这样的双前缀 404 -->
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
     <title>海创光电在线学堂</title>
   </head>
   <body>

@@ -15,17 +15,31 @@ router = APIRouter(prefix="/api/departments", tags=["部门管理"])
 
 
 def build_tree(departments: list[Department], parent_id: str | None = None) -> list[DepartmentOut]:
-    """递归构建部门树"""
-    children = [d for d in departments if d.parent_id == parent_id]
-    return [
-        DepartmentOut(
-            id=d.id,
-            name=d.name,
-            parent_id=d.parent_id,
-            children=build_tree(departments, d.id),
-        )
-        for d in children
-    ]
+    """递归构建部门树。
+
+    性能修复：原实现每层都 `[d for d in departments if d.parent_id == pid]` 全量扫描，
+    整体复杂度 O(n²)；部门数量多时明显变慢。现先建一次 parent_id → children 索引，
+    再递归，降为 O(n)。
+    """
+    children_map: dict[str | None, list[Department]] = {}
+    for d in departments:
+        children_map.setdefault(d.parent_id, []).append(d)
+
+    def build(pid: str | None, visited: set[str | None]) -> list[DepartmentOut]:
+        if pid in visited:      # 数据异常出现环时截断，避免无限递归
+            return []
+        visited.add(pid)
+        return [
+            DepartmentOut(
+                id=d.id,
+                name=d.name,
+                parent_id=d.parent_id,
+                children=build(d.id, visited),
+            )
+            for d in children_map.get(pid, [])
+        ]
+
+    return build(parent_id, set())
 
 
 @router.get("", response_model=list[DepartmentOut])

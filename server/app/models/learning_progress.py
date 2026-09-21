@@ -2,13 +2,24 @@
 
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, func
+from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Index, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
 
 class LearningProgress(Base):
+    """用户-视频维度的学习进度，每对 (user_id, video_id) 只应存在一条记录。
+
+    新增 uq_progress_user_video 唯一约束：覆盖依赖应用层「先查再插」的并发漏洞
+    （并发上报进度时原先会写出重复行，导致完成数被重复统计）。
+    新增 ix_progress_user_course 复合索引：加速「某学员某课程全部进度」这类高频查询。
+    """
+
     __tablename__ = "learning_progress"
+    __table_args__ = (
+        UniqueConstraint("user_id", "video_id", name="uq_progress_user_video"),
+        Index("ix_progress_user_course", "user_id", "course_id"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())

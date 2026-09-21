@@ -1,14 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import { Routes, Route, Link, NavLink, Navigate, useNavigate } from "react-router-dom";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Routes, Route, Link, NavLink, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { ChevronDown, LogOut, LayoutDashboard } from "lucide-react";
-import StudentDashboard from "../pages/student/Dashboard";
-import TodoTasks from "../pages/student/TodoTasks";
-import MyCourses from "../pages/student/MyCourses";
-import CourseDetail from "../pages/student/CourseDetail";
-import ExamPage from "../pages/student/ExamPage";
-import StudentProfile from "../pages/student/Profile";
-import KnowledgeBrowse from "../pages/student/KnowledgeBrowse";
+
+// 路由级按需加载：各页面及其重型依赖（播放器 / 课件预览 / 知识地图画布等）
+// 仅在访问对应路由时才下载，避免全部页面代码进入首屏。
+const StudentDashboard = lazy(() => import("../pages/student/Dashboard"));
+const TodoTasks = lazy(() => import("../pages/student/TodoTasks"));
+const MyCourses = lazy(() => import("../pages/student/MyCourses"));
+const CourseDetail = lazy(() => import("../pages/student/CourseDetail"));
+const ExamPage = lazy(() => import("../pages/student/ExamPage"));
+const StudentProfile = lazy(() => import("../pages/student/Profile"));
+const KnowledgeBrowse = lazy(() => import("../pages/student/KnowledgeBrowse"));
+const ScanCheckIn = lazy(() => import("../pages/student/ScanCheckIn"));
 import logoImg from "../assets/logo.png";
 
 const navItems = [
@@ -22,6 +26,7 @@ const navItems = [
 export default function StudentLayout() {
   const { user, logout, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -34,7 +39,13 @@ export default function StudentLayout() {
   }, []);
 
   if (loading) return null;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user)
+    return (
+      <Navigate
+        to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}
+        replace
+      />
+    );
 
   return (
     <div ref={rootRef} className="min-h-screen" style={{ background: "var(--color-bg-layout)" }}>
@@ -168,6 +179,16 @@ export default function StudentLayout() {
       </header>
 
       <main style={{ maxWidth: 1400, margin: "0 auto", padding: "24px 32px" }}>
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center py-24">
+              <div className="text-center">
+                <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                <p className="text-text-secondary text-sm">加载中...</p>
+              </div>
+            </div>
+          }
+        >
         <Routes>
           <Route index element={<StudentDashboard />} />
           <Route path="tasks" element={<TodoTasks />} />
@@ -176,8 +197,10 @@ export default function StudentLayout() {
           <Route path="exams/:id" element={<ExamPage />} />
           <Route path="knowledge" element={<KnowledgeBrowse />} />
           <Route path="profile" element={<StudentProfile />} />
+          <Route path="checkin/:sessionId" element={<ScanCheckIn />} />
           <Route path="*" element={<Navigate to="/student" replace />} />
         </Routes>
+        </Suspense>
       </main>
     </div>
   );

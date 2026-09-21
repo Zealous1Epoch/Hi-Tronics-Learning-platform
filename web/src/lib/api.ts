@@ -41,7 +41,8 @@ export async function api<T extends object = Record<string, unknown>>(
   if (res.status === 401) {
     localStorage.removeItem("lp_token");
     localStorage.removeItem("lp_user");
-    window.location.href = `${BASE_URL}login`;
+    const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `${BASE_URL}login?redirect=${redirect}`;
     throw new Error("认证已过期");
   }
 
@@ -96,7 +97,8 @@ export async function uploadFile<T extends object = Record<string, unknown>>(pat
   if (res.status === 401) {
     localStorage.removeItem("lp_token");
     localStorage.removeItem("lp_user");
-    window.location.href = `${BASE_URL}login`;
+    const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `${BASE_URL}login?redirect=${redirect}`;
     throw new Error("认证已过期");
   }
 

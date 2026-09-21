@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { api } from "../../lib/api";
 import VideoPlayer from "../../components/VideoPlayer";
+import StudentCheckInCard, { type MyAttendance } from "../../components/attendance/StudentCheckInCard";
 
 interface VideoItem {
   id: string; course_id: string; chapter_id: string | null;
@@ -15,6 +16,9 @@ interface ChapterItem {
 }
 interface CourseDetail {
   id: string; title: string; description: string | null;
+  // 历史字段保留（响应兼容）
+  course_type: string;
+  require_attendance: boolean;
   chapters: ChapterItem[];
   videos: VideoItem[];
   exam_id: string | null;
@@ -42,6 +46,7 @@ export default function CourseDetail() {
   const [examStatus, setExamStatus] = useState<string | null>(null);
   const [examResults, setExamResults] = useState<ExamResultItem[]>([]);
   const [progress, setProgress] = useState<CourseProgress | null>(null);
+  const [attendance, setAttendance] = useState<MyAttendance | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const [currentVideoWatched, setCurrentVideoWatched] = useState(false);
   const [currentWatchSec, setCurrentWatchSec] = useState(0);
@@ -60,10 +65,16 @@ export default function CourseDetail() {
       setCourse(data);
       // 默认展开所有有视频的章节
       setExpandedChapters(new Set((data.chapters || []).map(ch => ch.id)));
-      // 获取视频进度（用于考试解锁判断）
+      // 进度统一按视频统计（所有课程）
       api<CourseProgress>(`/student/progress/${id}`).then((p) => {
         if (mountedRef.current && gen === genRef.current) setProgress(p);
       }).catch(() => {});
+      // 启用现场签到的课程额外拉签到状态
+      if (data.require_attendance) {
+        api<MyAttendance>(`/student/courses/${id}/attendance`).then((a) => {
+          if (mountedRef.current && gen === genRef.current) setAttendance(a);
+        }).catch(() => {});
+      }
       // 检查考试状态
       if (data.exam_id) {
         try {
@@ -150,7 +161,15 @@ export default function CourseDetail() {
   if (loading) return <p className="text-text-secondary">加载中...</p>;
   if (!course) return <p className="text-text-secondary">课程不存在</p>;
 
+  const requireAttendance = course.require_attendance;
   const activeVideo = allVideos[activeVideoIdx];
+
+  // 签到状态刷新（签到/撤销后由 StudentCheckInCard 触发）
+  const refreshAttendance = () => {
+    api<MyAttendance>(`/student/courses/${id}/attendance`)
+      .then((a) => setAttendance(a))
+      .catch(() => {});
+  };
 
   // 从进度数据中获取当前视频的已看位置，用于恢复播放
   const activeVideoProgress = activeVideo && progress
@@ -268,7 +287,12 @@ export default function CourseDetail() {
         <div className="flex items-start justify-between mb-3">
           <h2 className="text-lg font-bold text-primary">{course.title}</h2>
           <span className="text-xs text-text-secondary shrink-0 ml-4 mt-0.5">
-            {progress?.completed_count || 0} / {progress?.total_count || totalVideos} 节
+            {`${progress?.completed_count || 0} / ${progress?.total_count || totalVideos} 节`}
+            {requireAttendance && attendance && (
+              <span className="ml-2 text-violet-600">
+                · 已签到 {attendance.attended_count}/{attendance.required_count} 场
+              </span>
+            )}
           </span>
         </div>
         <div className="flex items-center gap-2.5">
@@ -289,7 +313,7 @@ export default function CourseDetail() {
       </div>
 
       <div className="flex gap-4">
-        {/* 播放器 */}
+        {/* 播放器（统一线上课程始终渲染） */}
         <div className="flex-1 min-w-0">
           <div className="bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden">
             {activeVideo && playUrl ? (
@@ -324,6 +348,11 @@ export default function CourseDetail() {
               </div>
             )}
           </div>
+
+          {/* 启用现场签到：签到卡片 */}
+          {requireAttendance && attendance && (
+            <StudentCheckInCard attendance={attendance} onChanged={refreshAttendance} />
+          )}
           {course.description && (
             <p className="mt-4 text-sm text-text-secondary">{course.description}</p>
           )}

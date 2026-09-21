@@ -1,15 +1,34 @@
 """代办任务路由"""
 
+from datetime import date as date_type
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.models.task import Task
 from app.routers.auth import get_current_user
+from app.services.department_scope import get_assigned_course_ids
+from app.services.progress_service import batch_progress_map
 from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse
 
 router = APIRouter(prefix="/api/student/tasks", tags=["代办任务"])
 plan_router = APIRouter(prefix="/api/student", tags=["每日计划"])
+
+
+def _parse_date(value: str) -> date_type:
+    """解析 YYYY-MM-DD。
+
+    修复：原先直接把字符串交给 Date 类型的比较，格式错误时依赖数据库的隐式转换，
+    行为不可预期。现在显式解析，格式不合法返回 400。
+    """
+    try:
+        return date_type.fromisoformat(value.strip())
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="日期格式应为 YYYY-MM-DD",
+        )
 
 
 @router.get("", response_model=list[TaskResponse])
@@ -19,11 +38,12 @@ def get_tasks(
     current_user: User = Depends(get_current_user),
 ):
     """获取指定日期的任务列表"""
+    day = _parse_date(date)
     tasks = (
         db.query(Task)
         .filter(
             Task.user_id == current_user.id,
-            Task.due_date == date,
+            Task.due_date == day,
         )
         .order_by(Task.sort_order, Task.created_at)
         .all()
@@ -115,31 +135,9 @@ def get_tasks_overview(
     )
 
     # 3. 进行中课程
-    assigned_course_ids: list[str] = []
-    if current_user.role == "admin":
-        assigned_course_ids = [
-            c[0] for c in db.query(Course.id).filter(Course.status == "published").all()
-        ]
-    else:
-        dept_id = None
-        if current_user.department:
-            _dept = current_user.department.split("-")[-1]  # 从完整路径中取叶子名
-            dept = (
-                db.query(Department)
-                .filter(Department.name == _dept)
-                .first()
-            )
-            if dept:
-                dept_id = dept.id
-
-        conditions = [CourseAssignment.user_id == current_user.id]
-        if dept_id:
-            conditions.append(CourseAssignment.department_id == dept_id)
-
-        assignments = (
-            db.query(CourseAssignment).filter(or_(*conditions)).all()
-        )
-        assigned_course_ids = list(set(a.course_id for a in assignments))
+    # 修复：原先用 department 叶子名反查部门 ID（同名叶子部门会取错），
+    # 且不含子部门；现统一走 department_scope。
+    assigned_course_ids = get_assigned_course_ids(db, current_user)
 
     active_courses = []
     upcoming_expiry_courses = []
@@ -168,63 +166,29 @@ def get_tasks_overview(
             .all()
         )
 
-        # 过滤掉已完成（考试通过且进度满）的课程
-        course_ids = [c.id for c in course_rows]
-        progress_records = (
-            db.query(LearningProgress)
-            .filter(
-                LearningProgress.user_id == current_user.id,
-                LearningProgress.course_id.in_(course_ids),
-            )
-            .all()
-        )
-        progress_by_course: dict[str, list] = {}
-        for pr in progress_records:
-            progress_by_course.setdefault(pr.course_id, []).append(pr)
-
-        video_counts = dict(
-            db.query(Video.course_id, func.count(Video.id))
-            .filter(Video.course_id.in_(course_ids))
-            .group_by(Video.course_id)
-            .all()
-        )
-
-        # 批量查询考试结果（避免 N+1）
-        course_exam_map: dict[str, str] = {c.id: c.exam_id for c in course_rows if c.exam_id}
-        exam_passed_map: dict[str, bool] = {}
-        if course_exam_map:
-            passed_exams = (
-                db.query(ExamResult)
-                .filter(
-                    ExamResult.exam_id.in_(course_exam_map.values()),
-                    ExamResult.user_id == current_user.id,
-                    ExamResult.passed == True,
-                )
-                .all()
-            )
-            passed_exam_ids = set(r.exam_id for r in passed_exams)
-            for cid, eid in course_exam_map.items():
-                exam_passed_map[cid] = eid in passed_exam_ids
+        # 统一进度口径：线上课程按视频节数、线下课程按签到场次数
+        progress_map = batch_progress_map(db, current_user.id, course_rows)
 
         for c in course_rows:
-            total = video_counts.get(c.id, 0)
-            completed = sum(1 for p in progress_by_course.get(c.id, []) if p.completed)
-            exam_passed = exam_passed_map.get(c.id, False)
-
-            # 检查是否已完成（视频看完 + 无考试或考试通过）
-            if total > 0 and completed >= total and (not c.exam_id or exam_passed):
-                continue  # 已完成的课程不展示
+            row = progress_map.get(c.id)
+            if row is None or row.completed:
+                continue  # 已完成的课程不出现在代办中
 
             course_dict = {
                 "id": c.id,
                 "title": c.title,
+                # 历史字段保留（响应兼容）
+                "course_type": c.course_type,
+                "require_attendance": c.require_attendance,
+                "unit_label": row.unit_label,
                 "description": c.description,
                 "start_date": c.start_date.isoformat() if c.start_date else None,
                 "end_date": c.end_date.isoformat() if c.end_date else None,
-                "completed_count": completed,
-                "total_count": total,
-                "exam_passed": exam_passed,
-                "has_exam": c.exam_id is not None,
+                "completed_count": row.completed_count,
+                "total_count": row.total_count,
+                "exam_passed": row.exam_passed,
+                "has_exam": row.has_exam,
+                "can_take_exam": row.can_take_exam,
             }
 
             # 3天内到期 → 即将到期
@@ -285,42 +249,22 @@ def get_daily_plan(
     from app.models.exam import ExamResult
     from sqlalchemy import or_, and_
 
+    day = _parse_date(date)
+
     # 1. 个人任务
     tasks = (
         db.query(Task)
         .filter(
             Task.user_id == current_user.id,
-            Task.due_date == date,
+            Task.due_date == day,
         )
         .order_by(Task.sort_order, Task.created_at)
         .all()
     )
 
     # 2. 有效期内课程
-    assigned_course_ids: list[str] = []
-    if current_user.role == "admin":
-        # 管理员切换学员视图时，展示所有已发布课程
-        assigned_course_ids = [
-            c[0] for c in db.query(Course.id).filter(Course.status == "published").all()
-        ]
-    else:
-        dept_id = None
-        if current_user.department:
-            _dept = current_user.department.split("-")[-1]
-            dept = db.query(Department).filter(Department.name == _dept).first()
-            if dept:
-                dept_id = dept.id
-
-        conditions = [CourseAssignment.user_id == current_user.id]
-        if dept_id:
-            conditions.append(CourseAssignment.department_id == dept_id)
-
-        assignments = (
-            db.query(CourseAssignment)
-            .filter(or_(*conditions))
-            .all()
-        )
-        assigned_course_ids = list(set(a.course_id for a in assignments))
+    # 修复：同 get_tasks_overview，统一走 department_scope（优先 department_id）。
+    assigned_course_ids = get_assigned_course_ids(db, current_user)
 
     courses = []
     if assigned_course_ids:
@@ -337,68 +281,37 @@ def get_daily_plan(
                     and_(
                         Course.start_date.isnot(None),
                         Course.end_date.isnot(None),
-                        Course.start_date <= date,
-                        Course.end_date >= date,
+                        Course.start_date <= day,
+                        Course.end_date >= day,
                     ),
                 ),
             )
             .all()
         )
 
-        # 批量查询进度
-        course_ids = [c.id for c in course_rows]
-        progress_records = (
-            db.query(LearningProgress)
-            .filter(
-                LearningProgress.user_id == current_user.id,
-                LearningProgress.course_id.in_(course_ids),
-            )
-            .all()
-        )
-        progress_by_course: dict[str, list] = {}
-        for pr in progress_records:
-            progress_by_course.setdefault(pr.course_id, []).append(pr)
-
-        # 批量查询视频总数作为进度分母
-        from app.models.course import Video
-        from sqlalchemy import func
-        video_counts = dict(
-            db.query(Video.course_id, func.count(Video.id))
-            .filter(Video.course_id.in_(course_ids))
-            .group_by(Video.course_id)
-            .all()
-        )
-
-        # 批量查询考试结果
-        course_exam_map: dict[str, str] = {c.id: c.exam_id for c in course_rows if c.exam_id}
-        exam_passed_map: dict[str, bool] = {}
-        if course_exam_map:
-            passed_exams = (
-                db.query(ExamResult)
-                .filter(
-                    ExamResult.exam_id.in_(course_exam_map.values()),
-                    ExamResult.user_id == current_user.id,
-                    ExamResult.passed == True,
-                )
-                .all()
-            )
-            passed_exam_ids = set(r.exam_id for r in passed_exams)
-            for cid, eid in course_exam_map.items():
-                exam_passed_map[cid] = eid in passed_exam_ids
+        # 统一进度口径：线上课程按视频节数、线下课程按签到场次数
+        progress_map = batch_progress_map(db, current_user.id, course_rows)
 
         courses = [
             {
                 "id": c.id,
                 "title": c.title,
+                # 历史字段保留（响应兼容）
+                "course_type": c.course_type,
+                "require_attendance": c.require_attendance,
+                "unit_label": row.unit_label,
                 "description": c.description,
                 "start_date": c.start_date.isoformat() if c.start_date else None,
                 "end_date": c.end_date.isoformat() if c.end_date else None,
-                "completed_count": sum(1 for p in progress_by_course.get(c.id, []) if p.completed),
-                "total_count": video_counts.get(c.id, 0),
-                "exam_passed": exam_passed_map.get(c.id, False),
-                "has_exam": c.exam_id is not None,
+                "completed_count": row.completed_count,
+                "total_count": row.total_count,
+                "exam_passed": row.exam_passed,
+                "has_exam": row.has_exam,
+                "can_take_exam": row.can_take_exam,
             }
             for c in course_rows
+            for row in [progress_map.get(c.id)]
+            if row is not None
         ]
 
     return {

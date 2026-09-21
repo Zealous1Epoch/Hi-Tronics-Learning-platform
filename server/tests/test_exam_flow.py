@@ -16,6 +16,7 @@ def setup_exam(db: Session, course_id: str, paper_type: str = "fixed"):
     q3 = create_question(db, "single_choice", "水的化学式是?", {"correct": "C"})
 
     # 创建考试
+    # 注意：必须 status="published"，否则学员无法开始考试（这是修复后的预期行为）
     exam = Exam(
         id=str(uuid.uuid4()),
         course_id=course_id,
@@ -25,6 +26,7 @@ def setup_exam(db: Session, course_id: str, paper_type: str = "fixed"):
         total_score=100,
         pass_score=60,
         max_attempts=3,
+        status="published",
     )
     db.add(exam)
     db.flush()
@@ -120,8 +122,10 @@ def test_exam_partial_score(client, student_headers, admin_headers, course_id, d
     )
     assert res.status_code == 200
     result = res.json()
-    # 原始分: 10/30 (grade_question 每题固定 10 分), 换算: 10*100/30 = 33
-    assert result["score"] == 33
+    # 试卷配分为 30/30/40（合计 100），答对第一题得 30 分，换算后 = 30*100/100 = 30
+    # 修复前这里断言的是 33 —— 那是「每题硬编码 10 分」这一缺陷留下的错误期望值
+    assert result["score"] == 30
+    assert result["paper_total_score"] == 100
     assert result["passed"] is False
 
 

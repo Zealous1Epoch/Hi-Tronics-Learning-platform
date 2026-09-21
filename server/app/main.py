@@ -28,7 +28,11 @@ from app.routers.logs import router as logs_router
 from app.routers.notices import router as notices_router
 from app.routers.admin_dashboard import router as admin_dashboard_router
 from app.routers.tasks import router as tasks_router, plan_router as tasks_plan_router
-from app.routers.sso import router as sso_router
+from app.routers.sso import router as sso_router, api_router as sso_api_router
+from app.routers.attendance import (
+    router as attendance_router,
+    student_router as student_attendance_router,
+)
 from app.services.seed import seed_builtin_admin
 
 logger = setup_logging(debug=settings.DEBUG)
@@ -124,6 +128,9 @@ app.include_router(admin_dashboard_router)
 app.include_router(tasks_router)
 app.include_router(tasks_plan_router)
 app.include_router(sso_router)
+app.include_router(sso_api_router)
+app.include_router(attendance_router)
+app.include_router(student_attendance_router)
 
 
 @app.get("/api/health")

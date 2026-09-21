@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
-import { getMe, BASE_URL } from "../lib/api";
+import { getMe, BASE } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
 
 export default function SsoCallback() {
@@ -17,7 +17,12 @@ export default function SsoCallback() {
     }
 
     // 用一次性 code 换取 JWT token（避免 token 暴露在 URL 中）
-    fetch(BASE_URL + "sso/exchange?code=" + encodeURIComponent(code))
+    // 修复：原先用 BASE_URL（= /learning-platform/）拼接，得到
+    // /learning-platform/sso/exchange —— 既不在 dev 代理前缀（/sso、/api）内，
+    // 生产环境也不会被 nginx 转发到后端，必然 404。
+    // 现改用统一的 API 前缀 BASE（/api/learning-platform），后端已提供
+    // /api/sso/exchange 别名，开发与生产行为一致。
+    fetch(`${BASE}sso/exchange?code=${encodeURIComponent(code)}`)
       .then((res) => {
         if (!res.ok) throw new Error("code 无效或已过期");
         return res.json();

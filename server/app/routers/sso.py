@@ -1,15 +1,16 @@
 """SSO 单点登录路由：OA 系统 302 重定向登录 + 企业微信 OAuth 登录"""
 
 import hashlib
+import hmac
 import uuid as _uuid
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text as sa_text
+from sqlalchemy import or_
 
 from app.config import settings
-from app.database import get_db, engine
+from app.database import get_db
 from app.models.user import User
 from app.services.auth_service import create_access_token, decode_access_token
 from app.services.log_service import write_log
@@ -31,40 +32,98 @@ _sso_time_window: int = settings.SSO_TIME_WINDOW
 _sso_codes: dict[str, dict] = {}
 _SSO_CODE_TTL = 60  # 秒
 
+# 防重放：最近已使用过的 (workcode, tokendate) 组合，避免 URL 被重复利用
+_used_tickets: dict[str, float] = {}
+
 
 def _md5(text: str) -> str:
     return hashlib.md5(text.encode("utf-8")).hexdigest().lower()
 
 
-def _ensure_workcode_hash_column():
-    """确保 users 表有 workcode_hash 列（幂等）"""
-    try:
-        with engine.connect() as conn:
-            conn.execute(
-                sa_text(
-                    "ALTER TABLE users ADD COLUMN workcode_hash VARCHAR(32) "
-                    "GENERATED ALWAYS AS (MD5(username)) STORED, "
-                    "ADD INDEX ix_users_workcode_hash (workcode_hash)"
-                )
-            )
-            conn.commit()
-            logger.info("已添加 workcode_hash 列和索引")
-    except Exception:
-        # 列或索引已存在，忽略
-        pass
+def _hmac_ticket(workcode: str, time_str: str, secret: str) -> str:
+    """安全模式签名：HMAC-SHA256(secret, f"{workcode}:{time_str}")。
+
+    与旧的 md5(时间) 方案的关键差别：**签名绑定了工号**。
+    旧方案任何人自算一次 md5(当前时间) 就能伪造成任意工号的合法票据；
+    新方案没有共享密钥就无法为指定工号生成签名。
+    """
+    msg = f"{workcode}:{time_str}".encode("utf-8")
+    return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest().lower()
 
 
-def _validate_tokendate(tokendate: str) -> bool:
-    """校验 tokendate 是否在 [now - window, now + window] 秒内"""
+def _validate_sso_ticket(workcode: str, tokendate: str) -> bool:
+    """校验 SSO 票据是否合法。
+
+    支持两种模式：
+    - 安全模式（推荐）：配置了 SSO_SHARED_SECRET 时，要求
+      tokendate == HMAC-SHA256(secret, f"{workcode}:{YYYY-MM-DD HH:MM:SS}")，允许 ±窗口 秒时钟偏移。
+    - 兼容模式（不安全）：未配置密钥时回退到 md5(时间字符串)，并记录 CRITICAL 日志。
+      该模式任何人可自行推导票据，仅用于过渡期，必须尽快迁移。
+    """
+    if not tokendate:
+        return False
+
+    secret = settings.SSO_SHARED_SECRET
     now = datetime.now()
     window = _sso_time_window
 
+    if secret:
+        for offset in range(-window, window + 1):
+            time_str = (now + timedelta(seconds=offset)).strftime("%Y-%m-%d %H:%M:%S")
+            if hmac.compare_digest(_hmac_ticket(workcode, time_str, secret), tokendate):
+                return True
+        return False
+
+    # 兼容模式：票据与工号无关，任何人可自行计算 —— 不安全，仅过渡
+    logger.critical(
+        "SSO 未配置 SSO_SHARED_SECRET，正在使用不安全的兼容校验（票据可被任意伪造），"
+        "请尽快配置密钥并要求 OA 侧改用 HMAC 签名"
+    )
     for offset in range(-window, window + 1):
-        t = now + timedelta(seconds=offset)
-        time_str = t.strftime("%Y-%m-%d %H:%M:%S")
+        time_str = (now + timedelta(seconds=offset)).strftime("%Y-%m-%d %H:%M:%S")
         if _md5(time_str) == tokendate:
             return True
     return False
+
+
+def _consume_ticket(workcode: str, tokendate: str) -> bool:
+    """防重放：同一 (workcode, tokendate) 只允许使用一次。
+
+    返回 True 表示首次使用；False 表示已用过（重放）。
+    """
+    now = datetime.now().timestamp()
+    # 清理过期记录（2 倍时间窗之外的都可丢弃）
+    ttl = max(_sso_time_window * 2, 60)
+    for key in [k for k, t in _used_tickets.items() if now - t > ttl]:
+        _used_tickets.pop(key, None)
+
+    key = f"{workcode}:{tokendate}"
+    if key in _used_tickets:
+        return False
+    _used_tickets[key] = now
+    return True
+
+
+def _find_user_by_workcode(db: Session, workcode: str) -> User | None:
+    """按工号查找用户。
+
+    修复：原先查询 `User.workcode_hash`，但该字段既未在 ORM 模型中定义，
+    也不存在于数据库，导致 /sso/login 必然抛 AttributeError 返回 500。
+    现改用已有的 employee_id / username 字段（employee_id 已有索引）。
+    """
+    return (
+        db.query(User)
+        .filter(or_(User.employee_id == workcode, User.username == workcode))
+        .first()
+    )
+
+
+def _ensure_sso_ready() -> None:
+    """启动/调用时的配置检查（替代原先每次登录都执行 ALTER TABLE 的做法）。"""
+    if not settings.SSO_SHARED_SECRET:
+        logger.warning(
+            "SSO_SHARED_SECRET 未配置：OA 免密登录将以不安全的兼容模式运行"
+        )
 
 
 @router.get("/sso/login")
@@ -72,28 +131,38 @@ async def sso_login(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """OA SSO 登录入口：校验 workcode + tokendate，完成登录并跳转"""
-    workcode = request.query_params.get("workcode", "")
-    tokendate = request.query_params.get("tokendate", "")
+    """OA SSO 登录入口：校验 workcode + tokendate，完成登录并跳转。
+
+    安全说明：票据校验见 `_validate_sso_ticket`。
+    恢复的安全缺陷：原实现把校验错误一律 Redirect 到登录页，
+    导致运维无法从日志区分「参数缺失 / 票据伪造 / 用户禁用」，
+    且每次登录都会执行一次 ALTER TABLE。现已分别记录并移除运行时 DDL。
+    """
+    _ensure_sso_ready()
+    workcode = (request.query_params.get("workcode") or "").strip()
+    tokendate = (request.query_params.get("tokendate") or "").strip()
 
     # 步骤 1: 参数校验
     if not workcode or not tokendate:
         logger.warning("SSO 参数缺失: workcode=%s, tokendate=%s", bool(workcode), bool(tokendate))
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
 
-    # 步骤 2: 校验时间戳
-    if not _validate_tokendate(tokendate):
-        logger.warning("SSO 时间戳校验失败: tokendate=%s", tokendate)
+    # 步骤 2: 校验票据（含签名与时间窗）
+    if not _validate_sso_ticket(workcode, tokendate):
+        logger.warning("SSO 票据校验失败: workcode=%s", workcode)
         return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
 
-    # 步骤 3: 查找用户（通过 workcode_hash 索引）
-    _ensure_workcode_hash_column()
-    workcode_hash = _md5(workcode)
-    user = db.query(User).filter(User.workcode_hash == workcode_hash).first()
+    # 步骤 2.1: 防重放——同一票据只能使用一次
+    if not _consume_ticket(workcode, tokendate):
+        logger.warning("SSO 票据被重复使用（疑似重放）: workcode=%s", workcode)
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
+
+    # 步骤 3: 查找用户（employee_id / username，均已有索引）
+    user = _find_user_by_workcode(db, workcode)
 
     # 步骤 4: 用户不存在，从 OA 拉取并创建
     if not user:
-        user = await _create_user_from_oa(db, workcode, workcode_hash)
+        user = await _create_user_from_oa(db, workcode)
         if not user:
             return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
 
@@ -113,20 +182,41 @@ async def sso_login(
     return RedirectResponse(url=f"{settings.FRONTEND_URL}/sso/callback?code={code}")
 
 
-@router.get("/sso/exchange")
-def exchange_code(code: str, db: Session = Depends(get_db)):
-    """用一次性 code 换取 JWT token（避免 token 出现在 URL 中）"""
+def _exchange_sso_code(code: str) -> dict:
+    """用一次性 code 换取 JWT token（避免 token 暴露在 URL 中）。
+
+    修复：原先只在取出时判断过期，过期条目无人清理，长期运行会缓慢泄漏内存。
+    现顺带清理全部已过期 code。
+    """
+    now = datetime.now()
+    # 惰性清理过期 code，避免字典无限增长
+    for key in [k for k, v in _sso_codes.items() if now > v["expires_at"]]:
+        _sso_codes.pop(key, None)
+
     entry = _sso_codes.pop(code, None)
     if not entry:
         raise HTTPException(status_code=400, detail="code 无效或已过期")
-    if datetime.now() > entry["expires_at"]:
+    if now > entry["expires_at"]:
         raise HTTPException(status_code=400, detail="code 已过期")
     return {"token": entry["token"]}
 
 
-def _find_user_by_workcode_hash(db: Session, workcode_hash: str) -> User | None:
-    """通过 workcode_hash 索引直接查询用户"""
-    return db.query(User).filter(User.workcode_hash == workcode_hash).first()
+@router.get("/sso/exchange")
+def exchange_code(code: str):
+    """OA/企微回调后的 code 换取接口（保持原路径不变）。"""
+    return _exchange_sso_code(code)
+
+
+# 前端别名：前端使用 `${BASE}sso/exchange`（BASE = /api/learning-platform）调用。
+# 经反向代理后落到 /api/sso/exchange，与其它业务接口走同一条路由规则，
+# 这样生产环境无需为 /learning-platform/sso/* 单独配置 nginx location。
+api_router = APIRouter(prefix="/api/sso", tags=["SSO"])
+
+
+@api_router.get("/exchange")
+def api_exchange_code(code: str):
+    """前端换取 token 的接口（/sso/exchange 的 API 前缀别名）。"""
+    return _exchange_sso_code(code)
 
 
 def _sync_user_department(db: Session, user: User, department_path: str | None):
@@ -142,7 +232,7 @@ def _sync_user_department(db: Session, user: User, department_path: str | None):
         user.department_id = leaf.id
 
 
-async def _create_user_from_oa(db: Session, workcode: str, workcode_hash: str) -> User | None:
+async def _create_user_from_oa(db: Session, workcode: str) -> User | None:
     """从 OA 获取员工信息并创建用户"""
     employee = await fetch_employee_by_workcode(workcode)
     if not employee:
@@ -150,7 +240,7 @@ async def _create_user_from_oa(db: Session, workcode: str, workcode_hash: str) -
         return None
 
     # 防止并发创建（先检查是否已被其他请求创建）
-    existing = _find_user_by_workcode_hash(db, workcode_hash)
+    existing = _find_user_by_workcode(db, workcode)
     if existing:
         return existing
 
@@ -252,16 +342,30 @@ async def wechat_login():
 async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_db)):
     """企业微信 OAuth 回调：用 code 换取用户信息，创建/查找用户，签发 JWT
 
-    支持两种入口：
-    1. 网页端点击"企业微信登录"按钮（state 由后端生成，用于 CSRF 校验）
-    2. 企微客户端内点击应用直接打开（state 由企微客户端提供，不做 CSRF 校验）
+    两种入口：
+    1. 网页端点击「企业微信登录」按钮 —— state 由后端生成并缓存，必须校验通过
+    2. 企微客户端内直接打开应用 —— state 由企微客户端提供，服务端无法验证
+
+    修复：原先「state 不在缓存中也继续放行」，等于 CSRF 防护形同虚设
+    （仅打印一行 warning 就继续登录）。现在默认改为**失败即拒绝**（fail-closed）；
+    若确实需要支持企微客户端直接打开，显式设置
+    `WECHAT_ALLOW_UNVERIFIED_STATE=true` 才放行，并记录 warning。
     """
     # 步骤 1: 校验 state（CSRF 防护）
-    # 只有 state 在我们缓存中时才做校验，否则忽略（来自企微客户端直接打开）
     if state and state in _wechat_states:
         _wechat_states.pop(state, None)
-    elif state:
-        logger.warning("企微回调 state 不在缓存中，跳过 CSRF 校验（可能是企微客户端直接打开）")
+    elif settings.WECHAT_ALLOW_UNVERIFIED_STATE:
+        logger.warning(
+            "企微回调 state 未经校验（WECHAT_ALLOW_UNVERIFIED_STATE=true），已放行: state=%s",
+            state or "<empty>",
+        )
+    else:
+        logger.warning(
+            "企微回调 state 校验失败，已拒绝: state=%s（若需支持企微客户端直接打开，"
+            "请设置 WECHAT_ALLOW_UNVERIFIED_STATE=true）",
+            state or "<empty>",
+        )
+        return RedirectResponse(url=f"{settings.FRONTEND_URL}/login")
 
     if not code:
         logger.warning("企微回调缺少 code 参数")
@@ -308,6 +412,10 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
 
     if not user:
         # 从 OA 系统同步员工信息
+        # 修复：原代码 dept_path 只在 oa_info 带 departmentid 时才赋值，
+        # 若 OA 返回的员工没有部门，后面引用 dept_path 会抛 NameError → 500。
+        oa_info = None
+        dept_path = None
         try:
             oa_info = await fetch_employee_by_workcode(workcode)
             if oa_info and oa_info.get("departmentid"):

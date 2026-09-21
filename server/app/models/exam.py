@@ -93,6 +93,9 @@ class ExamResult(Base):
     started_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, comment="开始时间"
     )
-    submitted_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), comment="交卷时间"
+    # 交卷时间：NULL 表示作答中——这是判定"进行中"的唯一依据。
+    # 修复：原先 server_default=func.now() 会让新建记录立刻带上交卷时间，
+    # 只能靠 `answers == '{}'` 这种脆弱方式判断，且与"空作答"无法区分。
+    submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None, comment="交卷时间（NULL=作答中）"
     )

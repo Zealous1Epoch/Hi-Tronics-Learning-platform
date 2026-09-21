@@ -16,6 +16,9 @@ from app.schemas.knowledge_node import (
     PositionUpdate, KnowledgeFileOut,
 )
 from app.routers.auth import get_current_user, require_admin
+from app.logger import get_logger
+
+logger = get_logger(__name__)
 
 # PPTX 文字提取（可选依赖，缺失时降级为不支持）
 try:
@@ -49,10 +52,15 @@ def _soffice_available() -> bool:
 
 
 def _convert_to_pdf(filepath: str, ext: str) -> str | None:
-    """将 PPT/PPTX 转换为 PDF，返回 PDF 路径。失败返回 None"""
+    """将 PPT/PPTX 转换为 PDF，返回 PDF 路径。失败返回 None。
+
+    修复：原先失败时 `except Exception: pass` 静默吞掉，运维无法发现
+    LibreOffice 缺失或转换失败（表现为学员端 PPT 预览一直空白）。现记录日志。
+    """
     if ext not in ("ppt", "pptx"):
         return None
     if not _soffice_available():
+        logger.warning("LibreOffice 不可用，跳过 PPT→PDF 转换: %s", os.path.basename(filepath))
         return None
     try:
         outdir = os.path.dirname(filepath)
@@ -65,8 +73,9 @@ def _convert_to_pdf(filepath: str, ext: str) -> str | None:
         pdf_path = os.path.splitext(filepath)[0] + ".pdf"
         if os.path.exists(pdf_path):
             return pdf_path
-    except Exception:
-        pass
+        logger.warning("PPT→PDF 转换未生成输出文件: %s", os.path.basename(filepath))
+    except Exception as exc:  # noqa: BLE001 — 转换失败不应阻断上传
+        logger.error("PPT→PDF 转换失败: %s, error=%s", os.path.basename(filepath), exc)
     return None
 
 ALLOWED_EXTENSIONS = {
@@ -101,19 +110,56 @@ def build_node_tree(
     files_map: dict[str, list[KnowledgeFile]],
     parent_id: str | None = None,
 ) -> list[KnowledgeNodeOut]:
-    children = [n for n in nodes if n.parent_id == parent_id]
-    return [
-        KnowledgeNodeOut(
-            id=n.id, title=n.title, description=n.description,
-            content=n.content, parent_id=n.parent_id,
-            position_x=n.position_x, position_y=n.position_y,
-            sort_order=n.sort_order, status=n.status,
-            created_at=n.created_at, updated_at=n.updated_at,
-            children=build_node_tree(nodes, files_map, n.id),
-            files=[KnowledgeFileOut.model_validate(f) for f in files_map.get(n.id, [])],
-        )
-        for n in sorted(children, key=lambda x: x.sort_order)
-    ]
+    """构建知识节点树。
+
+    性能修复：原实现每层都全量过滤 nodes（`[n for n in nodes if n.parent_id == pid]`），
+    整体 O(n²)，知识节点多时明显变慢。现先建立 parent_id → children 索引，降为 O(n)。
+    """
+    children_map: dict[str | None, list[KnowledgeNode]] = {}
+    for n in nodes:
+        children_map.setdefault(n.parent_id, []).append(n)
+    for items in children_map.values():
+        items.sort(key=lambda x: x.sort_order)
+
+    def build(pid: str | None, visited: set[str | None]) -> list[KnowledgeNodeOut]:
+        if pid in visited:      # 数据异常出现环时截断，避免无限递归
+            return []
+        visited.add(pid)
+        return [
+            KnowledgeNodeOut(
+                id=n.id, title=n.title, description=n.description,
+                content=n.content, parent_id=n.parent_id,
+                position_x=n.position_x, position_y=n.position_y,
+                sort_order=n.sort_order, status=n.status,
+                created_at=n.created_at, updated_at=n.updated_at,
+                children=build(n.id, visited),
+                files=[KnowledgeFileOut.model_validate(f) for f in files_map.get(n.id, [])],
+            )
+            for n in children_map.get(pid, [])
+        ]
+
+    return build(parent_id, set())
+
+
+def _remove_knowledge_file_from_disk(knowledge_file: KnowledgeFile) -> None:
+    """删除课件磁盘文件，同时清理 PPT/PPTX 自动转换产生的 PDF 副本。
+
+    修复：原先只在「删除文件」接口里清理转换产物，「删除知识节点」时不会清理，
+    导致 PPT 转换出的 PDF 永久残留在 uploads/knowledge 下。
+    """
+    filepath = os.path.join(UPLOAD_DIR, knowledge_file.obs_key)
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+        except OSError as exc:
+            logger.error("删除课件文件失败: %s, error=%s", filepath, exc)
+    if _get_ext(knowledge_file.original_name) in ("ppt", "pptx"):
+        pdf_path = os.path.splitext(filepath)[0] + ".pdf"
+        if os.path.exists(pdf_path):
+            try:
+                os.remove(pdf_path)
+            except OSError as exc:
+                logger.error("删除课件转换 PDF 失败: %s, error=%s", pdf_path, exc)
 
 
 # ── 管理端 API ──
@@ -258,37 +304,51 @@ def delete_knowledge_node(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    """删除知识节点（含所有后代节点及其课件文件）。
+
+    性能修复：原先用「每个节点查一次子节点」的递归方式收集 ID（N+1 查询），
+    且不清理 PPT 转换出的 PDF。现一次性加载节点表在内存中遍历，并复用统一的
+    文件清理逻辑。
+    """
     node = db.query(KnowledgeNode).filter(KnowledgeNode.id == node_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="知识节点不存在")
 
-    # 递归收集所有子节点 ID，用于清理文件
-    def collect_ids(parent_id: str) -> list[str]:
-        ids = [parent_id]
-        children = db.query(KnowledgeNode).filter(KnowledgeNode.parent_id == parent_id).all()
-        for child in children:
-            ids.extend(collect_ids(child.id))
-        return ids
+    # 一次性加载全部节点，在内存中收集子树 ID（避免逐层查库）
+    all_nodes = db.query(KnowledgeNode).all()
+    children_map: dict[str, list[str]] = {}
+    for n in all_nodes:
+        if n.parent_id:
+            children_map.setdefault(n.parent_id, []).append(n.id)
 
-    all_ids = collect_ids(node_id)
+    all_ids: list[str] = []
+    stack = [node_id]
+    seen: set[str] = set()
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        all_ids.append(cur)
+        stack.extend(children_map.get(cur, []))
 
-    # 清理磁盘文件
+    # 清理磁盘文件（含 PPT 转换出的 PDF）
     files = db.query(KnowledgeFile).filter(KnowledgeFile.node_id.in_(all_ids)).all()
     for f in files:
-        filepath = os.path.join(UPLOAD_DIR, f.obs_key)
-        if os.path.exists(filepath):
-            os.remove(filepath)
+        _remove_knowledge_file_from_disk(f)
 
     # 删除文件记录
-    db.query(KnowledgeFile).filter(KnowledgeFile.node_id.in_(all_ids)).delete()
+    db.query(KnowledgeFile).filter(KnowledgeFile.node_id.in_(all_ids)).delete(
+        synchronize_session=False
+    )
 
-    # 递归删除子节点
-    def delete_children(parent_id: str):
-        children = db.query(KnowledgeNode).filter(KnowledgeNode.parent_id == parent_id).all()
-        for child in children:
-            delete_children(child.id)
-            db.delete(child)
-    delete_children(node_id)
+    # 删除子节点（深度优先，叶子在前，避免自引用外键约束问题）
+    for nid in all_ids:
+        if nid == node_id:
+            continue
+        db.query(KnowledgeNode).filter(KnowledgeNode.id == nid).delete(
+            synchronize_session=False
+        )
 
     write_log(
         db=db, operator=current_user.name, operator_id=current_user.id,
@@ -387,16 +447,8 @@ def delete_knowledge_file(
     if not knowledge_file:
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    # 删除磁盘文件（含转换后的 PDF）
-    filepath = os.path.join(UPLOAD_DIR, knowledge_file.obs_key)
-    if os.path.exists(filepath):
-        os.remove(filepath)
-    # 清理 PPTX 转换的 PDF
-    ext = _get_ext(knowledge_file.original_name)
-    if ext in ("ppt", "pptx"):
-        pdf_path = os.path.splitext(filepath)[0] + ".pdf"
-        if os.path.exists(pdf_path):
-            os.remove(pdf_path)
+    # 删除磁盘文件（含 PPT/PPTX 转换后的 PDF）
+    _remove_knowledge_file_from_disk(knowledge_file)
 
     write_log(
         db=db, operator=current_user.name, operator_id=current_user.id,

@@ -224,10 +224,22 @@ export default function ExamManage() {
   const handleDelete = async (id: string) => {
     if (!confirm("确定删除此考试？")) return;
     try {
-      await api(`/exams/${id}`, { method: "DELETE" });
+      await api(`/exams/${id}?confirm=true`, { method: "DELETE" });
       fetchData();
     } catch (e: any) {
-      alert(e.message || "删除失败");
+      const msg = e?.message || "删除失败";
+      // 后端检测到已有学员作答记录时返回 409，需二次确认才允许连成绩一起删除
+      if (msg.includes("作答记录")) {
+        if (!confirm(`${msg}\n\n确定要连同这些成绩一起删除吗？此操作不可恢复。`)) return;
+        try {
+          await api(`/exams/${id}?confirm=true&force=true`, { method: "DELETE" });
+          fetchData();
+        } catch (e2: any) {
+          alert(e2?.message || "删除失败");
+        }
+        return;
+      }
+      alert(msg);
     }
   };
 

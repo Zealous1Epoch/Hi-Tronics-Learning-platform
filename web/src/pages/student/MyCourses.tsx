@@ -6,10 +6,16 @@ import { api } from "../../lib/api";
 interface CourseWithProgress {
   id: string; title: string; description: string | null;
   cover_image: string | null; category_id: string | null;
+  // 历史字段保留（响应兼容）；新前端按 require_attendance 判定
+  course_type: string;
+  require_attendance: boolean;
   video_count: number; status: string;
   start_date: string | null; end_date: string | null;
   completed_count: number; total_count: number; exam_passed: boolean;
   has_exam: boolean;
+  // 签到附加项（仅 require_attendance=true 时有效）
+  attended_count?: number;
+  required_count?: number;
 }
 
 interface TreeNode {
@@ -137,7 +143,14 @@ function CourseCard({ course }: { course: CourseWithProgress }) {
       )}
       <div className="mb-1.5">
         <div className="flex items-center justify-between text-[11px] text-text-secondary mb-0.5">
-          <span>{course.total_count} 个视频</span>
+          <span>
+            {course.total_count} 个视频
+            {course.require_attendance && (
+              <span className="ml-2 text-violet-600">
+                · 已签到 {course.attended_count ?? 0}/{course.required_count ?? 0} 场
+              </span>
+            )}
+          </span>
           <span className="text-primary">
             {course.exam_passed && course.total_count === 0
               ? "考试已通过"

@@ -1,10 +1,11 @@
 """课程管理路由"""
 
 import uuid
+from app.logger import get_logger
 from app.services.log_service import write_log
 from collections import defaultdict
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
@@ -17,6 +18,12 @@ from app.schemas.course import (
     ChapterCreate, ChapterUpdate, ChapterOut, ChapterReorder,
 )
 from app.routers.auth import get_current_user, require_admin
+from app.routers.videos import delete_oss_object
+from app.services.department_scope import (
+    check_course_assignment,
+    get_assigned_course_ids,
+    get_department_scope_ids,
+)
 from pydantic import BaseModel
 
 
@@ -58,6 +65,16 @@ def _courses_with_chapters(db: Session, courses: list[Course]) -> list[CourseOut
     for ch in all_chapters:
         chapters_by_course[ch.course_id].append(ch)
 
+    # 线下课程的签到场次数（一次查询，避免逐课程查库）
+    from app.models.attendance import AttendanceSession
+
+    session_counts = dict(
+        db.query(AttendanceSession.course_id, func.count(AttendanceSession.id))
+        .filter(AttendanceSession.course_id.in_(course_ids))
+        .group_by(AttendanceSession.course_id)
+        .all()
+    )
+
     result: list[CourseOut] = []
     for c in courses:
         course_chapters: list[ChapterOut] = []
@@ -71,7 +88,9 @@ def _courses_with_chapters(db: Session, courses: list[Course]) -> list[CourseOut
         root_videos = [VideoOut.model_validate(v) for v in orphan_videos.get(c.id, [])]
         total_video_count = sum(len(ch.videos) for ch in course_chapters) + len(root_videos)
         result.append(CourseOut(
-            id=c.id, title=c.title, description=c.description,
+            id=c.id, title=c.title, course_type=c.course_type,
+            require_attendance=c.require_attendance,
+            description=c.description,
             cover_image=c.cover_image, category_id=c.category_id,
             exam_id=c.exam_id, status=c.status,
             start_date=c.start_date, end_date=c.end_date,
@@ -80,32 +99,59 @@ def _courses_with_chapters(db: Session, courses: list[Course]) -> list[CourseOut
             chapters=course_chapters,
             videos=root_videos,
             video_count=total_video_count,
+            session_count=session_counts.get(c.id, 0),
         ))
     return result
 
 
 router = APIRouter(prefix="/api", tags=["课程管理"])
 
+logger = get_logger(__name__)
+
 
 # ========== 课程 ==========
 
 def _collect_category_ids(db: Session, category_id: str) -> list[str]:
-    """递归收集分类及其所有子分类的 ID"""
-    ids = [category_id]
-    children = db.query(QuestionCategory).filter(QuestionCategory.parent_id == category_id).all()
-    for child in children:
-        ids.extend(_collect_category_ids(db, child.id))
+    """递归收集分类及其所有子分类的 ID。
+
+    性能修复：原实现每层都发一次 SQL（N+1），分类树较深时查询次数线性增长。
+    现一次性加载 id/parent_id 映射后在内存中遍历。
+    """
+    rows = db.query(QuestionCategory.id, QuestionCategory.parent_id).all()
+    children_map: dict[str, list[str]] = {}
+    for cid, pid in rows:
+        if pid:
+            children_map.setdefault(pid, []).append(cid)
+
+    ids: list[str] = []
+    stack = [category_id]
+    seen: set[str] = set()
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        ids.append(cur)
+        stack.extend(children_map.get(cur, []))
     return ids
 
 
 @router.get("/courses", response_model=list[CourseOut])
 def list_courses(
+    response: Response,
     category_id: str | None = Query(None),
     status: str | None = Query(None),
     search: str | None = Query(None),
+    page: int | None = Query(None, ge=1, description="页码（不传则返回全部，保持向后兼容）"),
+    page_size: int | None = Query(None, ge=1, le=500, description="每页数量"),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
+    """获取课程列表（新增可选分页：page/page_size + X-Total-Count 响应头）。
+
+    注意：课程详情装配（章节+视频）成本与课程数成正比，数据量增大后
+    建议前端改用分页参数，避免一次性拉取全部课程。
+    """
     q = db.query(Course)
     if category_id:
         cat_ids = _collect_category_ids(db, category_id)
@@ -114,15 +160,25 @@ def list_courses(
         q = q.filter(Course.status == status)
     if search:
         q = q.filter(Course.title.contains(search))
-    courses = q.order_by(Course.created_at.desc()).all()
+
+    q = q.order_by(Course.created_at.desc())
+    if page and page_size:
+        response.headers["X-Total-Count"] = str(q.count())
+        courses = q.offset((page - 1) * page_size).limit(page_size).all()
+    else:
+        courses = q.all()
     return _courses_with_chapters(db, courses)
 
 
 @router.post("/courses", response_model=CourseOut)
 def create_course(data: CourseCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    # 不再强校验 course_type（历史字段保留兼容）；新逻辑统一由 require_attendance 控制
     course = Course(
         id=str(uuid.uuid4()),
-        title=data.title, description=data.description, cover_image=data.cover_image,
+        title=data.title,
+        course_type=data.course_type or "online",   # 兼容老调用方
+        require_attendance=data.require_attendance,
+        description=data.description, cover_image=data.cover_image,
         category_id=data.category_id, exam_id=data.exam_id,
         start_date=data.start_date, end_date=data.end_date,
         status=data.status or "draft",
@@ -133,20 +189,34 @@ def create_course(data: CourseCreate, db: Session = Depends(get_db), current_use
     db.refresh(course)
     write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="course", action="create", resource_type="课程", resource_name=course.title if hasattr(course, 'title') else "", description=f"{current_user.name} 创建了课程「{course.title}」", level="info")
     return CourseOut(
-        id=course.id, title=course.title, description=course.description,
+        id=course.id, title=course.title, course_type=course.course_type,
+        require_attendance=course.require_attendance,
+        description=course.description,
         cover_image=course.cover_image, category_id=course.category_id,
         exam_id=course.exam_id, status=course.status,
         start_date=course.start_date, end_date=course.end_date,
         created_by=course.created_by, created_at=course.created_at,
         updated_at=course.updated_at, chapters=[], videos=[], video_count=0,
+        session_count=0,
     )
 
 
 @router.get("/courses/{course_id}", response_model=CourseOut)
-def get_course(course_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def get_course(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取课程详情。
+
+    安全修复：原实现只校验「已登录」，任何学员都能读取未分配给自己的课程详情
+    （含视频 obs_key），配合视频接口即可越权播放。现增加课程分配校验。
+    """
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
+    if not check_course_assignment(db, current_user, course_id):
+        raise HTTPException(status_code=403, detail="未分配该课程")
     return _courses_with_chapters(db, [course])[0]
 
 
@@ -155,7 +225,20 @@ def update_course(course_id: str, data: CourseUpdate, db: Session = Depends(get_
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
-    for field, value in data.model_dump(exclude_unset=True).items():
+
+    update_data = data.model_dump(exclude_unset=True)
+    # 非空字段不能被显式置为 null，否则会触发数据库 NOT NULL 约束报 500
+    for non_nullable in ("title", "status"):
+        if non_nullable in update_data and update_data[non_nullable] is None:
+            update_data.pop(non_nullable)
+    # 记录 require_attendance 切换（不再用 course_type 判定，但保留切换审计）
+    if "require_attendance" in update_data and update_data["require_attendance"] != course.require_attendance:
+        logger.info(
+            "课程「%s」 require_attendance 由 %s 切换为 %s（操作人：%s）",
+            course.title, course.require_attendance, update_data["require_attendance"], current_user.name,
+        )
+
+    for field, value in update_data.items():
         setattr(course, field, value)
     db.commit()
     db.refresh(course)
@@ -164,17 +247,56 @@ def update_course(course_id: str, data: CourseUpdate, db: Session = Depends(get_
 
 
 @router.delete("/courses/{course_id}")
-def delete_course(course_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def delete_course(
+    course_id: str,
+    confirm: bool = Query(False, description="必须显式传 true 才执行删除"),
+    force: bool = Query(False, description="课程已有学习/考试记录时，需再传 force=true 才会连历史一并删除"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """删除课程（级联删除章节、视频、考试、分配、学习进度）。
+
+    修复（防误删 + 保护历史）：
+    - 必须显式 `confirm=true`
+    - 若课程下已有学习进度或考试记录，默认**拒绝删除**（返回 409），
+      请改用「下架（status=draft）」保留历史；确实要连历史一起删，再传 `force=true`
+    - 同步清理 OSS 上的视频对象（原先只删库，对象永久残留）
+    """
+    if not confirm:
+        raise HTTPException(status_code=400, detail="删除课程需要显式确认（confirm=true）")
+
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
-    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="course", action="delete", resource_type="课程", resource_name=course.title if hasattr(course, 'title') else "", description=f"{current_user.name} 删除了课程「{course.title}」", level="warning")
+
     from app.models.course import CourseAssignment
     from app.models.learning_progress import LearningProgress
     from app.models.exam import Exam, ExamPaper, ExamResult
+
+    exam_ids = [e.id for e in db.query(Exam).filter(Exam.course_id == course_id).all()]
+
+    progress_count = (
+        db.query(LearningProgress).filter(LearningProgress.course_id == course_id).count()
+    )
+    result_count = (
+        db.query(ExamResult).filter(ExamResult.exam_id.in_(exam_ids)).count() if exam_ids else 0
+    )
+    if (progress_count or result_count) and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"该课程已产生学习记录（学习进度 {progress_count} 条、考试记录 {result_count} 条），"
+                "为避免误删学员历史数据已阻止删除。"
+                "如只需停止发放请改为「下架」；如确认要连历史一并删除，请传 force=true。"
+            ),
+        )
+
+    # 收集 OSS 对象，待数据库事务提交后再清理
+    obs_keys = [v.obs_key for v in db.query(Video).filter(Video.course_id == course_id).all() if v.obs_key]
+
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="course", action="delete", resource_type="课程", resource_name=course.title if hasattr(course, 'title') else "", description=f"{current_user.name} 删除了课程「{course.title}」", level="warning")
     db.query(LearningProgress).filter(LearningProgress.course_id == course_id).delete()
     # 删除关联考试及考试结果、试卷
-    exam_ids = [e.id for e in db.query(Exam).filter(Exam.course_id == course_id).all()]
     if exam_ids:
         db.query(ExamResult).filter(ExamResult.exam_id.in_(exam_ids)).delete()
         db.query(ExamPaper).filter(ExamPaper.exam_id.in_(exam_ids)).delete()
@@ -184,7 +306,10 @@ def delete_course(course_id: str, db: Session = Depends(get_db), current_user: U
     db.query(Chapter).filter(Chapter.course_id == course_id).delete()
     db.delete(course)
     db.commit()
-    return {"ok": True}
+
+    # 事务成功后再删对象存储
+    removed = sum(1 for k in obs_keys if delete_oss_object(k))
+    return {"ok": True, "deleted_oss_objects": removed}
 
 
 # ========== 章节 ==========
@@ -325,15 +450,41 @@ def reorder_videos(course_id: str, data: VideoReorder, db: Session = Depends(get
 
 
 @router.delete("/videos/{video_id}")
-def delete_video(video_id: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def delete_video(
+    video_id: str,
+    confirm: bool = Query(False, description="必须显式传 true 才执行删除"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """删除视频（含学习进度记录与 OSS 对象）。
+
+    修复：
+    - 增加 `confirm=true` 显式确认，避免误调用直接删数据
+    - 同步删除 OSS 上的视频对象（原先只删库，对象永久残留）
+    """
+    if not confirm:
+        raise HTTPException(status_code=400, detail="删除视频需要显式确认（confirm=true）")
+
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在")
+
+    obs_key = video.obs_key
     # 先删除关联的学习进度记录（外键约束）
     from app.models.learning_progress import LearningProgress
     db.query(LearningProgress).filter(LearningProgress.video_id == video_id).delete()
     db.delete(video)
     db.commit()
+
+    # 数据库事务成功后再清理对象存储，避免回滚后文件已丢失
+    delete_oss_object(obs_key)
+
+    write_log(
+        db=db, operator=current_user.name, operator_id=current_user.id,
+        category="course", action="delete", resource_type="视频",
+        resource_name=video.title,
+        description=f"{current_user.name} 删除了视频「{video.title}」", level="warning",
+    )
     return {"ok": True}
 
 
@@ -344,28 +495,15 @@ def student_courses(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取分配给当前学员的课程"""
-    from app.models.course import CourseAssignment
+    """获取分配给当前学员的课程。
 
-    # 查找用户所属部门的 ID（user.department 存的是名称，需转换为 ID）
-    dept_id = None
-    if current_user.department:
-        _dept = current_user.department.split("-")[-1]  # 从完整路径中取叶子名
-        dept = db.query(Department).filter(Department.name == _dept).first()
-        if dept:
-            dept_id = dept.id
-
-    # 获取分配给该用户或其部门的课程
-    conditions = [CourseAssignment.user_id == current_user.id]
-    if dept_id:
-        conditions.append(CourseAssignment.department_id == dept_id)
-
-    assignments = (
-        db.query(CourseAssignment)
-        .filter(or_(*conditions))
-        .all()
-    )
-    course_ids = list(set(a.course_id for a in assignments))
+    修复：原先用 `department.split("-")[-1]` + `Department.name == 叶子名` 反查部门，
+    同名叶子部门会取到任意一个，导致课程可见性错误。
+    现统一走 department_scope（优先 department_id 外键，且包含子/父部门）。
+    """
+    course_ids = get_assigned_course_ids(db, current_user)
+    if not course_ids:
+        return []
     courses = (
         db.query(Course)
         .filter(Course.id.in_(course_ids), Course.status == "published")

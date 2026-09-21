@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Routes, Route, Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { api } from "../lib/api";
@@ -8,21 +8,25 @@ import {
   ChevronsLeft, ChevronsRight, ChevronDown, Search, Bell, LogOut, UserCog,
 } from "lucide-react";
 import logoImg from "../assets/logo.png";
-import AdminDashboard from "../pages/admin/Dashboard";
-import CourseManage from "../pages/admin/CourseManage";
-import QuestionBank from "../pages/admin/QuestionBank";
-import PaperManage from "../pages/admin/PaperManage";
-import ExamManage from "../pages/admin/ExamManage";
-import ExamPaper from "../pages/admin/ExamPaper";
-import PaperDetail from "../pages/admin/PaperDetail";
-import ExamResults from "../pages/admin/ExamResults";
-import UserProgress from "../pages/admin/UserProgress";
-import DepartmentUserManage from "../pages/admin/DepartmentUserManage";
-import UserManage from "../pages/admin/UserManage";
-import QuestionManage from "../pages/admin/QuestionManage";
-import KnowledgeManage from "../pages/admin/KnowledgeManage";
-import LogViewer from "../pages/admin/LogViewer";
-import CoursePreview from "../pages/admin/CoursePreview";
+
+// 路由级按需加载：各页面及其重型依赖（播放器 / 课件预览 / 知识地图画布等）
+// 仅在访问对应路由时才下载，避免全部页面代码进入首屏。
+const AdminDashboard = lazy(() => import("../pages/admin/Dashboard"));
+const CourseManage = lazy(() => import("../pages/admin/CourseManage"));
+const QuestionBank = lazy(() => import("../pages/admin/QuestionBank"));
+const PaperManage = lazy(() => import("../pages/admin/PaperManage"));
+const ExamManage = lazy(() => import("../pages/admin/ExamManage"));
+const ExamPaper = lazy(() => import("../pages/admin/ExamPaper"));
+const PaperDetail = lazy(() => import("../pages/admin/PaperDetail"));
+const ExamResults = lazy(() => import("../pages/admin/ExamResults"));
+const UserProgress = lazy(() => import("../pages/admin/UserProgress"));
+const DepartmentUserManage = lazy(() => import("../pages/admin/DepartmentUserManage"));
+const UserManage = lazy(() => import("../pages/admin/UserManage"));
+const QuestionManage = lazy(() => import("../pages/admin/QuestionManage"));
+const KnowledgeManage = lazy(() => import("../pages/admin/KnowledgeManage"));
+const LogViewer = lazy(() => import("../pages/admin/LogViewer"));
+const CoursePreview = lazy(() => import("../pages/admin/CoursePreview"));
+const AttendanceBoard = lazy(() => import("../pages/admin/AttendanceBoard"));
 import CommandPalette, { useCommandHotkey } from "../components/CommandPalette";
 
 const menuGroups = [
@@ -472,7 +476,17 @@ export default function AdminLayout() {
         </header>
 
         <main className="flex-1" style={{ padding: 22, minWidth: 0 }}>
-          <Routes>
+          <Suspense
+          fallback={
+            <div className="flex items-center justify-center py-24">
+              <div className="text-center">
+                <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-3" />
+                <p className="text-text-secondary text-sm">加载中...</p>
+              </div>
+            </div>
+          }
+        >
+        <Routes>
             <Route index element={<AdminDashboard />} />
             <Route path="courses/:id" element={<CoursePreview />} />
             <Route path="courses" element={<CourseManage />} />
@@ -488,8 +502,11 @@ export default function AdminLayout() {
             <Route path="users/manage" element={<UserManage />} />
             <Route path="users" element={<DepartmentUserManage />} />
             <Route path="logs" element={<LogViewer />} />
+            {/* 投屏签到码页：全屏 fixed 布局，仍需登录态，因此挂在 AdminLayout 下 */}
+            <Route path="attendance/:sessionId/board" element={<AttendanceBoard />} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Routes>
+        </Suspense>
         </main>
       </div>
 

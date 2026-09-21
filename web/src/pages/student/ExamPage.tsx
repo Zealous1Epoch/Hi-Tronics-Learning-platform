@@ -8,10 +8,12 @@ interface ExamQuestion {
 }
 interface ExamData {
   result_id: string; exam_title: string; duration: number;
+  remaining_seconds?: number; paper_total_score?: number;
   total_score: number; questions: ExamQuestion[]; attempt_number: number;
 }
 interface GradingResult {
   score: number; total_score: number; passed: boolean; pass_score: number;
+  timed_out?: boolean; paper_total_score?: number;
   grading_details: { question_id: string; score: number; max_score: number }[];
 }
 interface ReviewQuestion {
@@ -84,7 +86,14 @@ export default function ExamPage() {
     api<ExamData>(`/student/exams/${id}/start`)
       .then((data) => {
         setExamData(data);
-        setTimeLeft(data.duration * 60);
+        // 使用服务端计算的剩余时间（刷新页面后不会重置倒计时）。
+        // 旧实现用 data.duration * 60 自行计时，配合后端「刷新即重置 started_at」，
+        // 使考试时长限制完全失效。
+        setTimeLeft(
+          typeof data.remaining_seconds === "number"
+            ? data.remaining_seconds
+            : data.duration * 60,
+        );
         setLoading(false);
       })
       .catch((err) => {
@@ -152,9 +161,12 @@ export default function ExamPage() {
     setSubmitting(true);
     if (timerRef.current) clearInterval(timerRef.current);
 
+    // 未作答的题目提交 null。
+    // 修复：旧实现给未作答的判断题填了 false —— 若正确答案恰为「错误」，
+    // 学员留空反而得分。现在留空一律是 null，服务端按 0 分处理。
     const answerList = examData!.questions.map((q) => ({
       question_id: q.id,
-      answer: answers[q.id] ?? (q.type === "multi_choice" ? [] : q.type === "true_false" ? false : ""),
+      answer: answers[q.id] ?? null,
     }));
 
     try {
@@ -271,6 +283,11 @@ export default function ExamPage() {
           <p className={`text-sm mb-6 ${result.passed ? "text-green-600" : "text-primary"}`}>
             {result.passed ? "恭喜通过!" : `未通过（及格线: ${result.pass_score}分）`}
           </p>
+          {result.timed_out && (
+            <p className="text-sm mb-6 text-amber-600">
+              本次作答超出考试时长，已按超时处理（记 0 分）。如有疑问请联系管理员。
+            </p>
+          )}
           <button onClick={() => navigate(courseId ? `/student/courses/${courseId}` : "/student/courses")} className="px-6 py-2 bg-primary text-white rounded-md text-sm">
             返回课程
           </button>

@@ -94,3 +94,67 @@
 - [ ] 课程分配（按人/部门搜索多选）
 - [ ] 学员进度（管理后台）+ 导出 Excel
 - [ ] 个人学习档案（学员端）
+---
+
+## 2026-09-20 全量安全与正确性修复
+
+由一次全量代码审查（静态审查 + 真实 MySQL 冒烟 + 并发压测 + 漏洞 PoC 复现）驱动，
+集中修复了 2 个阻断级、8 个高危、以及若干功能缺陷与性能问题。详情见
+`code-architecture-map.md` §6「全量修复记录」。
+
+### 阻断级（P0）
+
+| # | 问题 | 修复 |
+|---|------|------|
+| 1 | **考试评分可绕过**：`submit_exam` 的换算分母只累计「学生实际提交的题目」，5 题卷只交 1 题即可算出 100 分并通过（已 PoC 复现） | 分母改为「本次作答题目快照的分值之和」，未作答按 0 分计入；并限定提交题目必须属于本次快照 |
+| 2 | **SSO 免密登录必然 500**：`sso.py` 查询 `User.workcode_hash`，但该字段既不在 ORM 模型也不在数据库（真实 MySQL 也没有该列） | 改用已有的 `employee_id` / `username` 查询；移除每次登录都执行的运行时 `ALTER TABLE` |
+| 3 | **前后端端口错配**：前端 `/api` 代理指向 8002，而 8002 被「海创光电招聘系统」占用，平台实际不可用 | 代理目标改为 `VITE_PROXY_TARGET`，默认 `localhost:8100` |
+
+### 高危（P1）
+
+- 考试 `start_time` / `end_time` / `status` 服务端完全不校验 → 已截止考试仍可作答
+- 复用未完成记录时重置 `started_at` → 刷新即可把倒计时归零；随机组卷每次刷新换一套题
+- `GET /api/courses/{id}` 只校验登录 → 学员可读未分配课程（含视频 obs_key），配合视频接口可越权播放
+- `/api/videos/stream/{file}` 主 token 分支不校验文件名与归属 → 越权播放任意视频
+- 登录限流键取自客户端可伪造的 `X-Forwarded-For` → 实测伪造 8 个 IP 全部绕过；且反向代理部署时全公司共享 5 次/分钟额度
+- 企微回调未知 `state` 仅打 warning 就继续登录 → CSRF 防护形同虚设
+- `/api/questions/template` 无任何鉴权
+- 删除考试会级联物理删除全部历史成绩，且无二次确认
+
+### 功能缺陷
+
+- `grade_question` 对选择题硬编码 10 分 → 试卷每题配分被忽略（已有测试把这个缺陷写成了断言，一并修正）
+- 前端未作答判断题提交 `false` → 正确答案为「错误」时留空反而得分
+- 课程叶子部门同名时按名字反查会算错人 → 统一改用 `department_id`
+- 一名课程被创建第二个考试时静默覆盖 `course.exam_id`，旧考试变孤儿
+- 删除视频/课程不清理 OSS 对象，存储只增不减
+- PPT 转换的 PDF 在删除知识节点时不清理
+- `Task.due_date` 直接与字符串比较，依赖数据库隐式转换
+
+### 性能与工程质量
+
+- 前端零代码分割，单包 2.68MB（gzip 774KB）→ 路由级按需加载后首屏约 86KB（gzip），**降幅约 89%**
+- 部门树 / 知识节点树构建为 O(n²) → 降为 O(n)；分类树递归由 N+1 查询改为一次加载
+- `admin_progress_overview` 加载全部学员的全部考试记录 → 在 SQL 层限定相关考试
+- `/api/courses`、`/api/exams`、`/api/papers` 新增可选分页（`page`/`page_size` + `X-Total-Count`）
+- 模块级字典（用户缓存 / 限流桶 / SSO code）无淘汰 → 增加上限与惰性清理
+- 数据库新增唯一约束（`learning_progress`、`course_assignments`）与复合索引
+- `server/test.db`、`server/app.db` 曾被 git 跟踪，跑测试即污染 diff → 已移出索引并加入 `.gitignore`
+- SSO 回调路径在前端 dev 下必然 404 → 后端新增 `/api/sso/exchange` 别名，前后端前缀统一
+- favicon 在 dev 下出现双 base 前缀 404 → 用 Vite 插件在 HTML 最终化阶段归一化
+- ErrorBoundary 增加 `componentDidCatch` 与全局 `unhandledrejection` / `error` 监听
+
+### 测试
+
+- 新增 `server/tests/test_security_fixes.py`：20 个回归用例固化上述修复
+- 修正 `tests/test_exam_flow.py` 中把缺陷当期望值的断言
+- 修复 `tests/test_exam_flow.py` 的 `setup_exam` 未设置 `status="published"`（新规则下学员无法开考）
+- 当前：`pytest tests/` → **33 passed**
+
+### 未修复（需产品/运维决策）
+
+- JWT 仍存 localStorage（XSS 面）→ 建议改 httpOnly Cookie + refresh token + CSP
+- `.env` 中的阿里云 OSS 长期 AccessKey 建议轮换为 RAM 子账号 + STS
+- `log_service.write_log()` 的即时 commit 属有意设计（保证审计日志不丢），未改动
+- 多 worker 部署时，内存态的限流/缓存/SSO code 会各 worker 独立 → 需引入 Redis
+- 前端 `<StrictMode>` 仍关闭（与命令式 video.js 冲突，详细原因见 `web/src/main.tsx`）

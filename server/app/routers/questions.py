@@ -192,8 +192,8 @@ def export_questions(
 
 
 @router.get("/questions/template")
-def download_template():
-    """下载导入模板"""
+def download_template(_: User = Depends(require_admin)):
+    """下载导入模板（修复：原实现缺少鉴权，任何匿名用户均可下载）"""
     wb = Workbook()
     ws = wb.active
     ws.title = "导入模板"

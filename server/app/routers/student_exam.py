@@ -7,15 +7,19 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func as sa_func, String as SAString, cast as sa_cast
 from pydantic import BaseModel
 from app.database import get_db
 from app.models.user import User
+from app.models.course import Course
 from app.models.exam import Exam, ExamPaper, ExamResult
 from app.models.question import Question
 from app.routers.auth import get_current_user
+from app.services.department_scope import check_course_assignment
 
 router = APIRouter(prefix="/api/student", tags=["学员考试"])
+
+# 交卷宽限期：超时后仍允许在此时长内补交（网络抖动/自动交卷延迟），超出则记 0 分
+SUBMIT_GRACE_SECONDS = 60
 
 
 class SubmitAnswer(BaseModel):
@@ -49,19 +53,25 @@ def _get_multi_correct_list(correct: dict) -> list[str] | None:
 
 
 def grade_question(question: Question, student_answer: str | list[str] | bool | None, total_points: int = 10) -> tuple[int, int]:
-    """自动打分，返回 (得分, 满分)"""
+    """自动打分，返回 (得分, 满分)。
+
+    修复：原先单选/多选/判断/填空题把满分硬编码为 10，导致试卷中配置的分值
+    （如「本题 90 分 / 那题 10 分」）被完全忽略，题目权重失真。
+    现统一以 total_points（来自试卷该题的分数配置）作为满分。
+    """
     q_type = question.type
     correct = question.answer
+    full_score = max(int(total_points or 0), 0)
+    if full_score <= 0:
+        return (0, full_score)
 
     if q_type == "single_choice":
-        full_score = 10
         if student_answer and isinstance(correct, dict):
             correct_answer = _get_answer_value(correct)
             return (full_score if correct_answer is not None and str(student_answer) == str(correct_answer) else 0, full_score)
         return (0, full_score)
 
     elif q_type == "multi_choice":
-        full_score = 10
         if student_answer and isinstance(correct, dict):
             correct_list = _get_multi_correct_list(correct)
             if correct_list is None:
@@ -71,26 +81,22 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
         return (0, full_score)
 
     elif q_type == "true_false":
-        full_score = 10
+        # 未作答必须为 None（不能是 False），否则「留空」会被当成「选错误」而白送分
         if student_answer is not None and isinstance(correct, dict):
-            student_bool = student_answer if isinstance(student_answer, bool) else str(student_answer).lower() == "true"
+            student_bool = student_answer if isinstance(student_answer, bool) else str(student_answer).strip().lower() == "true"
             correct_answer = _get_answer_value(correct)
             return (full_score if correct_answer is not None and student_bool == correct_answer else 0, full_score)
         return (0, full_score)
 
     elif q_type == "fill_blank":
-        full_score = 10
         if student_answer and isinstance(correct, dict):
             correct_answer = _get_answer_value(correct)
             return (full_score if correct_answer is not None and str(student_answer).strip().lower() == str(correct_answer).strip().lower() else 0, full_score)
         return (0, full_score)
 
     elif q_type == "essay":
-        full_score = total_points
         keywords: list[str] = question.keywords or []
-        if not keywords:
-            return (0, full_score)
-        if not student_answer:
+        if not keywords or not student_answer:
             return (0, full_score)
         import re
         expanded = []
@@ -103,11 +109,12 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
             return (0, full_score)
         answer_lower = str(student_answer).lower()
         matched = sum(1 for kw in expanded if kw.lower() in answer_lower)
-        per_keyword = full_score // len(expanded)
-        score = matched * per_keyword
+        # 修复：原 `matched * (full_score // len(expanded))` 在关键词数多于满分时
+        # 每词得分被整除为 0，导致永远得 0 分。改为按比例四舍五入并截断到满分。
+        score = min(full_score, round(full_score * matched / len(expanded)))
         return (score, full_score)
 
-    return (0, 10)
+    return (0, full_score)
 
 
 @router.get("/exams/{exam_id}/status")
@@ -116,11 +123,165 @@ def get_exam_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取考试状态"""
+    """获取考试状态（含是否可开始、原因、剩余作答时间、剩余重考次数）。"""
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
-    return {"status": exam.status}
+
+    now = datetime.now()
+    reason = _exam_time_window_error(exam, now)
+
+    if not reason and current_user.role != "admin" and not check_course_assignment(db, current_user, exam.course_id):
+        reason = "未分配该课程，无法参加考试"
+
+    # 注：按需求确认，签到不再作为考试解锁的前置条件；考试只看视频进度。
+
+    attempts_used = (
+        db.query(ExamResult)
+        .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+        .count()
+    )
+    attempts_left = None if not exam.max_attempts else max(0, exam.max_attempts - attempts_used)
+    if not reason and attempts_left == 0:
+        reason = "已达到最大重考次数"
+
+    # 进行中的作答剩余时间
+    remaining_seconds = None
+    in_progress = (
+        db.query(ExamResult)
+        .filter(
+            ExamResult.exam_id == exam_id,
+            ExamResult.user_id == current_user.id,
+            ExamResult.submitted_at.is_(None),
+        )
+        .order_by(ExamResult.started_at.desc())
+        .first()
+    )
+    if in_progress and exam.duration:
+        elapsed = (now - (in_progress.started_at or now)).total_seconds()
+        remaining_seconds = max(0, int(exam.duration * 60 - elapsed))
+
+    return {
+        "status": exam.status,
+        "can_start": reason is None,
+        "reason": reason,
+        "duration": exam.duration,
+        "remaining_seconds": remaining_seconds,
+        "attempts_used": attempts_used,
+        "attempts_left": attempts_left,
+        "start_time": exam.start_time.isoformat() if exam.start_time else None,
+        "end_time": exam.end_time.isoformat() if exam.end_time else None,
+    }
+
+
+def _exam_time_window_error(exam: Exam, now: datetime) -> str | None:
+    """校验考试状态与开放时间，返回错误提示（None 表示当前允许考试）。"""
+    if exam.status != "published":
+        if exam.status == "ended":
+            return "考试已结束"
+        return "考试尚未发布"
+    if exam.start_time and now < exam.start_time:
+        return f"考试将于 {exam.start_time:%Y-%m-%d %H:%M} 开放"
+    if exam.end_time and now > exam.end_time:
+        return f"考试已于 {exam.end_time:%Y-%m-%d %H:%M} 截止"
+    return None
+
+
+def _load_snapshot_questions(db: Session, snapshot: list[dict]) -> list[dict]:
+    """根据题目快照重建题目列表（不重新抽题，保证同一次作答题目稳定）。"""
+    if not snapshot:
+        return []
+    ids = [item["question_id"] for item in snapshot]
+    score_map = {item["question_id"]: item.get("score", 0) for item in snapshot}
+    questions = db.query(Question).filter(Question.id.in_(ids)).all()
+    qmap = {q.id: q for q in questions}
+    out: list[dict] = []
+    for item in snapshot:
+        q = qmap.get(item["question_id"])
+        if not q:
+            continue  # 题目已被删除，跳过
+        out.append({
+            "id": q.id,
+            "type": q.type,
+            "stem": q.stem,
+            "options": q.options,
+            "score": score_map.get(q.id, 0),
+        })
+    return out
+
+
+def _draw_random_questions(db: Session, paper: ExamPaper, exam: Exam) -> list[dict]:
+    """按规则随机抽题，返回 [{id,type,stem,options,score,difficulty}]。"""
+    from app.models.paper import Paper as PaperModel
+    from app.models.question_category import QuestionCategory
+
+    # 题库范围：优先取 Paper.source_banks
+    source_banks = None
+    if exam.paper_id:
+        src_paper = db.query(PaperModel).filter(PaperModel.id == exam.paper_id).first()
+        if src_paper and src_paper.source_banks:
+            source_banks = src_paper.source_banks
+
+    bank_ids: set[str] = set()
+    if source_banks:
+        pending = list(source_banks)
+        while pending:
+            bank_id = pending.pop()
+            if bank_id in bank_ids:
+                continue
+            bank_ids.add(bank_id)
+            pending.extend(
+                c.id for c in db.query(QuestionCategory.id)
+                .filter(QuestionCategory.parent_id == bank_id).all()
+            )
+
+    result: list[dict] = []
+    for rule in paper.random_rules or []:
+        pool_query = db.query(Question).filter(
+            Question.type == rule["type"],
+            Question.difficulty == rule["difficulty"],
+        )
+        if bank_ids:
+            pool_query = pool_query.filter(Question.category_id.in_(bank_ids))
+        pool = pool_query.all()
+        selected = secrets.SystemRandom().sample(pool, min(rule["count"], len(pool)))
+        for q in selected:
+            result.append({
+                "id": q.id,
+                "type": q.type,
+                "stem": q.stem,
+                "options": q.options,
+                "score": rule["score"],
+                "difficulty": q.difficulty,
+            })
+    # 按题型分组（单选→多选→判断→填空→问答），组内按难度升序
+    TYPE_ORDER = {"single_choice": 0, "multi_choice": 1, "true_false": 2, "fill_blank": 3, "essay": 4}
+    DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2}
+    result.sort(key=lambda q: (TYPE_ORDER.get(q["type"], 99), DIFFICULTY_ORDER.get(q["difficulty"], 99)))
+    return result
+
+
+def _draw_fixed_questions(db: Session, paper: ExamPaper) -> list[dict]:
+    """固定组卷：按配置顺序取题。"""
+    configs = paper.questions or []
+    question_ids = [c["question_id"] for c in configs]
+    score_map = {c["question_id"]: c.get("score", 0) for c in configs}
+    questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
+    qmap = {q.id: q for q in questions}
+    out: list[dict] = []
+    for cid in question_ids:  # 保持配置顺序
+        q = qmap.get(cid)
+        if not q:
+            continue
+        out.append({
+            "id": q.id,
+            "type": q.type,
+            "stem": q.stem,
+            "options": q.options,
+            "score": score_map.get(q.id, 0),
+            # 不返回正确答案
+        })
+    return out
 
 
 @router.get("/exams/{exam_id}/start")
@@ -129,128 +290,102 @@ def start_exam(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """开始考试，返回试卷题目"""
+    """开始考试，返回试卷题目。
+
+    修复项：
+    - 校验考试状态与开放时间（原先 start_time/end_time 从不校验，已截止的考试仍可作答）
+    - 校验学员是否被分配了该课程（原先任意学员可考任意考试）
+    - 刷新页面不再重置倒计时（原先每次 start 都把 started_at 置为当前时间）
+    - 刷新页面不再重新抽题（原先随机组卷每次刷新换一套题，可反复刷到简单题）
+    - 返回 remaining_seconds 由服务端计算，前端不再自行重新计时
+    """
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
 
-    # 检查是否已参加过（达到最大次数）
-    if exam.max_attempts:
-        attempt_count = (
-            db.query(ExamResult)
-            .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
-            .count()
-        )
-        if attempt_count >= exam.max_attempts:
-            raise HTTPException(status_code=400, detail="已达到最大重考次数")
+    now = datetime.now()
+    window_error = _exam_time_window_error(exam, now)
+    if window_error:
+        raise HTTPException(status_code=400, detail=window_error)
 
-    paper = db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).first()
-    if not paper:
-        raise HTTPException(status_code=400, detail="试卷尚未配置")
+    if current_user.role != "admin" and not check_course_assignment(db, current_user, exam.course_id):
+        raise HTTPException(status_code=403, detail="未分配该课程，无法参加考试")
 
-    # 获取题目
-    if exam.paper_type == "fixed" and paper.questions:
-        # 固定组卷
-        question_configs = paper.questions
-        question_ids = [q["question_id"] for q in question_configs]
-        score_map = {q["question_id"]: q["score"] for q in question_configs}
-        questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
-        # 按配置顺序排列
-        questions.sort(key=lambda q: question_ids.index(q.id))
-        result = []
-        for q in questions:
-            result.append({
-                "id": q.id,
-                "type": q.type,
-                "stem": q.stem,
-                "options": q.options,
-                "score": score_map.get(q.id, 10),
-                # 不返回正确答案
-            })
+    duration_seconds = max(int(exam.duration or 0), 0) * 60
 
-    elif exam.paper_type == "random" and paper.random_rules:
-        # 随机组卷：按规则动态抽题，限定题库范围
-        result = []
-        # 获取试卷的题库范围（从 Paper 或 ExamPaper 的 source_banks）
-        source_banks = None
-        if paper.random_rules and hasattr(paper, 'source_banks'):
-            source_banks = getattr(paper, 'source_banks', None)
-        if not source_banks:
-            # 尝试从 Paper 表获取
-            from app.models.paper import Paper as PaperModel
-            src_paper = db.query(PaperModel).filter(PaperModel.id == exam.paper_id).first()
-            if src_paper and src_paper.source_banks:
-                source_banks = src_paper.source_banks
-
-        for rule in paper.random_rules:
-            pool_query = db.query(Question).filter(
-                Question.type == rule["type"],
-                Question.difficulty == rule["difficulty"],
-            )
-            # 限定题库范围
-            if source_banks:
-                from app.models.question_category import QuestionCategory
-                bank_ids: set[str] = set()
-                for bank_id in source_banks:
-                    bank_ids.add(bank_id)
-                    # 递归收集子分类
-                    children = db.query(QuestionCategory).filter(QuestionCategory.parent_id == bank_id).all()
-                    for child in children:
-                        bank_ids.add(child.id)
-                pool_query = pool_query.filter(Question.category_id.in_(bank_ids))
-            pool = pool_query.all()
-            selected = secrets.SystemRandom().sample(pool, min(rule["count"], len(pool)))
-            for q in selected:
-                result.append({
-                    "id": q.id,
-                    "type": q.type,
-                    "stem": q.stem,
-                    "options": q.options,
-                    "score": rule["score"],
-                    "difficulty": q.difficulty,
-                })
-        # 按题型分组（单选→多选→判断→填空→问答），组内按难度升序
-        TYPE_ORDER = {
-            "single_choice": 0,
-            "multi_choice": 1,
-            "true_false": 2,
-            "fill_blank": 3,
-            "essay": 4,
-        }
-        DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2}
-        result.sort(key=lambda q: (TYPE_ORDER.get(q["type"], 99), DIFFICULTY_ORDER.get(q["difficulty"], 99)))
-    else:
-        raise HTTPException(status_code=400, detail="试卷配置无效")
-
-    # 构建题目快照（写回 ExamResult，供后续查看错题用）
-    question_snapshot = [{"question_id": q["id"], "score": q["score"]} for q in result]
-
-    # 检查是否有未提交的考试记录（刷新/断网恢复场景），有则复用
+    # ── 优先复用未提交的作答（刷新/断网恢复）────────────────────────
     existing_incomplete = (
         db.query(ExamResult)
         .filter(
             ExamResult.exam_id == exam_id,
             ExamResult.user_id == current_user.id,
-            sa_cast(ExamResult.answers, SAString) == '{}',
+            ExamResult.submitted_at.is_(None),
         )
+        .order_by(ExamResult.started_at.desc())
         .first()
     )
 
     if existing_incomplete:
-        # 复用未完成的记录，刷新开始时间，同步更新题目快照
-        existing_incomplete.started_at = datetime.now()
-        existing_incomplete.questions = question_snapshot
-        db.commit()
-        exam_result = existing_incomplete
-    else:
-        # 新建考试记录（含并发安全处理）
+        started = existing_incomplete.started_at or now
+        elapsed = (now - started).total_seconds()
+        remaining = max(0, int(duration_seconds - elapsed)) if duration_seconds else 0
+
+        if duration_seconds and remaining <= 0:
+            # 超时未交卷：按超时归档为 0 分，避免反复重试
+            existing_incomplete.answers = []
+            existing_incomplete.score = 0
+            existing_incomplete.passed = False
+            existing_incomplete.submitted_at = now
+            db.commit()
+            raise HTTPException(status_code=400, detail="考试已超时，本次作答已按超时交卷（0 分）")
+
+        snapshot = existing_incomplete.questions or []
+        result = _load_snapshot_questions(db, snapshot)
+        if result:
+            exam_result = existing_incomplete
+        else:
+            # 快照丢失（历史脏数据）→ 作废该次尝试，重新抽题
+            db.delete(existing_incomplete)
+            db.commit()
+            existing_incomplete = None
+
+    if not existing_incomplete:
+        # ── 新建一次作答 ──────────────────────────────────────────
+        if exam.max_attempts:
+            attempt_count = (
+                db.query(ExamResult)
+                .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+                .count()
+            )
+            if attempt_count >= exam.max_attempts:
+                raise HTTPException(status_code=400, detail="已达到最大重考次数")
+
+        paper = db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).first()
+        if not paper:
+            raise HTTPException(status_code=400, detail="试卷尚未配置")
+
+        if exam.paper_type == "fixed" and paper.questions:
+            result = _draw_fixed_questions(db, paper)
+        elif exam.paper_type == "random" and paper.random_rules:
+            result = _draw_random_questions(db, paper, exam)
+        else:
+            raise HTTPException(status_code=400, detail="试卷配置无效")
+
+        if not result:
+            raise HTTPException(
+                status_code=400,
+                detail="试卷未抽到任何题目，请管理员检查组卷规则的题型/难度/题库范围是否与题库匹配",
+            )
+
+        question_snapshot = [{"question_id": q["id"], "score": q["score"]} for q in result]
+        remaining = duration_seconds
+
         for _ in range(3):
             attempt_number = (
                 db.query(ExamResult)
                 .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
                 .count()
             ) + 1
-
             exam_result = ExamResult(
                 id=str(uuid.uuid4()),
                 exam_id=exam_id,
@@ -260,7 +395,8 @@ def start_exam(
                 score=0,
                 passed=False,
                 attempt_number=attempt_number,
-                started_at=datetime.now(),
+                started_at=now,
+                submitted_at=None,
             )
             db.add(exam_result)
             try:
@@ -269,12 +405,16 @@ def start_exam(
             except IntegrityError:
                 db.rollback()
                 continue
+        else:
+            raise HTTPException(status_code=409, detail="创建考试记录失败，请重试")
 
     return {
         "result_id": exam_result.id,
         "exam_title": exam.title,
         "duration": exam.duration,
+        "remaining_seconds": remaining,
         "total_score": exam.total_score,
+        "paper_total_score": sum(q["score"] for q in result),
         "questions": result,
         "attempt_number": exam_result.attempt_number,
     }
@@ -287,103 +427,82 @@ def submit_exam(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """交卷并自动打分"""
+    """交卷并自动打分。
+
+    修复（P0）：原先换算分母 `max_score` 只累计「学生实际提交的题目」，
+    导致 5 题卷只交 1 题也能算出 100 分并判定通过（已用 PoC 复现）。
+    现在：
+    - 以本次作答的题目快照为唯一评分依据
+    - 分母 = 快照全部题目分值之和，未作答按 0 分计入，少交题不再有利
+    - 提交的题目必须落在本次快照内（随机组卷原先按整个题库校验，范围过宽）
+    - 服务端校验考试时长，超时交卷记 0 分
+    """
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
 
-    # 获取合法题目 ID 集合（防止提交不属于本次考试的题目）
-    paper = db.query(ExamPaper).filter(ExamPaper.exam_id == exam_id).first()
-    valid_question_ids: set[str] = set()
-    if paper and paper.questions:
-        valid_question_ids = {q["question_id"] for q in paper.questions}
-    elif paper and paper.random_rules:
-        # 随机组卷：只允许题库范围内符合规则的题目
-        source_banks = getattr(paper, 'source_banks', None) or []
-        from app.models.question_category import QuestionCategory
-        bank_ids: set[str] = set()
-        for bank_id in source_banks:
-            bank_ids.add(bank_id)
-            children = db.query(QuestionCategory).filter(QuestionCategory.parent_id == bank_id).all()
-            for child in children:
-                bank_ids.add(child.id)
-        for rule in paper.random_rules:
-            q = db.query(Question).filter(
-                Question.type == rule["type"],
-                Question.difficulty == rule["difficulty"],
-            )
-            if bank_ids:
-                q = q.filter(Question.category_id.in_(bank_ids))
-            pool = q.all()
-            valid_question_ids.update(q.id for q in pool)
-
-    # 过滤掉非法题目
-    question_ids = [a.question_id for a in data.answers if a.question_id in valid_question_ids]
-    if not question_ids:
-        raise HTTPException(status_code=400, detail="提交的题目均不属于本次考试")
-
-    questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
-    question_map = {q.id: q for q in questions}
-
-    # 获取试卷中每道题的配置分数
-    score_map: dict[str, int] = {}
-    if paper and paper.questions:
-        for qc in paper.questions:
-            if isinstance(qc, dict) and "question_id" in qc:
-                score_map[qc["question_id"]] = qc.get("score", 10)
-
-    # 打分
-    total_score = 0
-    max_score = 0
-    grading_details = []
-
-    for ans in data.answers:
-        q = question_map.get(ans.question_id)
-        if not q:
-            continue
-        score, full = grade_question(q, ans.answer, total_points=score_map.get(ans.question_id, 10))
-        total_score += score
-        max_score += full
-        grading_details.append({
-            "question_id": ans.question_id,
-            "score": score,
-            "max_score": full,
-        })
-
-    # 按比例换算到考试总分
-    final_score = round(total_score * exam.total_score / max(max_score, 1))
-    passed = final_score >= exam.pass_score
-
-    # 查找未提交的考试记录（answers 为空即未提交）
     result = (
         db.query(ExamResult)
         .filter(
             ExamResult.exam_id == exam_id,
             ExamResult.user_id == current_user.id,
-            sa_cast(ExamResult.answers, SAString) == '{}',
+            ExamResult.submitted_at.is_(None),
         )
         .order_by(ExamResult.started_at.desc())
         .first()
     )
-    if result:
-        result.answers = [a.model_dump() for a in data.answers]
-        result.score = final_score
-        result.passed = passed
-        result.submitted_at = datetime.now()
-    else:
-        result = ExamResult(
-            id=str(uuid.uuid4()),
-            exam_id=exam_id,
-            user_id=current_user.id,
-            answers=[a.model_dump() for a in data.answers],
-            score=final_score,
-            passed=passed,
-            attempt_number=1,
-            started_at=datetime.now(),
-            submitted_at=datetime.now(),
-        )
-        db.add(result)
+    if not result:
+        raise HTTPException(status_code=400, detail="未找到进行中的考试，请先开始考试")
 
+    snapshot = result.questions or []
+    if not snapshot:
+        raise HTTPException(status_code=400, detail="本次作答缺少题目快照，无法评分，请重新开始考试")
+
+    now = datetime.now()
+    duration_seconds = max(int(exam.duration or 0), 0) * 60
+    timed_out = bool(
+        duration_seconds
+        and result.started_at
+        and (now - result.started_at).total_seconds() > duration_seconds + SUBMIT_GRACE_SECONDS
+    )
+
+    score_map = {item["question_id"]: item.get("score", 0) for item in snapshot}
+    expected_max = sum(score_map.values())
+    if expected_max <= 0:
+        raise HTTPException(status_code=400, detail="本次试卷分值为 0，请管理员检查组卷配置")
+
+    submitted = {a.question_id: a.answer for a in data.answers if a.question_id in score_map}
+    if not submitted:
+        raise HTTPException(status_code=400, detail="提交的题目均不属于本次考试")
+
+    questions = db.query(Question).filter(Question.id.in_(list(score_map.keys()))).all()
+    question_map = {q.id: q for q in questions}
+
+    total_score = 0
+    grading_details = []
+    for qid in score_map:                    # 遍历快照全部题目，未作答自然得 0
+        question = question_map.get(qid)
+        if not question:
+            continue
+        score, full = grade_question(
+            question, submitted.get(qid), total_points=score_map.get(qid, 0)
+        )
+        total_score += score
+        grading_details.append({
+            "question_id": qid,
+            "score": score,
+            "max_score": full,
+            "answered": qid in submitted,
+        })
+
+    # 分母固定为本次试卷应有总分 → 无法通过少交题放大得分
+    final_score = 0 if timed_out else round(total_score * exam.total_score / expected_max)
+    passed = final_score >= exam.pass_score
+
+    result.answers = [a.model_dump() for a in data.answers if a.question_id in score_map]
+    result.score = final_score
+    result.passed = passed
+    result.submitted_at = now
     db.commit()
 
     return {
@@ -391,6 +510,8 @@ def submit_exam(
         "total_score": exam.total_score,
         "passed": passed,
         "pass_score": exam.pass_score,
+        "timed_out": timed_out,
+        "paper_total_score": expected_max,
         "grading_details": grading_details,
     }
 

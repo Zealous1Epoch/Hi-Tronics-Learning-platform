@@ -2,9 +2,21 @@
 
 import uuid
 from datetime import datetime, date
-from sqlalchemy import String, Integer, Text, Date, DateTime, ForeignKey, Index, UniqueConstraint, Boolean, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, Integer, Text, Date, DateTime, ForeignKey, Index, UniqueConstraint, Boolean, func, Table, Column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+
+
+# 多对多关联表：课程 ↔ 章节
+# 一门课可同时属于多个章节，一章节也可包含多门课
+# （目前产品逻辑是一课程属多章节，即同一视频可在多章节下展示）
+course_chapters: Table = Table(
+    "course_chapters",
+    Base.metadata,
+    Column("course_id", String(36), ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("chapter_id", String(36), ForeignKey("chapters.id", ondelete="CASCADE"), primary_key=True),
+    Index("ix_course_chapters_course_id", "course_id"),
+)
 
 
 class Course(Base):
@@ -53,6 +65,10 @@ class Course(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间"
     )
+    # 章节归属（多对多 through course_chapters）
+    chapters: Mapped[list["Chapter"]] = relationship(
+        "Chapter", secondary=course_chapters, back_populates="courses"
+    )
 
 
 class CourseAssignment(Base):
@@ -89,19 +105,24 @@ class CourseAssignment(Base):
 
 
 class Chapter(Base):
-    """课程章节（课程 → 章节 → 视频 三层结构）"""
+    """课程章节（一章节可对应多门课程，同一视频可在多章节下展示）"""
     __tablename__ = "chapters"
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    course_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("courses.id"), nullable=False, index=True, comment="关联课程"
-    )
     title: Mapped[str] = mapped_column(String(200), nullable=False, comment="章节标题")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), comment="创建时间"
+    )
+    # 章节下的视频（章节 → 视频 是原有的一对多关系，不变）
+    videos: Mapped[list["Video"]] = relationship(
+        "Video", back_populates="chapter", lazy="selectin"
+    )
+    # 章节所属的课程（多对多 through course_chapters）
+    courses: Mapped[list["Course"]] = relationship(
+        "Course", secondary=course_chapters, back_populates="chapters"
     )
 
 
@@ -117,6 +138,7 @@ class Video(Base):
     chapter_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("chapters.id"), nullable=True, index=True, comment="关联章节"
     )
+    chapter: Mapped["Chapter | None"] = relationship("Chapter", back_populates="videos")
     title: Mapped[str] = mapped_column(String(200), nullable=False, comment="视频标题")
     obs_key: Mapped[str] = mapped_column(String(500), nullable=False, comment="OBS 存储 key")
     file_size: Mapped[int | None] = mapped_column(

@@ -8,15 +8,20 @@ class ChapterCreate(BaseModel):
     title: str
 
 
+class ChapterAssign(BaseModel):
+    chapter_ids: list[str] = []
+
+
 class ChapterUpdate(BaseModel):
     title: str | None = None
 
 
 class ChapterOut(BaseModel):
     id: str
-    course_id: str
     title: str
     sort_order: int
+    # 章节所属的课程 ID 列表（多对多，一章节可对应多门课）
+    course_ids: list[str] = []
     videos: list["VideoOut"] = []
 
     class Config:
@@ -66,6 +71,8 @@ class CourseCreate(BaseModel):
     status: str | None = None
     start_date: date | None = None
     end_date: date | None = None
+    # 该课程所属的章节列表（一门课可同时属于多个章节）
+    chapter_ids: list[str] = []
 
     @model_validator(mode="after")
     def check_date_range(self):
@@ -87,6 +94,8 @@ class CourseUpdate(BaseModel):
     status: str | None = None
     start_date: date | None = None
     end_date: date | None = None
+    # 该课程所属的章节列表（替换原有章节归属）
+    chapter_ids: list[str] | None = None
 
     @model_validator(mode="after")
     def check_date_range(self):

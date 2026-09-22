@@ -287,7 +287,7 @@ def get_projector_code(
         )
         .count()
     )
-    checkin_url = f"{settings.FRONTEND_URL}checkin/{session.id}"
+    checkin_url = f"{settings.FRONTEND_URL}/checkin/{session.id}"
     return ProjectorCodeOut(
         session_id=session.id,
         session_title=session.title,

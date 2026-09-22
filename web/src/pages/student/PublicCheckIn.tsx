@@ -3,7 +3,7 @@
  *
  * 适用场景：HTTP 部署、企业微信 OAuth 不可用、学员用任意扫码 App。
  * 投屏页二维码编码 `${FRONTEND_URL}/learning-platform/checkin/{sessionId}`，
- * 学员扫码后输入工号 + 姓名双重校验 → 一键签到。
+ * 学员扫码后输入工号 + 姓名 → 一键签到。
  *
  * 设计要点：
  * - 完全裸页面（无布局、无登录守卫），加载即用。
@@ -233,19 +233,19 @@ function FormView(props: {
           value={employeeId}
           onChange={(e) => setEmployeeId(e.target.value)}
           disabled={!open}
-          placeholder="如 A001 / 2024001"
+          placeholder=""
           className="mt-1 w-full px-3 py-3 rounded-lg border border-border text-base bg-white disabled:bg-bg-layout"
         />
       </label>
       <label className="block">
-        <span className="text-sm text-text-secondary">姓名（用于核对）</span>
+        <span className="text-sm text-text-secondary">姓名</span>
         <input
           inputMode="text"
           autoComplete="off"
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={!open}
-          placeholder="请输入你的姓名"
+          placeholder=""
           className="mt-1 w-full px-3 py-3 rounded-lg border border-border text-base bg-white disabled:bg-bg-layout"
         />
       </label>
@@ -257,9 +257,6 @@ function FormView(props: {
       >
         确认签到
       </button>
-      <p className="text-xs text-text-secondary text-center">
-        双重校验：工号 + 姓名一致方可签到
-      </p>
     </form>
   );
 }
@@ -282,12 +279,16 @@ function SuccessView(props: {
   );
 }
 
+function formatTime(iso: string) {
+  return iso.replace("T", " ");
+}
+
 function SessionMeta({ info }: { info: SessionInfo }) {
   return (
     <div className="text-xs text-text-secondary space-y-1">
       <div className="flex items-center gap-1.5">
         <Clock size={12} />
-        {info.start_time} ~ {info.end_time}
+        {formatTime(info.start_time)} ~ {formatTime(info.end_time)}
       </div>
       {info.location_name && (
         <div className="flex items-center gap-1.5">

@@ -22,7 +22,7 @@ export default function SsoCallback() {
     // 生产环境也不会被 nginx 转发到后端，必然 404。
     // 现改用统一的 API 前缀 BASE（/api/learning-platform），后端已提供
     // /api/sso/exchange 别名，开发与生产行为一致。
-    fetch(`${BASE}sso/exchange?code=${encodeURIComponent(code)}`)
+    fetch(`${BASE}/sso/exchange?code=${encodeURIComponent(code)}`)
       .then((res) => {
         if (!res.ok) throw new Error("code 无效或已过期");
         return res.json();

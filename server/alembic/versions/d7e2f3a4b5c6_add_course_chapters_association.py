@@ -17,23 +17,33 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 1. 建关联表（course_id + chapter_id 联合唯一索引）
-    op.create_table(
-        "course_chapters",
-        sa.Column("course_id", sa.String(36), sa.ForeignKey("courses.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("chapter_id", sa.String(36), sa.ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, primary_key=True),
-        sa.UniqueConstraint("course_id", "chapter_id", name="uq_course_chapter"),
-        sa.Index("ix_course_chapters_course_id", "course_id"),
-    )
+    # 1. 建关联表（idempotent：重跑时表已存在则跳过）
+    try:
+        op.create_table(
+            "course_chapters",
+            sa.Column("course_id", sa.String(36), sa.ForeignKey("courses.id", ondelete="CASCADE"), nullable=False),
+            sa.Column("chapter_id", sa.String(36), sa.ForeignKey("chapters.id", ondelete="CASCADE"), nullable=False, primary_key=True),
+            sa.UniqueConstraint("course_id", "chapter_id", name="uq_course_chapter"),
+            sa.Index("ix_course_chapters_course_id", "course_id"),
+        )
+    except Exception:
+        pass  # 表已存在，跳过
 
-    # 2. 迁移存量数据：chapters.course_id → course_chapters
+    # 2. 迁移存量数据（idempotent：IGNORE 让重复键忽略）
     op.execute("""
-        INSERT INTO course_chapters (course_id, chapter_id)
-        SELECT course_id, id AS chapter_id FROM chapters WHERE course_id IS NOT NULL
+        INSERT IGNORE INTO course_chapters (course_id, chapter_id)
+        SELECT course_id, id FROM chapters WHERE course_id IS NOT NULL
     """)
 
-    # 3. 删除 chapters.course_id 列（迁移后不再需要）
-    op.drop_column("chapters", "course_id")
+    # 3. MySQL 要求先删外键约束，再删列（仅当列存在时才执行）
+    try:
+        op.drop_constraint("chapters_ibfk_1", "chapters", type_="foreignkey")
+    except Exception:
+        pass  # 约束可能已删
+    try:
+        op.drop_column("chapters", "course_id")
+    except Exception:
+        pass  # 列可能已删
 
 
 def downgrade() -> None:

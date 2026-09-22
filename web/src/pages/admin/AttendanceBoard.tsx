@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom";
 import { X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../lib/api";
-import { BASE_URL } from "../../lib/api";
 
 interface ProjectorCode {
   session_id: string;
@@ -17,6 +16,7 @@ interface ProjectorCode {
   state: "upcoming" | "open" | "closed";
   checked_in_count: number;
   expected_count: number;
+  checkin_url: string;
 }
 
 /**
@@ -34,9 +34,8 @@ export default function AttendanceBoard() {
   const [data, setData] = useState<ProjectorCode | null>(null);
   const [error, setError] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(0);
-  // 扫码落地页链接：HTTP 环境即可用，不依赖企微 OAuth。
-  // 学员用任意扫码 App 打开 → 输入工号+姓名 → 签到。
-  const checkInUrl = `${window.location.origin}${BASE_URL}checkin/${sessionId}`;
+  // 扫码落地页链接：由后端根据 FRONTEND_URL 生成，确保手机可访问
+  const checkInUrl = data?.checkin_url ?? `${window.location.origin}/learning-platform/checkin/${sessionId}`;
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 每秒拉取一次当前码

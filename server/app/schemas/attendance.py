@@ -93,6 +93,7 @@ class ProjectorCodeOut(BaseModel):
     state: str
     checked_in_count: int
     expected_count: int
+    checkin_url: str                   # 投屏页签到二维码完整 URL（供手机扫码）
 
 
 class StudentCodeOut(BaseModel):

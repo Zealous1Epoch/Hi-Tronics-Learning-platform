@@ -4,8 +4,8 @@ import { defineConfig, loadEnv } from "vite";
 
 // 后端地址可通过环境变量覆盖，避免多个项目抢占同一端口时前后端错配
 // （历史上 8002 被另一个项目占用，导致前端所有 API 请求打到错误的系统）。
-// 用法：VITE_PROXY_TARGET=http://localhost:8100 npm run dev
-const DEFAULT_BACKEND = "http://localhost:8100";
+// 用法：VITE_PROXY_TARGET=http://localhost:8200 npm run dev
+const DEFAULT_BACKEND = "http://localhost:8200";
 
 /**
  * 修正 favicon 路径。

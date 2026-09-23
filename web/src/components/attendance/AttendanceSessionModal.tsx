@@ -90,7 +90,9 @@ const FLAG_LABEL: Record<string, string> = {
 };
 
 function toLocalInput(iso: string): string {
+  if (!iso) return "";
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -105,6 +107,7 @@ function toLocalInput(iso: string): string {
 export function toNaiveLocal(value: string): string {
   if (!value) return "";
   const d = new Date(value);
+  if (isNaN(d.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
 }

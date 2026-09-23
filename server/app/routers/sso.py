@@ -267,7 +267,8 @@ async def _create_user_from_oa(db: Session, workcode: str) -> User | None:
     )
     db.add(user)
     db.flush()
-    _sync_user_department(db, user, department_path)
+    if department_path:
+            _sync_user_department(db, user, department_path)
     db.commit()
     db.refresh(user)
     write_log(db=db, operator="系统(OA)", operator_id="", category="user", action="create", resource_type="用户", resource_name=name, description=f"系统通过 OA 自动创建了用户「{name}」", level="info")
@@ -441,8 +442,8 @@ async def wechat_callback(code: str, state: str = "", db: Session = Depends(get_
             )
             db.add(user)
             db.flush()
-            # 如果路径未成功扩展（不含 "-"），说明是原始部门 ID，不创建部门节点
-            sync_path = dept_path if dept_path and "-" in dept_path else None
+            # 将已解析的部门路径同步到 Department 树并关联用户
+            sync_path = dept_path if dept_path else None
             _sync_user_department(db, user, sync_path)
             db.commit()
             db.refresh(user)

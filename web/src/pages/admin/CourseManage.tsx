@@ -23,6 +23,7 @@ interface VideoItem {
 }
 interface ChapterItem {
   id: string; title: string; sort_order: number;
+  category_id: string | null;      // 所属分类 ID
   course_ids: string[];            // 多对多：章节所属的课程 ID 列表
   videos: VideoItem[];
 }
@@ -281,13 +282,6 @@ export default function CourseManage() {
       setAddingChildUnder(null);
       setAddingMode(null);
     }
-  };
-
-  const startAddChild = () => {
-    if (!selectedId) return;
-    setAddingMode("course");
-    setNewChildName("");
-    setAddingChildUnder(selectedId);
   };
 
   const startAddChapter = () => {

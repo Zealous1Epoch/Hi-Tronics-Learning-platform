@@ -6,6 +6,7 @@ from pydantic import BaseModel, model_validator
 
 class ChapterCreate(BaseModel):
     title: str
+    category_id: str | None = None  # 所属课程分类（关联分类树节点）
 
 
 class ChapterAssign(BaseModel):
@@ -20,6 +21,7 @@ class ChapterOut(BaseModel):
     id: str
     title: str
     sort_order: int
+    category_id: str | None = None  # 所属课程分类（关联分类树节点）
     # 章节所属的课程 ID 列表（多对多，一章节可对应多门课）
     course_ids: list[str] = []
     videos: list["VideoOut"] = []

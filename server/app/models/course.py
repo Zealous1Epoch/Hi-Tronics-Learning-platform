@@ -112,6 +112,11 @@ class Chapter(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False, comment="章节标题")
+    # 所属课程分类（关联 question_categories 节点），使章节挂在分类树下
+    category_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("question_categories.id"), nullable=True, index=True,
+        comment="所属课程分类（关联分类树节点）",
+    )
     sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序")
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), comment="创建时间"

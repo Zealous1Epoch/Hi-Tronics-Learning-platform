@@ -368,23 +368,59 @@ def delete_course(
 
 # ========== 章节 ==========
 
+@router.get("/chapters", response_model=list[ChapterOut])
+def list_chapters(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """获取全量章节列表（用于课程编辑时的多选下拉）"""
+    chapters = db.query(Chapter).order_by(Chapter.sort_order).all()
+    # 收集每个章节对应的 course_ids
+    if not chapters:
+        return []
+    chapter_ids = [ch.id for ch in chapters]
+    cc_rows = db.query(course_chapters).filter(
+        course_chapters.c.chapter_id.in_(chapter_ids)
+    ).all()
+    from collections import defaultdict
+    chapter_to_courses: dict[str, set[str]] = defaultdict(set)
+    for row in cc_rows:
+        chapter_to_courses[row.chapter_id].add(row.course_id)
+    return [
+        ChapterOut(
+            id=ch.id,
+            title=ch.title,
+            sort_order=ch.sort_order,
+            category_id=ch.category_id,
+            course_ids=sorted(chapter_to_courses.get(ch.id, set())),
+            videos=[],
+        )
+        for ch in chapters
+    ]
+
+
 @router.post("/chapters", response_model=ChapterOut)
 def create_chapter(
     data: ChapterCreate,
     db: Session = Depends(get_db), _: User = Depends(require_admin),
 ):
-    """创建章节（独立创建，不绑定课程）"""
+    """创建章节（可指定所属课程分类 category_id，使其挂在分类树下）"""
+    if data.category_id:
+        parent = db.query(QuestionCategory).filter(QuestionCategory.id == data.category_id).first()
+        if not parent:
+            raise HTTPException(status_code=404, detail="所属分类不存在")
     max_order = db.query(Chapter).count()
     chapter = Chapter(
         id=str(uuid.uuid4()),
-        title=data.title, sort_order=max_order,
+        title=data.title, category_id=data.category_id, sort_order=max_order,
     )
     db.add(chapter)
     db.commit()
     db.refresh(chapter)
     return ChapterOut(
         id=chapter.id, title=chapter.title,
-        sort_order=chapter.sort_order, course_ids=[], videos=[],
+        sort_order=chapter.sort_order, category_id=chapter.category_id,
+        course_ids=[], videos=[],
     )
 
 
@@ -397,11 +433,15 @@ def create_chapter_in_course(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
+    if data.category_id:
+        parent = db.query(QuestionCategory).filter(QuestionCategory.id == data.category_id).first()
+        if not parent:
+            raise HTTPException(status_code=404, detail="所属分类不存在")
     # 章节在全局排序（目前章节 sort_order 是全局的）
     max_order = db.query(Chapter).count()
     chapter = Chapter(
         id=str(uuid.uuid4()),
-        title=data.title, sort_order=max_order,
+        title=data.title, category_id=data.category_id, sort_order=max_order,
     )
     db.add(chapter)
     db.flush()
@@ -413,7 +453,8 @@ def create_chapter_in_course(
     db.refresh(chapter)
     return ChapterOut(
         id=chapter.id, title=chapter.title,
-        sort_order=chapter.sort_order, course_ids=[course_id], videos=[],
+        sort_order=chapter.sort_order, category_id=chapter.category_id,
+        course_ids=[course_id], videos=[],
     )
 
 

@@ -17,6 +17,36 @@ import openpyxl
 router = APIRouter(prefix="/api/users", tags=["用户管理"])
 
 
+def _assert_not_last_active_admin(
+    db: Session,
+    user: User,
+    *,
+    leaving_admin: bool = False,
+    disabling: bool = False,
+    deleting: bool = False,
+) -> None:
+    """纵深防御：若该操作会消耗系统中最后一个启用态管理员，则拒绝。
+
+    当前 API 面内「单请求清零 admin」本已不可达（require_admin 保证
+    操作者自身是启用态 admin，且各接口禁止对自己做这些操作），
+    此守卫防的是未来自我保护逻辑被误删后的回归，以及管理员误操作。
+    """
+    if user.role != "admin" or user.status != "active":
+        return
+    if not (leaving_admin or disabling or deleting):
+        return
+    active_admins = (
+        db.query(User)
+        .filter(User.role == "admin", User.status == "active")
+        .count()
+    )
+    if active_admins <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="系统必须至少保留一个启用状态的管理员",
+        )
+
+
 @router.get("", response_model=list[UserOut])
 def list_users(
     search: str | None = Query(None, description="搜索姓名/用户名/工号"),
@@ -102,7 +132,7 @@ def update_user(
     user_id: str,
     data: UserUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
 ):
     """编辑用户信息"""
     user = db.query(User).filter(User.id == user_id).first()
@@ -149,13 +179,25 @@ def update_user(
     if data.role is not None:
         if data.role not in ("student", "admin"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色无效")
-        user.role = data.role
+        # 仅在角色真的变更时执行保护判断——前端编辑表单总是携带 role 字段，
+        # 若按「携带即拦」实现，管理员连改自己的姓名都会被 400。
+        if data.role != user.role:
+            # 历史上通用编辑接口可绕过 /role 的自降级保护，把管理员自己
+            # 降为 student 后配合改密造成自锁；/role 本身也禁止自改，
+            # 所以这里直接拒绝而不是引导过去。
+            if user_id == current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="不能修改自己的角色",
+                )
+            _assert_not_last_active_admin(db, user, leaving_admin=(data.role == "student"))
+            user.role = data.role
     if data.password is not None:
         user.password_hash = hash_password(data.password)
     db.commit()
     db.refresh(user)
     invalidate_user_cache(user_id)
-    write_log(db=db, operator=_.name, operator_id=_.id, category="user", action="update", resource_type="用户", resource_name=user.name, description=f"{_.name} 编辑了用户「{user.name}」", level="info")
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="user", action="update", resource_type="用户", resource_name=user.name, description=f"{current_user.name} 编辑了用户「{user.name}」", level="info")
     return user
 
 
@@ -174,6 +216,7 @@ def update_user_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     if data.role not in ("student", "admin"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色无效")
+    _assert_not_last_active_admin(db, user, leaving_admin=(data.role == "student"))
     user.role = data.role
     db.commit()
     db.refresh(user)
@@ -197,6 +240,7 @@ def update_user_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     if data.status not in ("active", "disabled"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="状态无效")
+    _assert_not_last_active_admin(db, user, disabling=(data.status == "disabled"))
     user.status = data.status
     db.commit()
     db.refresh(user)
@@ -217,6 +261,7 @@ def delete_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+    _assert_not_last_active_admin(db, user, deleting=True)
     invalidate_user_cache(user_id)
     db.delete(user)
     db.commit()
@@ -403,7 +448,7 @@ def download_template(
         ["字段", "说明", "备注"],
         ["姓名", "必填。用户真实姓名", ""],
         ["用户名", "必填。登录用的用户名", "不能与已有用户重复"],
-        ["密码", "必填。登录密码", ""],
+        ["密码", "必填。登录密码", "至少 6 位"],
         ["工号", "选填。员工编号", ""],
         ["部门", "选填。如已在系统界面选择部门，可不填", "部门名称必须已存在系统中"],
         ["角色", "必填。学员 / 管理员", "请从下拉列表中选择"],

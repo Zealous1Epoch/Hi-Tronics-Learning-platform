@@ -12,6 +12,11 @@
 - 登录限流可被伪造 X-Forwarded-For 绕过
 - 未开始即交卷
 - 未鉴权端点
+- SSO fail-open（无密钥时 md5 票据可伪造登录任意工号）→ 默认 503 + 显式兼容开关
+- create_all 与 alembic 双轨（DEBUG=false 必须跳过 create_all）
+- 空密码/短密码账号（创建与编辑路径 min_length=6、拒绝空串）
+- admin 经通用编辑接口自降级绕过 /role 保护；最后启用态 admin 守卫
+- DEBUG 默认值必须为 false（生产漏配不再静默放行弱校验）
 
 注意：为了确保 SQLAlchemy 元数据完整，必须显式导入 app.models。
 """
@@ -375,3 +380,306 @@ def test_department_resolution_prefers_department_id(db):
     db.commit()
 
     assert check_course_assignment(db, user, course.id) is True
+
+
+# ───────────────── P0：SSO fail-open（md5 票据可被任意伪造） ─────────────────
+
+def _now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _make_sso_user(db: Session, workcode: str) -> User:
+    """预建一个 SSO 免密登录可命中的启用用户（按 employee_id 匹配）。"""
+    user = User(
+        id=str(uuid.uuid4()),
+        username=f"sso_{workcode}",
+        password_hash=None,
+        name="SSO 测试用户",
+        role="student",
+        status="active",
+        employee_id=workcode,
+    )
+    db.add(user)
+    db.commit()
+    return user
+
+
+def test_sso_login_returns_503_when_unconfigured(client, db, monkeypatch):
+    """修复前：未配置 SSO_SHARED_SECRET 时静默回退 md5(时间) 校验，
+    任何人可构造 URL 登录任意工号（等同无认证入口）。
+    修复后：无密钥且未开兼容开关 → 端点闸门 fail-closed 返回 503。
+    """
+    from app.config import settings
+    from app.routers.sso import _md5
+
+    monkeypatch.setattr(settings, "SSO_SHARED_SECRET", "")
+    monkeypatch.setattr(settings, "SSO_ALLOW_INSECURE_COMPAT", False)
+    # 即便带上「修复前可通过校验」的 md5 时间票据，也必须 503
+    res = client.get(
+        "/sso/login",
+        params={"workcode": "100001", "tokendate": _md5(_now_str())},
+        follow_redirects=False,
+    )
+    assert res.status_code == 503
+
+
+def test_sso_rejects_md5_ticket_when_secret_configured(client, db, monkeypatch):
+    """配置密钥后，md5(时间) 旧式票据必须被拒绝（302 回登录页）。"""
+    from app.config import settings
+    from app.routers.sso import _md5
+
+    monkeypatch.setattr(settings, "SSO_SHARED_SECRET", "unit-test-secret")
+    monkeypatch.setattr(settings, "SSO_ALLOW_INSECURE_COMPAT", False)
+    _make_sso_user(db, "100002")
+    res = client.get(
+        "/sso/login",
+        params={"workcode": "100002", "tokendate": _md5(_now_str())},
+        follow_redirects=False,
+    )
+    assert res.status_code in (302, 307)  # Starlette RedirectResponse 默认 307
+    assert res.headers["location"].endswith("/login")
+
+
+def test_sso_accepts_hmac_ticket_bound_to_workcode(client, db, monkeypatch):
+    """安全模式：HMAC-SHA256(secret, "工号:时间") 票据放行，且与工号绑定。"""
+    from app.config import settings
+    from app.routers.sso import _hmac_ticket
+
+    secret = "unit-test-secret"
+    monkeypatch.setattr(settings, "SSO_SHARED_SECRET", secret)
+    monkeypatch.setattr(settings, "SSO_ALLOW_INSECURE_COMPAT", False)
+    _make_sso_user(db, "100003")
+
+    ticket = _hmac_ticket("100003", _now_str(), secret)
+    res = client.get(
+        "/sso/login",
+        params={"workcode": "100003", "tokendate": ticket},
+        follow_redirects=False,
+    )
+    assert res.status_code in (302, 307)  # Starlette RedirectResponse 默认 307
+    assert "/sso/callback?code=" in res.headers["location"]
+
+    # 同一张票据换工号复用必须失败（旧 md5 方案票据与工号无关，可换任何人）
+    res2 = client.get(
+        "/sso/login",
+        params={"workcode": "100099", "tokendate": ticket},
+        follow_redirects=False,
+    )
+    assert res2.headers["location"].endswith("/login")
+
+
+def test_sso_md5_compat_requires_explicit_flag(client, db, monkeypatch):
+    """兼容模式仅在显式 SSO_ALLOW_INSECURE_COMPAT=true 时可用（OA 过渡期逃生口）。"""
+    from app.config import settings
+    from app.routers.sso import _md5
+
+    monkeypatch.setattr(settings, "SSO_SHARED_SECRET", "")
+    monkeypatch.setattr(settings, "SSO_ALLOW_INSECURE_COMPAT", True)
+    _make_sso_user(db, "100004")
+    res = client.get(
+        "/sso/login",
+        params={"workcode": "100004", "tokendate": _md5(_now_str())},
+        follow_redirects=False,
+    )
+    assert res.status_code in (302, 307)  # Starlette RedirectResponse 默认 307
+    assert "/sso/callback?code=" in res.headers["location"]
+
+
+# ───────────────── P1：create_all 与 alembic 双轨 ─────────────────
+
+def test_startup_skips_create_all_when_debug_false(db, monkeypatch):
+    """生产（DEBUG=false）禁止 create_all——它只建缺失表、不加列/索引且
+    绕过 alembic_version，导致 schema 漂移。seed 内置管理员仍须执行。
+    """
+    from unittest.mock import patch
+    from fastapi.testclient import TestClient
+    from app.config import settings
+    from app.database import Base
+    from app.main import app
+
+    monkeypatch.setattr(settings, "DEBUG", False)
+    with patch.object(Base.metadata, "create_all") as spy:
+        with TestClient(app):
+            pass
+    spy.assert_not_called()
+    # seed 不受门控：内置管理员存在
+    assert (
+        db.query(User)
+        .filter(User.username == settings.BUILTIN_ADMIN_USERNAME)
+        .first()
+        is not None
+    )
+
+
+def test_startup_runs_create_all_when_debug_true(db, monkeypatch):
+    """开发环境（DEBUG=true）保留 create_all 兜底建表体验。"""
+    from unittest.mock import patch
+    from fastapi.testclient import TestClient
+    from app.config import settings
+    from app.database import Base
+    from app.main import app
+
+    monkeypatch.setattr(settings, "DEBUG", True)
+    with patch.object(Base.metadata, "create_all") as spy:
+        with TestClient(app):
+            pass
+    assert spy.call_count >= 1
+
+
+# ───────────────── P1：空密码 / 弱密码 ─────────────────
+
+def test_create_user_rejects_short_password(client, admin_headers):
+    """修复前：UserCreate.password 无非空/长度校验，可建出空密码账号。
+    修复后：低于 6 位一律 422，6 位放行。
+    """
+    res = client.post(
+        "/api/users",
+        json={"username": "shortpwd", "password": "12345", "name": "短密码", "role": "student"},
+        headers=admin_headers,
+    )
+    assert res.status_code == 422
+    res = client.post(
+        "/api/users",
+        json={"username": "okpwd6", "password": "123456", "name": "六位密码", "role": "student"},
+        headers=admin_headers,
+    )
+    assert res.status_code == 201
+
+
+def test_update_user_rejects_empty_password_and_keeps_omitted(client, admin_headers, db, student_token):
+    """PUT 显式空串必须 422；省略 password 键保持原 hash 不变（None=不修改）。"""
+    sid = db.query(User).filter(User.username == "student1").first().id
+    old_hash = db.query(User).filter(User.id == sid).first().password_hash
+
+    res = client.put(f"/api/users/{sid}", json={"password": ""}, headers=admin_headers)
+    assert res.status_code == 422
+
+    res = client.put(f"/api/users/{sid}", json={"name": "改名学员"}, headers=admin_headers)
+    assert res.status_code == 200
+    db.expire_all()
+    assert db.query(User).filter(User.id == sid).first().password_hash == old_hash
+
+
+def test_update_user_password_min_length_and_new_password_works(client, admin_headers, db, student_token):
+    """PUT 改短密码 422；改成合规密码 200 且新密码可实际登录。"""
+    sid = db.query(User).filter(User.username == "student1").first().id
+
+    res = client.put(f"/api/users/{sid}", json={"password": "abc"}, headers=admin_headers)
+    assert res.status_code == 422
+
+    res = client.put(f"/api/users/{sid}", json={"password": "abcdef"}, headers=admin_headers)
+    assert res.status_code == 200
+
+    login = client.post("/api/auth/login", json={"username": "student1", "password": "abcdef"})
+    assert login.status_code == 200
+
+
+# ───────────────── P1：admin 自降级与最后管理员保护 ─────────────────
+
+def test_admin_cannot_demote_self_via_update(client, admin_headers, db):
+    """修复前：PUT /users/{id} 通用接口可绕过 /role 的 self 保护，
+    把管理员自己降级为 student（配合改密造成自锁）。
+    """
+    me = db.query(User).filter(User.username == "admin").first()
+    res = client.put(f"/api/users/{me.id}", json={"role": "student"}, headers=admin_headers)
+    assert res.status_code == 400
+    db.expire_all()
+    assert db.query(User).filter(User.id == me.id).first().role == "admin"
+
+
+def test_admin_can_update_self_with_unchanged_role(client, admin_headers, db):
+    """前端编辑表单总是携带 role 字段（DepartmentUserManage.tsx）——
+    role 未变更时必须放行，否则管理员连改自己的姓名都会被 400。
+    防止未来实现退化为「携带 role 即拦」。
+    """
+    me = db.query(User).filter(User.username == "admin").first()
+    res = client.put(
+        f"/api/users/{me.id}",
+        json={"name": "系统管理员-改名", "role": "admin"},
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+    db.expire_all()
+    assert db.query(User).filter(User.id == me.id).first().name == "系统管理员-改名"
+
+
+def test_second_admin_can_be_demoted(client, admin_headers, db):
+    """存在两个启用态 admin 时，互相降级是正常运营操作，必须放行。"""
+    admin2 = User(
+        id=str(uuid.uuid4()), username="admin2",
+        password_hash=hash_password("Admin2pass!"),
+        name="第二管理员", role="admin", status="active",
+    )
+    db.add(admin2)
+    db.commit()
+    res = client.put(f"/api/users/{admin2.id}", json={"role": "student"}, headers=admin_headers)
+    assert res.status_code == 200
+
+
+def test_last_active_admin_guard_unit(db, client):
+    """守卫函数单元直测（纵深防御，接口层 400 分支在现 API 面内不可达）。
+    count 条件必须是 role=admin AND status=active。
+    """
+    from fastapi import HTTPException
+    from app.routers.users import _assert_not_last_active_admin
+
+    admin = db.query(User).filter(User.username == "admin").first()
+
+    for kwargs in ({"leaving_admin": True}, {"disabling": True}, {"deleting": True}):
+        with pytest.raises(HTTPException) as exc:
+            _assert_not_last_active_admin(db, admin, **kwargs)
+        assert exc.value.status_code == 400
+
+    # 无消耗标志 → 放行
+    _assert_not_last_active_admin(db, admin)
+
+    # 补第二个启用态 admin 后 → 降级放行
+    admin2 = User(
+        id=str(uuid.uuid4()), username="admin_c",
+        password_hash=hash_password("AdminC123!"),
+        name="C 管理员", role="admin", status="active",
+    )
+    db.add(admin2)
+    db.commit()
+    _assert_not_last_active_admin(db, admin, leaving_admin=True)
+
+    # 目标不是启用态 admin → 一律放行
+    student = User(
+        id=str(uuid.uuid4()), username="plain_student",
+        name="学员", role="student", status="active",
+    )
+    db.add(student)
+    db.commit()
+    _assert_not_last_active_admin(db, student, deleting=True)
+
+    disabled_admin = User(
+        id=str(uuid.uuid4()), username="admin_d",
+        password_hash=hash_password("AdminD123!"),
+        name="D 管理员", role="admin", status="disabled",
+    )
+    db.add(disabled_admin)
+    db.commit()
+    _assert_not_last_active_admin(db, disabled_admin, deleting=True)
+
+
+# ───────────────── P1：DEBUG 默认值翻转 ─────────────────
+
+def test_debug_default_is_false():
+    """修复前：DEBUG 默认 "true"——生产 .env 漏配即静默跳过全部启动强校验，
+    且内置管理员回退已知弱口令 Ht12345!。默认值必须为 false（安全优先）。
+    用源码文本断言而非 importlib.reload：后者会重读本地 .env，结果不可移植。
+    """
+    from pathlib import Path
+    import app.config as config_module
+
+    src = Path(config_module.__file__).read_text(encoding="utf-8")
+    assert 'os.getenv("DEBUG", "false")' in src
+
+
+def test_sso_compat_flag_default_false():
+    """SSO 兼容开关默认必须为 false（fail-closed）。"""
+    from pathlib import Path
+    import app.config as config_module
+
+    src = Path(config_module.__file__).read_text(encoding="utf-8")
+    assert 'os.getenv("SSO_ALLOW_INSECURE_COMPAT", "false")' in src

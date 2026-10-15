@@ -9,7 +9,10 @@ load_dotenv()
 class Settings:
     APP_NAME: str = "Hi-Tronics Learning Platform"
     APP_VERSION: str = "0.1.0"
-    DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
+    # 默认 false（安全优先）：false 时启动强校验 JWT_SECRET/ADMIN_PASSWORD，
+    # 跳过 create_all（表结构必须由 alembic 迁移维护），内置管理员不允许弱口令回退。
+    # 本地开发请在 .env 显式设置 DEBUG=true。
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
     # MySQL 数据库配置
     DB_HOST: str = os.getenv("DB_HOST", "localhost")
@@ -35,8 +38,16 @@ class Settings:
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://hr.hi-tronics.com/learning-platform")
     SSO_TIME_WINDOW: int = int(os.getenv("SSO_TIME_WINDOW", "30"))
     # SSO 共享密钥：配置后 OA 免密登录改用 HMAC-SHA256(secret, "工号:时间戳") 校验，
-    # 票据与工号绑定，无法被任意伪造。未配置则回退到不安全的 md5(时间) 兼容模式。
+    # 票据与工号绑定，无法被任意伪造。未配置且未开启下方兼容开关时，
+    # /sso/login 返回 503（fail-closed），OA 免密登录不可用。
     SSO_SHARED_SECRET: str = os.getenv("SSO_SHARED_SECRET", "")
+    # 是否允许未配置 SSO_SHARED_SECRET 时回退到不安全的 md5(时间) 兼容模式。
+    # 默认 false：无密钥时直接拒绝 SSO 登录（fail-closed）。
+    # 该模式下票据与工号无关、任何人可伪造登录任意工号，仅限 OA 侧
+    # 尚未完成 HMAC 改造的过渡期临时设为 true，迁移完成后必须删除该配置。
+    SSO_ALLOW_INSECURE_COMPAT: bool = (
+        os.getenv("SSO_ALLOW_INSECURE_COMPAT", "false").lower() == "true"
+    )
     # 是否允许企微回调跳过 state（CSRF）校验。默认 false（安全）；
     # 仅当需要支持「企微客户端内直接打开应用」这一入口时才设为 true。
     WECHAT_ALLOW_UNVERIFIED_STATE: bool = (

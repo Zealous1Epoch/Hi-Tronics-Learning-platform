@@ -77,8 +77,26 @@ async def lifespan(app: FastAPI):
     elif settings.JWT_SECRET == "change-me-in-production":
         logger.warning("JWT_SECRET 使用默认值，仅限开发环境使用")
 
-    logger.info("创建数据库表...")
-    Base.metadata.create_all(bind=engine)
+    # SSO 配置状态提示（端点层对「无密钥且未开兼容」的请求直接 503）
+    if not settings.SSO_SHARED_SECRET:
+        if settings.SSO_ALLOW_INSECURE_COMPAT:
+            logger.warning(
+                "SSO 处于不安全兼容模式（SSO_ALLOW_INSECURE_COMPAT=true）："
+                "票据可被任意伪造，仅限 OA 侧 HMAC 改造期间的过渡配置，需尽快关闭"
+            )
+        else:
+            logger.warning(
+                "SSO_SHARED_SECRET 未配置且未开启 SSO_ALLOW_INSECURE_COMPAT："
+                "/sso/login 将返回 503，OA 免密登录不可用"
+            )
+
+    # 表结构管理：生产以 alembic 迁移为唯一途径（DEBUG=false），
+    # create_all 只建缺失表、不加列/索引且绕过 alembic_version，双轨会导致 schema 漂移。
+    if settings.DEBUG:
+        logger.info("DEBUG=true：执行 Base.metadata.create_all（生产环境请走 alembic）")
+        Base.metadata.create_all(bind=engine)
+    else:
+        logger.info("DEBUG=false：跳过 create_all，数据库表结构由 alembic 迁移管理")
     db = SessionLocal()
     try:
         seed_builtin_admin(db)

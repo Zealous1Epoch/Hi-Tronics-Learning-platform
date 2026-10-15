@@ -57,8 +57,11 @@ def _validate_sso_ticket(workcode: str, tokendate: str) -> bool:
     支持两种模式：
     - 安全模式（推荐）：配置了 SSO_SHARED_SECRET 时，要求
       tokendate == HMAC-SHA256(secret, f"{workcode}:{YYYY-MM-DD HH:MM:SS}")，允许 ±窗口 秒时钟偏移。
-    - 兼容模式（不安全）：未配置密钥时回退到 md5(时间字符串)，并记录 CRITICAL 日志。
-      该模式任何人可自行推导票据，仅用于过渡期，必须尽快迁移。
+    - 兼容模式（不安全）：仅当显式设置 SSO_ALLOW_INSECURE_COMPAT=true 时，
+      才允许在未配置密钥时回退到 md5(时间字符串)。该模式票据与工号无关、
+      任何人可伪造，仅限 OA 侧 HMAC 改造完成前的过渡期。
+    未配置密钥且未开启兼容开关时一律拒绝（端点层已先行返回 503，
+    此处是双保险）。
     """
     if not tokendate:
         return False
@@ -74,15 +77,18 @@ def _validate_sso_ticket(workcode: str, tokendate: str) -> bool:
                 return True
         return False
 
-    # 兼容模式：票据与工号无关，任何人可自行计算 —— 不安全，仅过渡
-    logger.critical(
-        "SSO 未配置 SSO_SHARED_SECRET，正在使用不安全的兼容校验（票据可被任意伪造），"
-        "请尽快配置密钥并要求 OA 侧改用 HMAC 签名"
-    )
-    for offset in range(-window, window + 1):
-        time_str = (now + timedelta(seconds=offset)).strftime("%Y-%m-%d %H:%M:%S")
-        if _md5(time_str) == tokendate:
-            return True
+    if settings.SSO_ALLOW_INSECURE_COMPAT:
+        # 兼容模式：票据与工号无关，任何人可自行计算 —— 不安全，仅过渡
+        logger.critical(
+            "SSO 未配置 SSO_SHARED_SECRET 且显式开启了 SSO_ALLOW_INSECURE_COMPAT，"
+            "正在使用不安全的兼容校验（票据可被任意伪造），"
+            "请尽快配置密钥并要求 OA 侧改用 HMAC 签名，然后删除该开关"
+        )
+        for offset in range(-window, window + 1):
+            time_str = (now + timedelta(seconds=offset)).strftime("%Y-%m-%d %H:%M:%S")
+            if _md5(time_str) == tokendate:
+                return True
+    # 无密钥且未开兼容开关：fail-closed 拒绝（端点闸门已拦，双保险）
     return False
 
 
@@ -118,11 +124,23 @@ def _find_user_by_workcode(db: Session, workcode: str) -> User | None:
     )
 
 
-def _ensure_sso_ready() -> None:
-    """启动/调用时的配置检查（替代原先每次登录都执行 ALTER TABLE 的做法）。"""
-    if not settings.SSO_SHARED_SECRET:
-        logger.warning(
-            "SSO_SHARED_SECRET 未配置：OA 免密登录将以不安全的兼容模式运行"
+def _require_sso_configured() -> None:
+    """SSO 端点闸门：未配置密钥且未显式开启兼容模式时拒绝服务（fail-closed）。
+
+    修复前：密钥缺失时静默回退 md5(时间) 校验，票据与工号无关，
+    任何人都能构造出可登录任意工号的 URL —— 等同无认证登录入口。
+    返回 503 而非 403：这是服务端配置缺失导致的「功能暂不可用」，
+    不是调用方权限问题；5xx 可被 nginx/监控按错误单独告警，
+    与「票据校验失败 → 302 回登录页」形成清晰分层。
+    """
+    if not settings.SSO_SHARED_SECRET and not settings.SSO_ALLOW_INSECURE_COMPAT:
+        logger.error(
+            "SSO 未配置（无 SSO_SHARED_SECRET 且未开启 SSO_ALLOW_INSECURE_COMPAT），"
+            "拒绝 SSO 登录请求"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="SSO 免密登录未启用：请配置 SSO_SHARED_SECRET 后重启服务",
         )
 
 
@@ -138,7 +156,7 @@ async def sso_login(
     导致运维无法从日志区分「参数缺失 / 票据伪造 / 用户禁用」，
     且每次登录都会执行一次 ALTER TABLE。现已分别记录并移除运行时 DDL。
     """
-    _ensure_sso_ready()
+    _require_sso_configured()
     workcode = (request.query_params.get("workcode") or "").strip()
     tokendate = (request.query_params.get("tokendate") or "").strip()
 

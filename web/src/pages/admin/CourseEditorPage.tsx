@@ -1,10 +1,14 @@
 /** 课程编辑页（课程管理重构 S6，替代旧的巨型编辑弹窗）
  *
  * 路由：/admin/courses/new（新建） · /admin/courses/:id/edit（编辑）
- * - 4 个 Tab：基本信息 / 课程内容（章节+视频）/ 适用学员 / 现场签到（开关开启才出现）
+ * - 4 个 Tab：基本信息 / 课程内容（视频；章节勾选功能已按用户要求暂时下线）/ 课程分配 / 现场签到（开关开启才出现）
+ * - 课程分配与用户管理同源：/org/members 全公司名册组织树，勾选只产 user_ids
+ *   （存量「整部门分配」装载时展开为成员；保存覆盖后统一转成员口径）
  * - 右上角统一「保存草稿 / 发布」；表单/章节/学员/场次为暂存式，保存时一次性编排提交
- * - 视频是例外：逐文件即时上传落库（VideoManager），故新建态需先保存草稿拿到课程 ID，
- *   保存成功后 navigate replace 到编辑路由（整页重挂载，从后端拉全量，状态天然干净）
+ * - 视频是例外：逐文件即时上传落库（VideoManager）。新建态首次上传时由
+ *   ensureDraftForUpload 静默创建课程草稿拿 ID（createdId 存内存，页面不重挂载，
+ *   分配/场次等暂存态不丢）；之后的显式保存对该 ID 做 update，保存成功后
+ *   navigate replace 到编辑路由（整页重挂载，从后端拉全量，状态天然干净）
  * - BrowserRouter 无 useBlocker：离开拦截用 beforeunload + 返回按钮 dirty 确认
  */
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -15,7 +19,7 @@ import DataPanel from "../../components/ui/DataPanel";
 import StatusTag from "../../components/ui/StatusTag";
 import CategorySelect from "../../components/course/CategorySelect";
 import DeptUserPicker from "../../components/course/DeptUserPicker";
-import ChapterPickerTree from "../../components/course/ChapterPickerTree";
+import DateField from "../../components/ui/DateField";
 import VideoManager from "../../components/course/VideoManager";
 import SessionInlineEditor, {
   type InlineSession, validateInlineSessions,
@@ -23,11 +27,12 @@ import SessionInlineEditor, {
 import AttendanceSessionModal, { toNaiveLocal } from "../../components/attendance/AttendanceSessionModal";
 import { useToast } from "../../components/ui/Toast";
 import { useConfirm } from "../../components/ui/Confirm";
+import { api, type OrgMemberRow, type OrgMembersResponse } from "../../lib/api";
 import {
   createCourse, createSession, deleteSession, getAssignments, getCourse, getCategoryFlat,
-  getCategoryTree, listAllUsers, listChapters, listDepartments, listSessions,
+  getCategoryTree, listAllUsers, listSessions,
   postAssignments, removeAssignments, updateCourse, updateSession,
-  type Chapter, type Course, type DeptNode, type UserRow, type Video,
+  type Course, type UserRow, type Video,
   type TreeNode, type FlatCategory,
 } from "../../lib/courseApi";
 
@@ -54,9 +59,8 @@ export default function CourseEditorPage() {
   const [loading, setLoading] = useState(true);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
-  const [allChapters, setAllChapters] = useState<Chapter[]>([]);
-  const [allUsers, setAllUsers] = useState<UserRow[]>([]);
-  const [allDepts, setAllDepts] = useState<DeptNode[]>([]);
+  /** 全公司名册（含无账号成员与不在名册的账号），课程分配选择器数据源 */
+  const [members, setMembers] = useState<OrgMemberRow[]>([]);
 
   // 基本信息
   const [status, setStatus] = useState<string>("draft");
@@ -72,9 +76,8 @@ export default function CourseEditorPage() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  // 适用学员（暂存）；existing 为上次落库口径，保存时先清旧再写新
+  // 课程分配（暂存，纯 user_ids）；existing 为上次落库口径，保存时先清旧再写新
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
-  const [selectedDepts, setSelectedDepts] = useState<Set<string>>(new Set());
   const existingAssignments = useRef<{ user_ids: string[]; department_ids: string[] }>({ user_ids: [], department_ids: [] });
 
   // 现场签到（暂存）；loadedSessionIds 为已落库场次，保存时识别被删场次
@@ -84,6 +87,12 @@ export default function CourseEditorPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("basic");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 新建态自动建草稿：ID 先存内存（不导航不重挂载），显式保存后才 replace 到编辑路由
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const createdIdRef = useRef<string | null>(null);
+  const creatingRef = useRef<Promise<string | null> | null>(null);
+  /** 已落库的课程 ID：路由带 id 或自动建号成功后的内存 id */
+  const effCourseId = courseId ?? createdId;
   // 完整场次管理弹窗（即时写库），与 Tab4 暂存并存
   const [attendanceModalOpen, setAttendanceModalOpen] = useState(false);
 
@@ -94,23 +103,26 @@ export default function CourseEditorPage() {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      const base: [TreeNode[], FlatCategory[], Chapter[], UserRow[], DeptNode[]] = await Promise.all([
-        getCategoryTree(), getCategoryFlat(), listChapters(), listAllUsers(), listDepartments(),
+      const base: [TreeNode[], FlatCategory[], UserRow[], OrgMembersResponse] = await Promise.all([
+        getCategoryTree(), getCategoryFlat(), listAllUsers(), api<OrgMembersResponse>("/org/members"),
       ]);
       if (cancelled) return;
       setTree(base[0]);
       setFlatCategories(base[1]);
-      setAllChapters(base[2]);
-      setAllUsers(base[3]);
-      setAllDepts(base[4]);
+      setMembers([...base[3].members, ...base[3].unlinked_accounts]);
       if (courseId) {
         const [detail, assignments, sessionRows] = await Promise.all([
           getCourse(courseId), getAssignments(courseId), listSessions(courseId),
         ]);
         if (cancelled) return;
         applyCourse(detail);
-        setSelectedUsers(new Set(assignments.users.map(u => u.id)));
-        setSelectedDepts(new Set(assignments.departments.map(d => d.id)));
+        // 存量「整部门分配」展开为该部门（含子级命名口径）下的账号，统一转成员选择口径
+        const deptUserIds = assignments.departments.flatMap(d =>
+          base[2]
+            .filter(u => u.department === d.name || (u.department || "").startsWith(d.name + "-"))
+            .map(u => u.id));
+        setSelectedUsers(new Set([...assignments.users.map(u => u.id), ...deptUserIds]));
+        // 删除旧分配时按落库原样清（含 department 行），写入时只发 user_ids
         existingAssignments.current = {
           user_ids: assignments.users.map(u => u.id),
           department_ids: assignments.departments.map(d => d.id),
@@ -156,10 +168,9 @@ export default function CourseEditorPage() {
 
   /** 打开完整场次弹窗（即时写库）：dirty 先确认，随后以服务端数据覆盖暂存态 */
   const openAttendanceModal = async () => {
-    if (!courseId) {
-      toast.info("请先保存草稿拿到课程 ID，再使用完整场次管理");
-      return;
-    }
+    // 新建态：完整场次弹窗即时写库，需要课程 ID——与上传视频一样自动建草稿
+    const cid = await ensureDraftForUpload();
+    if (!cid) return;
     if (dirty) {
       const ok = await confirm({
         title: "打开完整场次弹窗",
@@ -170,7 +181,7 @@ export default function CourseEditorPage() {
       if (!ok) return;
     }
     try {
-      applySessions(await listSessions(courseId));
+      applySessions(await listSessions(cid));
       setAttendanceModalOpen(true);
     } catch (e: any) {
       toast.error(`加载场次失败：${e.message || e}`);
@@ -179,9 +190,9 @@ export default function CourseEditorPage() {
 
   const closeAttendanceModal = async () => {
     setAttendanceModalOpen(false);
-    if (courseId) {
+    if (effCourseId) {
       // 弹窗内是即时写库，关闭后重拉保持两边一致
-      try { applySessions(await listSessions(courseId)); } catch { /* 保留现状，下次保存时以后端为准 */ }
+      try { applySessions(await listSessions(effCourseId)); } catch { /* 保留现状，下次保存时以后端为准 */ }
     }
   };
 
@@ -220,11 +231,54 @@ export default function CourseEditorPage() {
     const items: { key: TabKey; label: string }[] = [
       { key: "basic", label: "基本信息" },
       { key: "content", label: "课程内容" },
-      { key: "students", label: "适用学员" },
+      { key: "students", label: "课程分配" },
     ];
     if (requireAttendance) items.push({ key: "attendance", label: "现场签到" });
     return items;
   }, [requireAttendance]);
+
+  /** 表单 → 课程本体 payload（显式保存与自动建草稿共用，口径唯一） */
+  const buildPayload = (nextStatus: string) => ({
+    title: title.trim(),
+    require_attendance: requireAttendance,
+    description: description || null,
+    category_id: categoryId || null,
+    start_date: startDate || null,
+    end_date: endDate || null,
+    status: nextStatus,
+    chapter_ids: [...selectedChapterIds],
+  });
+
+  /**
+   * 新建态上传视频前的静默建号：只落课程本体（draft），页面不重挂载，
+   * 分配/场次等暂存态保留；并发调用共享同一个进行中的请求。
+   * 返回 null 表示被拦截（无标题）或创建失败，调用方放弃本次上传。
+   */
+  const ensureDraftForUpload = async (): Promise<string | null> => {
+    if (courseId) return courseId;
+    if (createdIdRef.current) return createdIdRef.current;
+    if (creatingRef.current) return creatingRef.current;
+    if (!title.trim()) {
+      toast.error("请先在「基本信息」填写课程标题——上传视频会自动创建课程");
+      setActiveTab("basic");
+      return null;
+    }
+    creatingRef.current = (async () => {
+      try {
+        const created = await createCourse(buildPayload("draft"));
+        createdIdRef.current = created.id;
+        setCreatedId(created.id);
+        toast.success("已自动创建课程草稿，开始上传视频");
+        return created.id;
+      } catch (e: any) {
+        toast.error(`自动创建课程失败：${e.message || e}`);
+        return null;
+      } finally {
+        creatingRef.current = null;
+      }
+    })();
+    return creatingRef.current;
+  };
 
   // ── 保存编排 ──
   const save = async (nextStatus: string) => {
@@ -255,32 +309,25 @@ export default function CourseEditorPage() {
     setSaving(true);
     try {
       // 1. 课程本体（章节为覆盖式 chapter_ids）
-      const payload = {
-        title: title.trim(),
-        require_attendance: requireAttendance,
-        description: description || null,
-        category_id: categoryId || null,
-        start_date: startDate || null,
-        end_date: endDate || null,
-        status: nextStatus,
-        chapter_ids: [...selectedChapterIds],
-      };
-      let id = courseId;
+      const payload = buildPayload(nextStatus);
+      // 自动建草稿可能正在进行（视频上传触发）：等它落库后转 update，避免重复建课
+      let id = effCourseId ?? (creatingRef.current ? await creatingRef.current : null);
       if (id) {
         await updateCourse(id, payload);
       } else {
         const created = await createCourse(payload);
         id = created.id;
       }
-      // 2. 分配：先清上次落库集合，再写本次选择（POST 增量幂等）
+      // 2. 分配：先清上次落库集合（含历史 department 行），再写本次选择。
+      //    新口径只写 user_ids——部门维度由全公司名册在前端展开为成员
       const prev = existingAssignments.current;
       if (prev.user_ids.length > 0 || prev.department_ids.length > 0) {
         await removeAssignments(id, prev);
       }
-      if (selectedUsers.size > 0 || selectedDepts.size > 0) {
-        await postAssignments(id, { user_ids: [...selectedUsers], department_ids: [...selectedDepts] });
+      if (selectedUsers.size > 0) {
+        await postAssignments(id, { user_ids: [...selectedUsers], department_ids: [] });
       }
-      existingAssignments.current = { user_ids: [...selectedUsers], department_ids: [...selectedDepts] };
+      existingAssignments.current = { user_ids: [...selectedUsers], department_ids: [] };
       // 3. 签到场次（统一按北京时间 naive 提交）
       if (requireAttendance) {
         const bodyFor = (s: InlineSession) => ({
@@ -329,8 +376,8 @@ export default function CourseEditorPage() {
       setStatus(nextStatus);
       setDirty(false);
       toast.success(nextStatus === "published" ? "已发布" : "草稿已保存");
-      // 新建：replace 到编辑路由。路由切换整页重挂载，所有数据从后端重拉，
-      // 之后即可正常逐文件上传视频
+      // 新建（含自动建号后转 update）：replace 到编辑路由。路由切换整页
+      // 重挂载，所有数据从后端重拉；此时分配/场次均已落库，不会丢暂存态
       if (!courseId) navigate(`/admin/courses/${id}/edit`, { replace: true });
     } catch (e: any) {
       toast.error(`保存失败：${e.message || e}`);
@@ -357,12 +404,12 @@ export default function CourseEditorPage() {
         description={
           dirty ? "有未保存的修改"
             : courseId ? "所有修改需点击右上角保存后生效"
-            : "填写基本信息后先保存草稿，即可上传视频"
+            : "填好课程标题即可直接上传视频（首次上传会自动创建课程）"
         }
         back={{ onClick: guardedBack }}
         actions={
           <>
-            {courseId && <StatusTag value={status} title="点击表格页状态标签可发布/下架" />}
+            {effCourseId && <StatusTag value={status} title="点击表格页状态标签可发布/下架" />}
             <button className="k-btn k-btn-default" disabled={saving} onClick={() => save("draft")}>
               保存草稿
             </button>
@@ -416,15 +463,13 @@ export default function CourseEditorPage() {
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="k-label">开始日期</label>
-                  <input type="date" value={startDate}
-                    onChange={e => { setStartDate(e.target.value); markDirty(); }}
-                    className="k-input" />
+                  <DateField value={startDate} min={endDate || undefined}
+                    onChange={v => { setStartDate(v); markDirty(); }} placeholder="选择开始日期（可选）" />
                 </div>
                 <div className="flex-1">
                   <label className="k-label">结束日期</label>
-                  <input type="date" value={endDate}
-                    onChange={e => { setEndDate(e.target.value); markDirty(); }}
-                    className="k-input" />
+                  <DateField value={endDate} min={startDate || undefined}
+                    onChange={v => { setEndDate(v); markDirty(); }} placeholder="选择结束日期（可选）" />
                 </div>
               </div>
               <div>
@@ -454,28 +499,13 @@ export default function CourseEditorPage() {
         {activeTab === "content" && (
           <div className="space-y-4">
             <DataPanel
-              title={<span>课程章节 {selectedChapterIds.size > 0 && <span className="text-primary font-normal ml-1">（已选 {selectedChapterIds.size} 个）</span>}</span>}
-              bodyPadding={14}
-              style={{ maxWidth: 860 }}
-            >
-              <ChapterPickerTree
-                tree={tree}
-                flatCategories={flatCategories}
-                allChapters={allChapters}
-                selectedIds={selectedChapterIds}
-                onChange={next => { setSelectedChapterIds(next); markDirty(); }}
-                onCreated={ch => setAllChapters(prev => [...prev, ch])}
-                initialCategoryId={categoryId || null}
-                expandAllOnMount={Boolean(courseId)}
-              />
-            </DataPanel>
-            <DataPanel
               title={<span>视频 {videos.length > 0 && <span className="text-text-secondary font-normal ml-1">（{videos.length} 个）</span>}</span>}
               bodyPadding={14}
               style={{ maxWidth: 860 }}
             >
               <VideoManager
-                courseId={courseId}
+                courseId={effCourseId}
+                ensureCourseId={ensureDraftForUpload}
                 videos={videos}
                 onAdded={v => setVideos(prev => [...prev, v])}
                 onDeleted={vid => setVideos(prev => prev.filter(v => v.id !== vid))}
@@ -488,20 +518,18 @@ export default function CourseEditorPage() {
 
         {activeTab === "students" && (
           <DataPanel
-            title={<span>适用学员 {(selectedDepts.size > 0 || selectedUsers.size > 0) && <span className="text-primary font-normal ml-1">（已选 {selectedDepts.size + selectedUsers.size} 项）</span>}</span>}
+            title={<span>课程分配 {selectedUsers.size > 0 && <span className="text-primary font-normal ml-1">（已选 {selectedUsers.size} 人）</span>}</span>}
             bodyPadding={16}
           >
             <div style={{ maxWidth: 900 }}>
               <DeptUserPicker
-                allUsers={allUsers}
-                allDepts={allDepts}
+                members={members}
                 selectedUsers={selectedUsers}
-                selectedDepts={selectedDepts}
-                onChange={({ users, depts }) => { setSelectedUsers(users); setSelectedDepts(depts); markDirty(); }}
+                onChange={users => { setSelectedUsers(users); markDirty(); }}
                 listClass="max-h-[420px]"
               />
               <p className="text-xs text-text-secondary/70 mt-2">
-                勾选部门会连带选中其全部成员；点击部门名称可在右栏查看并单独增删学员。分配结果在点击右上角保存后生效。
+                组织口径与用户管理的全公司名册一致；勾选部门连带其全部有账号成员，无账号人员需先在用户管理开通。分配结果在点击右上角保存后生效。
               </p>
             </div>
           </DataPanel>
@@ -534,9 +562,9 @@ export default function CourseEditorPage() {
         )}
       </div>
 
-      {attendanceModalOpen && courseId && (
+      {attendanceModalOpen && effCourseId && (
         <AttendanceSessionModal
-          courseId={courseId}
+          courseId={effCourseId}
           courseTitle={title}
           onClose={closeAttendanceModal}
         />

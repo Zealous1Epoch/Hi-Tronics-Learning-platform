@@ -1,15 +1,15 @@
-/** 分配学员轻量弹窗（课程管理重构 S4，替代 CourseManage :1595-1767 的第二份选择器复制）
+/** 分配学员轻量弹窗（课程管理重构 S4；v2 起与编辑页 Tab3 同源：全公司名册）
  *
  * 与编辑页 Tab3 的差别只在保存时机：本弹窗「即时保存」——
  * 点「分配选中」立即 POST（增量幂等），已分配 chips 点 × 立即 DELETE。
- * 移除部门时按部门名连带移除成员（与后端课程分配级联口径一致，沿用旧实现）。
+ * 选择只产 user_ids；存量「整部门分配」chips 仍可移除（连带该部门名下成员账号）。
  */
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import DeptUserPicker from "./DeptUserPicker";
-import { findDeptNode } from "./deptTreeUtils";
+import { api, type OrgMemberRow, type OrgMembersResponse } from "../../lib/api";
 import {
-  getAssignments, listAllUsers, listDepartments, postAssignments, removeAssignments,
+  getAssignments, postAssignments, removeAssignments,
   type DeptNode, type UserRow,
 } from "../../lib/courseApi";
 import { useToast } from "../ui/Toast";
@@ -26,24 +26,20 @@ export default function AssignmentModal({ course, onClose, onChanged }: Assignme
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [allUsers, setAllUsers] = useState<UserRow[]>([]);
-  const [allDepts, setAllDepts] = useState<DeptNode[]>([]);
+  const [members, setMembers] = useState<OrgMemberRow[]>([]);
   const [assignedUsers, setAssignedUsers] = useState<UserRow[]>([]);
   const [assignedDepts, setAssignedDepts] = useState<DeptNode[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
-  const [selectedDepts, setSelectedDepts] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!course) return;
     let cancelled = false;
     setLoading(true);
     setSelectedUsers(new Set());
-    setSelectedDepts(new Set());
-    Promise.all([listAllUsers(), listDepartments(), getAssignments(course.id)])
-      .then(([users, depts, assignments]) => {
+    Promise.all([api<OrgMembersResponse>("/org/members"), getAssignments(course.id)])
+      .then(([org, assignments]) => {
         if (cancelled) return;
-        setAllUsers(users);
-        setAllDepts(depts);
+        setMembers([...org.members, ...org.unlinked_accounts]);
         setAssignedUsers(assignments.users);
         setAssignedDepts(assignments.departments);
       })
@@ -68,10 +64,9 @@ export default function AssignmentModal({ course, onClose, onChanged }: Assignme
     try {
       await postAssignments(course.id, {
         user_ids: [...selectedUsers],
-        department_ids: [...selectedDepts],
+        department_ids: [],
       });
       setSelectedUsers(new Set());
-      setSelectedDepts(new Set());
       await reloadAssignments(course.id);
       toast.success("分配成功");
     } catch (e: any) {
@@ -90,9 +85,11 @@ export default function AssignmentModal({ course, onClose, onChanged }: Assignme
         body.user_ids = [targetId];
       } else {
         body.department_ids = [targetId];
-        const deptName = findDeptNode(allDepts, targetId)?.name;
+        const deptName = assignedDepts.find(d => d.id === targetId)?.name;
         if (deptName) {
-          body.user_ids = assignedUsers.filter(u => u.department === deptName).map(u => u.id);
+          body.user_ids = assignedUsers
+            .filter(u => u.department === deptName || (u.department || "").startsWith(deptName + "-"))
+            .map(u => u.id);
         }
       }
       await removeAssignments(course.id, body);
@@ -116,19 +113,17 @@ export default function AssignmentModal({ course, onClose, onChanged }: Assignme
         ) : (
           <>
             <DeptUserPicker
-              allUsers={allUsers}
-              allDepts={allDepts}
+              members={members}
               selectedUsers={selectedUsers}
-              selectedDepts={selectedDepts}
-              onChange={({ users, depts }) => { setSelectedUsers(users); setSelectedDepts(depts); }}
+              onChange={users => setSelectedUsers(users)}
               listClass="max-h-52"
             />
             <button
               onClick={handleAssign}
-              disabled={busy || (selectedUsers.size === 0 && selectedDepts.size === 0)}
+              disabled={busy || selectedUsers.size === 0}
               className="k-btn k-btn-primary mt-3"
             >
-              分配选中（{selectedDepts.size + selectedUsers.size}）
+              分配选中（{selectedUsers.size}）
             </button>
 
             <div className="mt-4">

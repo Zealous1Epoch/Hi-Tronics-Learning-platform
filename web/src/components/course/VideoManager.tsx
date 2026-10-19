@@ -3,7 +3,8 @@
  * 与旧实现的核心差异（已确认决策）：上传时机从「随课程保存批量补传」改为
  * 「逐文件即时上传落库」——选中文件立刻走 三步流（upload-token → OSS 直传 →
  * POST /courses/{id}/videos），单文件失败可独立重试，不影响其余文件。
- * 前置条件：课程必须已有 ID（新建场景先「保存草稿」拿到 ID 后才允许上传）。
+ * 新建场景：课程还没有 ID 时通过 ensureCourseId 钩子让父组件自动创建草稿
+ * （静默拿 ID 后继续上传，页面不重挂载），用户无需手动先点「保存草稿」。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Upload, X, Trash2, Pencil } from "lucide-react";
@@ -40,13 +41,15 @@ function probeVideoDuration(file: File): Promise<number | null> {
 interface UploadTask {
   key: number;
   file: File;
+  /** 归属课程 ID（建号时刻已确定，重试不依赖外部状态再解析） */
+  cid: string;
   progress: number;
   status: "uploading" | "error";
   error?: string;
 }
 
 interface VideoManagerProps {
-  /** null = 课程还没有 ID（新建未保存草稿），禁止上传 */
+  /** null = 课程还没有 ID（新建未落库）；此时需配合 ensureCourseId 自动建草稿 */
   courseId: string | null;
   /** 已落库视频（父组件从课程详情装载，增删后同步） */
   videos: Video[];
@@ -55,6 +58,8 @@ interface VideoManagerProps {
   onRenamed?: (videoId: string, title: string) => void;
   /** 是否有文件正在上传（编辑页据此拦截保存/离开） */
   onUploadingChange?: (busy: boolean) => void;
+  /** 无课程 ID 时由父组件自动创建草稿并返回 ID；返回 null 表示创建失败/被拦截，本次选择放弃 */
+  ensureCourseId?: () => Promise<string | null>;
 }
 
 export default function VideoManager({
@@ -64,11 +69,14 @@ export default function VideoManager({
   onDeleted,
   onRenamed,
   onUploadingChange,
+  ensureCourseId,
 }: VideoManagerProps) {
   const toast = useToast();
   const confirm = useConfirm();
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  // 无 ID 但父组件能自动建草稿时同样可传；两者都没有才禁用上传区
+  const canUpload = Boolean(courseId || ensureCourseId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const keySeq = useRef(0);
 
@@ -87,8 +95,7 @@ export default function VideoManager({
 
   /** 三步流：token → OSS 直传 → 落库。失败置 error 可重试 */
   const startUpload = async (task: UploadTask) => {
-    if (!courseId) return;
-    const { key, file } = task;
+    const { key, file, cid } = task;
     patchTask(key, { status: "uploading", progress: 0, error: undefined });
     try {
       const ext = extOf(file.name);
@@ -98,7 +105,7 @@ export default function VideoManager({
         getUploadToken(ext, content_type),
       ]);
       await uploadVideoToOSS(upload_url, file, content_type, (pct) => patchTask(key, { progress: pct }));
-      const created = await addVideo(courseId, {
+      const created = await addVideo(cid, {
         title: file.name.replace(/\.[^.]+$/, ""),
         obs_key: filename,
         file_size: file.size,
@@ -115,12 +122,18 @@ export default function VideoManager({
     }
   };
 
-  const handleFiles = (files: FileList) => {
-    if (!courseId) return;
+  const handleFiles = async (files: FileList) => {
+    let cid = courseId;
+    if (!cid) {
+      if (!ensureCourseId) return;
+      // 新建态：先让父组件静默建草稿拿 ID（失败/被拦截时 toast 已提示，这里直接放弃本次选择）
+      cid = await ensureCourseId();
+      if (!cid) return;
+    }
     const fresh: UploadTask[] = [];
     for (const file of Array.from(files)) {
       if (!file.type.startsWith("video/")) continue;
-      fresh.push({ key: ++keySeq.current, file, progress: 0, status: "uploading" });
+      fresh.push({ key: ++keySeq.current, file, cid, progress: 0, status: "uploading" });
     }
     if (fresh.length === 0) return;
     setTasks(prev => [...prev, ...fresh]);
@@ -130,7 +143,7 @@ export default function VideoManager({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
+    if (e.dataTransfer.files.length > 0) void handleFiles(e.dataTransfer.files);
   };
 
   const handleDeleteVideo = async (v: Video) => {
@@ -157,30 +170,33 @@ export default function VideoManager({
         <label className="k-label">上传视频</label>
         <div
           className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-            courseId
+            canUpload
               ? "cursor-pointer " + (dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/40 hover:bg-bg-layout")
               : "cursor-not-allowed border-border bg-bg-layout opacity-60"
           }`}
-          onClick={() => courseId && fileInputRef.current?.click()}
-          onDragOver={e => { e.preventDefault(); if (courseId) setDragOver(true); }}
+          onClick={() => canUpload && fileInputRef.current?.click()}
+          onDragOver={e => { e.preventDefault(); if (canUpload) setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
         >
           <Upload size={28} className="mx-auto text-text-secondary mb-2" />
-          {courseId ? (
+          {canUpload ? (
             <>
               <p className="text-sm text-text-secondary">点击选择文件或拖拽视频文件到此处</p>
-              <p className="text-xs text-text-secondary/60 mt-0.5">支持 MP4 / MOV / AVI / MKV / WEBM，选择后立即上传并保存</p>
+              <p className="text-xs text-text-secondary/60 mt-0.5">
+                支持 MP4 / MOV / AVI / MKV / WEBM，选择后立即上传并保存
+                {!courseId && "（当前为新建课程，首次上传会自动创建课程）"}
+              </p>
             </>
           ) : (
             <>
               <p className="text-sm text-text-secondary">暂时无法上传视频</p>
-              <p className="text-xs text-text-secondary/60 mt-0.5">请先点右上角「保存草稿」创建课程，保存后此处即可逐文件上传</p>
+              <p className="text-xs text-text-secondary/60 mt-0.5">课程数据异常，请返回列表刷新后重试</p>
             </>
           )}
           <input ref={fileInputRef} type="file" accept="video/mp4,video/mov,video/avi,video/mkv,video/webm"
-            multiple className="hidden" disabled={!courseId}
-            onChange={e => { if (e.target.files) handleFiles(e.target.files); e.target.value = ""; }} />
+            multiple className="hidden" disabled={!canUpload}
+            onChange={e => { if (e.target.files) void handleFiles(e.target.files); e.target.value = ""; }} />
         </div>
       </div>
 

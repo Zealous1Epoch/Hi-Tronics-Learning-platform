@@ -93,21 +93,27 @@ export default function SessionInlineEditor({
             </div>
             <div>
               <label className="block text-xs text-text-secondary mb-1">签到开始</label>
-              <input
-                type="datetime-local"
-                className={inputCls}
-                value={s.start_time}
-                onChange={(e) => update(idx, { start_time: e.target.value })}
-              />
+              <div className="relative">
+                <input
+                  type="datetime-local"
+                  className={`${inputCls}${s.start_time ? "" : " k-date-empty"}`}
+                  value={s.start_time}
+                  onChange={(e) => update(idx, { start_time: e.target.value })}
+                />
+                {!s.start_time && <TimeHint text="选择开始时间" />}
+              </div>
             </div>
             <div>
               <label className="block text-xs text-text-secondary mb-1">签到结束</label>
-              <input
-                type="datetime-local"
-                className={inputCls}
-                value={s.end_time}
-                onChange={(e) => update(idx, { end_time: e.target.value })}
-              />
+              <div className="relative">
+                <input
+                  type="datetime-local"
+                  className={`${inputCls}${s.end_time ? "" : " k-date-empty"}`}
+                  value={s.end_time}
+                  onChange={(e) => update(idx, { end_time: e.target.value })}
+                />
+                {!s.end_time && <TimeHint text="选择结束时间" />}
+              </div>
             </div>
             <div>
               <label className="block text-xs text-text-secondary mb-1">迟到阈值（分钟，选填）</label>
@@ -134,5 +140,14 @@ export default function SessionInlineEditor({
         签到码默认 30 秒自动轮换；培训现场打开场次列表里的「投屏签到码」大屏页展示即可。
       </p>
     </div>
+  );
+}
+
+/** 空时间控件上的中文占位（配合 index.css k-date-empty 隐藏原生水印） */
+function TimeHint({ text }: { text: string }) {
+  return (
+    <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-sm text-text-muted pointer-events-none">
+      {text}
+    </span>
   );
 }

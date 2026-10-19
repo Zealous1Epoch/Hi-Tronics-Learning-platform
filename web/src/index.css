@@ -186,6 +186,12 @@ h3.k-title {
 .k-input:disabled, .k-textarea:disabled { background: var(--color-bg-hover); color: var(--color-text-muted); }
 .k-textarea { resize: vertical; }
 
+/* date / datetime-local 空态：隐藏原生 yyyy/mm/日 水印，占位文案由组件另渲染。
+   聚焦时恢复显示分段编辑，保证键盘填选体验不受影响 */
+input.k-date-empty::-webkit-datetime-edit { color: transparent; }
+input.k-date-empty:focus::-webkit-datetime-edit { color: inherit; }
+input.k-date-empty::-webkit-calendar-picker-indicator { opacity: 0.5; }
+
 .k-label {
   display: block;
   font-size: 12px;

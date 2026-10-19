@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ChevronRight, ChevronDown, ArrowLeft, FileText } from "lucide-react";
 import { api } from "../../lib/api";
+import { videoStreamUrl } from "../../lib/courseApi";
 import VideoPlayer from "../../components/VideoPlayer";
 import MaterialViewer, { type MaterialFile } from "../../components/course/MaterialViewer";
 
@@ -70,8 +71,9 @@ export default function CoursePreview() {
     const activeVideo = allVideos[activeVideoIdx];
     if (!activeVideo) return;
     let cancelled = false;
-    api<{ url: string }>(`/videos/play-url/${activeVideo.obs_key}`)
-      .then((res) => { if (!cancelled) setPlayUrl(res.url); })
+    // url=null 表示视频存于服务器本地（中转回退），走本站 stream 端点播放
+    api<{ url: string | null }>(`/videos/play-url/${activeVideo.obs_key}`)
+      .then((res) => { if (!cancelled) setPlayUrl(res.url ?? videoStreamUrl(activeVideo.obs_key)); })
       .catch(() => { if (!cancelled) setPlayUrl(null); });
     return () => { cancelled = true; };
   }, [allVideos, activeVideoIdx]);

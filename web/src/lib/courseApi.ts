@@ -302,6 +302,14 @@ export function uploadVideoToOSS(
   return uploadToOSS(uploadUrl, file, contentType, onProgress);
 }
 
+/** 服务器中转上传（直传失败的回退通道）：后端 OSS 优先、不可用落本地磁盘 */
+export function uploadVideoRelay(
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<{ filename: string; stored: "oss" | "local"; file_size: number }> {
+  return uploadFileWithProgress("/videos/upload-relay", file, onProgress);
+}
+
 export function addVideo(
   courseId: string,
   payload: {
@@ -362,7 +370,7 @@ export function videoExtOf(name: string): string {
   return ["mp4", "mov", "avi", "mkv", "webm"].includes(ext) ? ext : "mp4";
 }
 
-/** 读取视频时长（秒），失败返回 null（上传前探测用，VideoManager 与新建抽屉共用） */
+/** 读取视频时长（秒），失败返回 null（上传前探测用，课程表单抽屉使用） */
 export function probeVideoDuration(file: File): Promise<number | null> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);

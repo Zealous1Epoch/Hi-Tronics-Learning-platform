@@ -24,6 +24,14 @@ class Settings:
         f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     )
 
+    # 全员名册镜像数据源（招聘系统 recruitment_db.org_members）
+    # ORG_SOURCE_DB_URL：显式完整连接串（生产与招聘系统不同机时配置它）；
+    # 留空时运行时用上面 DB_HOST/PORT/USER/PASSWORD + ORG_SOURCE_DB_NAME 推导，
+    # 同 MySQL 实例场景零配置可用。源不可达只影响「同步全员」，不影响页面浏览。
+    ORG_SOURCE_DB_URL: str = os.getenv("ORG_SOURCE_DB_URL", "")
+    ORG_SOURCE_DB_NAME: str = os.getenv("ORG_SOURCE_DB_NAME", "recruitment_db")
+    ORG_SOURCE_CONNECT_TIMEOUT: int = int(os.getenv("ORG_SOURCE_CONNECT_TIMEOUT", "5"))
+
     # JWT 配置
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")
     JWT_ALGORITHM: str = "HS256"

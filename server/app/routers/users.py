@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
@@ -87,6 +88,21 @@ def create_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
     if data.role not in ("student", "admin"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="角色无效")
+    # 工号查重守卫（用户管理融合视图「开通账号」防重复开通；只拦新建，不动存量脏数据）
+    new_emp = (data.employee_id or "").strip()
+    if new_emp:
+        dup_emp = next(
+            (
+                u for u in db.query(User).filter(User.employee_id.isnot(None)).all()
+                if (u.employee_id or "").strip() == new_emp
+            ),
+            None,
+        )
+        if dup_emp:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"该工号已有账号：{dup_emp.name}（{dup_emp.username}）",
+            )
 
     # 处理部门关联
     department_text = data.department
@@ -306,6 +322,13 @@ async def batch_import_users(
     skip_count = 0
     errors: list[str] = []
 
+    # 存量工号集合（TRIM 归一），用于逐行查重、防止一库多号（与 create_user 守卫同口径）
+    existing_emps = {
+        s for s in (
+            (e or "").strip() for e in db.scalars(select(User.employee_id)).all()
+        ) if s
+    }
+
     for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         name = row[col_map["姓名"]] if row[col_map["姓名"]] else None
         username = row[col_map["用户名"]] if row[col_map["用户名"]] else None
@@ -320,20 +343,23 @@ async def batch_import_users(
         employee_id = None
         if "工号" in col_map and row[col_map["工号"]]:
             employee_id = str(row[col_map["工号"]]).strip()
+        if employee_id and employee_id in existing_emps:
+            errors.append(f"第 {row_idx} 行：工号 {employee_id} 已有账号")
+            skip_count += 1
+            continue
 
         # 部门（优先用 Excel 中的，否则用参数指定的）
         department = dept_name
         if "部门" in col_map and row[col_map["部门"]]:
             department = str(row[col_map["部门"]]).strip()
 
-        # 校验部门名称是否存在
+        # 部门路径自动 find-or-create 并回填 department_id
+        # （与 create_user 对齐；此前仅按名称精确校验、不存在即拒，且从不回填外键）
+        department_id_row = None
         if department:
-            from app.models.department import Department as DeptModel
-            dept_exists = db.query(DeptModel).filter(DeptModel.name == department).first()
-            if not dept_exists:
-                errors.append(f"第 {row_idx} 行：部门「{department}」不存在")
-                skip_count += 1
-                continue
+            leaf = ensure_department_path(db, department)
+            if leaf:
+                department_id_row = leaf.id
 
         # 角色
         role = "student"
@@ -356,11 +382,14 @@ async def batch_import_users(
                 password_hash=hash_password(str(password).strip()),
                 employee_id=employee_id,
                 department=department,
+                department_id=department_id_row,
                 role=role,
                 status="active",
             )
             db.add(user)
             db.flush()  # 逐行 flush，单行失败不影响其他行
+            if employee_id:
+                existing_emps.add(employee_id)
             success_count += 1
         except Exception as e:
             db.rollback()

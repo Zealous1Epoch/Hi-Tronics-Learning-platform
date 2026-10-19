@@ -70,6 +70,53 @@ export interface UserInfo {
   avatar: string | null;
 }
 
+// ── 组织架构（全员名册镜像）──
+export interface OrgAccountInfo {
+  user_id: string;
+  username: string;
+  name: string;
+  employee_id: string | null;
+  department: string | null;
+  role: string;
+  status: string;
+}
+
+export interface OrgMemberRow {
+  emp_id: string | null;
+  name: string;
+  position: string | null;
+  dept_path: string | null;
+  top_dept: string | null;
+  account: OrgAccountInfo | null;
+  account_count: number;
+  // 仅「不在名册的账号」行携带：
+  user_id?: string;
+  username?: string;
+  employee_id?: string | null;
+  department?: string | null;
+  unlinked?: boolean;
+}
+
+export interface OrgSyncMetaInfo {
+  synced_at: string;
+  row_count: number;
+  source_imported_at: string | null;
+  unlinked_account_count: number;
+}
+
+export interface OrgMembersResponse {
+  meta: OrgSyncMetaInfo | null;
+  members: OrgMemberRow[];
+  unlinked_accounts: OrgMemberRow[];
+}
+
+export interface OrgSyncResult {
+  imported: number;
+  previous: number;
+  synced_at: string;
+  source_imported_at: string | null;
+}
+
 export interface LoginResponse {
   access_token: string;
   token_type: string;

@@ -13,6 +13,7 @@ from app.logger import setup_logging, get_logger
 from app.models import *  # noqa: F401, F403 — 注册所有模型到 Base.metadata
 from app.routers.auth import router as auth_router
 from app.routers.users import router as users_router
+from app.routers.org import router as org_router
 from app.routers.departments import router as departments_router
 from app.routers.courses import router as courses_router
 from app.routers.videos import router as videos_router
@@ -128,6 +129,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(org_router)
 app.include_router(departments_router)
 app.include_router(courses_router)
 app.include_router(videos_router)

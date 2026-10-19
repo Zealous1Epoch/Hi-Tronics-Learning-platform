@@ -158,6 +158,10 @@ export default function AdminLayout() {
           background: "var(--color-bg-card)",
           borderRight: "1px solid var(--color-border)",
           transition: "width 180ms ease",
+          // 钉在视口：内容再长侧边栏也不跟随滚动，收起按钮始终在视口底部
+          position: "sticky",
+          top: 0,
+          height: "100vh",
         }}
       >
         <div
@@ -179,7 +183,7 @@ export default function AdminLayout() {
           )}
         </div>
 
-        <nav className="flex-1 overflow-y-auto" style={{ padding: "8px 8px 12px" }}>
+        <nav className="flex-1 overflow-y-auto" style={{ padding: "8px 8px 12px", minHeight: 0 }}>
           {menuGroups.map((group, gi) => {
             const key = group.label || `g${gi}`;
             const open = group.label === "" ? true : groupOpen(key);

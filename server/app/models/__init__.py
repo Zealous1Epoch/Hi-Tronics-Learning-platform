@@ -12,10 +12,13 @@ from app.models.paper import Paper
 from app.models.system_log import SystemLog
 from app.models.notice import Notice, NoticeRead
 from app.models.task import Task
+from app.models.org_member import OrgMember, OrgSyncMeta
 
 __all__ = [
     "User",
     "Department",
+    "OrgMember",
+    "OrgSyncMeta",
     "Course",
     "CourseAssignment",
     "Chapter",

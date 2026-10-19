@@ -1,5 +1,4 @@
 import { useMemo, type ReactNode } from "react";
-import { Download } from "lucide-react";
 import { EmptyState, SkeletonRows } from "./Misc";
 
 export interface Column<T> {
@@ -8,8 +7,6 @@ export interface Column<T> {
   width?: number | string;
   align?: "left" | "right" | "center";
   render?: (row: T, index: number) => ReactNode;
-  /** 导出 CSV 时使用的纯文本，默认取 row[key] */
-  text?: (row: T) => string;
 }
 
 interface DataTableProps<T> {
@@ -24,13 +21,7 @@ interface DataTableProps<T> {
   onSelectedChange?: (keys: string[]) => void;
   toolbar?: ReactNode;
   actions?: ReactNode;
-  exportName?: string;
   onRowClick?: (row: T) => void;
-}
-
-function toCsvValue(v: string) {
-  const s = String(v ?? "");
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 export default function DataTable<T>({
@@ -45,7 +36,6 @@ export default function DataTable<T>({
   onSelectedChange,
   toolbar,
   actions,
-  exportName,
   onRowClick,
 }: DataTableProps<T>) {
   const keys = useMemo(() => rows.map(rowKey), [rows, rowKey]);
@@ -63,26 +53,9 @@ export default function DataTable<T>({
     );
   };
 
-  const handleExport = () => {
-    const header = columns.map((c) => (typeof c.title === "string" ? c.title : c.key));
-    const body = rows.map((row) =>
-      columns
-        .map((c) => (c.text ? c.text(row) : String((row as Record<string, unknown>)[c.key] ?? "")))
-        .map(toCsvValue)
-        .join(",")
-    );
-    const csv = "﻿" + [header.map(toCsvValue).join(","), ...body].join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${exportName || "export"}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="k-table-wrap">
-      {(toolbar || actions || exportName) && (
+      {(toolbar || actions) && (
         <div
           style={{
             display: "flex",
@@ -99,11 +72,6 @@ export default function DataTable<T>({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {actions}
-            {exportName && (
-              <button className="k-btn k-btn-default k-btn-sm" onClick={handleExport}>
-                <Download size={13} /> 导出 CSV
-              </button>
-            )}
           </div>
         </div>
       )}

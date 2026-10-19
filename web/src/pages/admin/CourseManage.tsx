@@ -278,12 +278,10 @@ export default function CourseManage() {
           {c.title}
         </button>
       ),
-      text: (c) => c.title,
     },
     {
       key: "type", title: "类型", width: 96, align: "center",
       render: (c) => <StatusTag value={c.require_attendance ? "type:attendance" : "type:online"} />,
-      text: (c) => (c.require_attendance ? "现场签到" : "线上学习"),
     },
     {
       key: "status", title: "状态", width: 96, align: "center",
@@ -294,22 +292,18 @@ export default function CourseManage() {
           onClick={() => toggleStatus(c)}
         />
       ),
-      text: (c) => (c.status === "published" ? "已发布" : "草稿"),
     },
     {
       key: "chapters", title: "章节数", width: 72, align: "center",
       render: (c) => c.chapters.length,
-      text: (c) => String(c.chapters.length),
     },
     {
       key: "videos", title: "视频数", width: 72, align: "center",
       render: (c) => c.video_count,
-      text: (c) => String(c.video_count),
     },
     {
       key: "assigns", title: "已分配学员", width: 116, align: "center",
       render: (c) => assignText(c),
-      text: (c) => assignText(c),
     },
     {
       key: "period", title: "起止日期", width: 150, align: "center",
@@ -318,12 +312,10 @@ export default function CourseManage() {
         const e = (c.end_date || "").slice(0, 10);
         return <span className="text-text-secondary whitespace-nowrap">{s || e ? `${s || "—"} ~ ${e || "—"}` : "—"}</span>;
       },
-      text: (c) => `${(c.start_date || "").slice(0, 10)}~${(c.end_date || "").slice(0, 10)}`,
     },
     {
       key: "created_at", title: "创建时间", width: 138, align: "center",
       render: (c) => <span className="text-text-secondary whitespace-nowrap">{fmtTime(c.created_at)}</span>,
-      text: (c) => fmtTime(c.created_at),
     },
     {
       key: "ops", title: "操作", width: 168, align: "center",
@@ -335,7 +327,6 @@ export default function CourseManage() {
           <button className="k-link k-link-danger" onClick={() => handleDeleteCourse(c)}>删除</button>
         </span>
       ),
-      text: () => "",
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [counts, countsPending, navigate]);
@@ -344,7 +335,6 @@ export default function CourseManage() {
     <div className="h-[calc(100vh-96px)] flex flex-col">
       <PageHead
         title="课程管理"
-        description="左侧按分类筛选，右侧管理课程；新建与编辑均在右拉抽屉中完成"
         actions={
           <button className="k-btn k-btn-primary" onClick={() => setCreateOpen(true)}>
             <Plus size={14} /> 新建课程
@@ -457,7 +447,6 @@ export default function CourseManage() {
                 loading={loading}
                 compact
                 empty={selectedId ? "该分类（含子分类）下暂无课程" : "暂无课程，点击右上角「新建课程」创建"}
-                exportName="课程列表"
               />
             </div>
           </DataPanel>

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ChevronRight, ChevronDown, ArrowLeft } from "lucide-react";
+import { ChevronRight, ChevronDown, ArrowLeft, FileText } from "lucide-react";
 import { api } from "../../lib/api";
 import VideoPlayer from "../../components/VideoPlayer";
+import MaterialViewer, { type MaterialFile } from "../../components/course/MaterialViewer";
 
 interface VideoItem {
   id: string; course_id: string; chapter_id: string | null;
@@ -17,6 +18,7 @@ interface CourseDetail {
   id: string; title: string; description: string | null;
   chapters: ChapterItem[];
   videos: VideoItem[];
+  materials?: MaterialFile[];
   exam_id: string | null;
 }
 
@@ -25,6 +27,7 @@ export default function CoursePreview() {
   const navigate = useNavigate();
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [activeVideoIdx, setActiveVideoIdx] = useState(0);
+  const [activeMaterialId, setActiveMaterialId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
@@ -84,17 +87,22 @@ export default function CoursePreview() {
   if (loading) return <p className="text-text-secondary">加载中...</p>;
   if (!course) return <p className="text-text-secondary">课程不存在</p>;
 
-  const activeVideo = allVideos[activeVideoIdx];
+  const materials = course.materials || [];
+  // 课件与视频同为课程内容：未手动点开课件时，无视频课程默认打开第一个课件
+  const activeMaterial: MaterialFile | null = activeMaterialId
+    ? materials.find(m => m.id === activeMaterialId) || null
+    : (allVideos.length === 0 && materials.length > 0 ? materials[0] : null);
+  const activeVideo = activeMaterial ? undefined : allVideos[activeVideoIdx];
 
   const renderVideoRow = (v: VideoItem) => {
     const idx = videoIdxMap.get(v.id);
     if (idx === undefined) return null;
-    const isActive = idx === activeVideoIdx;
+    const isActive = !activeMaterial && idx === activeVideoIdx;
     return (
       <button
         key={v.id}
         data-video-idx={idx}
-        onClick={() => setActiveVideoIdx(idx)}
+        onClick={() => { setActiveMaterialId(null); setActiveVideoIdx(idx); }}
         className={`w-full text-left pl-9 pr-3 py-2 text-sm rounded ml-1 mr-2 mb-0.5 transition-colors border-l-2 ${
           isActive
             ? "bg-primary/5 text-primary font-medium border-l-primary"
@@ -136,8 +144,11 @@ export default function CoursePreview() {
       <div className="flex gap-4">
         {/* 播放器 */}
         <div className="flex-1 min-w-0">
-          <div className="bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden">
-            {activeVideo && playUrl ? (
+          {/* 课件模式：卡片撑到视口底部，阅读器吃满高度（视频模式保持自适应） */}
+          <div className={`bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden ${activeMaterial ? "h-[calc(100vh-160px)]" : ""}`}>
+            {activeMaterial ? (
+              <MaterialViewer key={activeMaterial.id} material={activeMaterial} />
+            ) : activeVideo && playUrl ? (
               <div className="bg-black">
                 <VideoPlayer
                   key={activeVideo.id}
@@ -150,7 +161,7 @@ export default function CoursePreview() {
               </div>
             ) : (
               <div className="p-12 text-center text-text-secondary">
-                暂无视频
+                {allVideos.length === 0 && materials.length === 0 ? "暂无内容" : "暂无视频"}
               </div>
             )}
             {activeVideo && (
@@ -187,8 +198,8 @@ export default function CoursePreview() {
           <div className="bg-bg-base rounded-lg border border-border" ref={chapterListRef}>
             <div className="px-4 py-3 text-sm font-bold text-primary/80">章节列表</div>
             <div className="overflow-y-auto max-h-[calc(100vh-360px)]">
-              {(course.chapters || []).length === 0 && (course.videos || []).length === 0 ? (
-                <p className="text-sm text-text-secondary py-4 text-center">暂无章节</p>
+              {(course.chapters || []).length === 0 && (course.videos || []).length === 0 && materials.length === 0 ? (
+                <p className="text-sm text-text-secondary py-4 text-center">暂无内容</p>
               ) : (
                 <>
                   {/* 章节 + 视频树 */}
@@ -222,6 +233,29 @@ export default function CoursePreview() {
                   {/* 无归属的视频 */}
                   {(course.videos || []).length > 0 && (course.videos || []).map(v => renderVideoRow(v))}
                 </>
+              )}
+              {/* 课件：与视频同为课程内容，点开即在主区预览 */}
+              {materials.length > 0 && (
+                <div className="border-t border-border mt-1.5 pt-1.5 pb-2">
+                  {materials.map(m => {
+                    const isActive = activeMaterial?.id === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setActiveMaterialId(m.id)}
+                        title={m.original_name}
+                        className={`w-full flex items-center gap-2 pl-4 pr-3 py-2 text-sm rounded ml-1 mr-2 mb-0.5 transition-colors border-l-2 ${
+                          isActive
+                            ? "bg-primary/5 text-primary font-medium border-l-primary"
+                            : "text-text-secondary/70 border-l-transparent hover:bg-bg-layout hover:text-text-secondary"
+                        }`}
+                      >
+                        <FileText size={14} className={isActive ? "text-primary shrink-0" : "text-text-secondary/60 shrink-0"} />
+                        <span className="truncate flex-1 text-left">{m.original_name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>

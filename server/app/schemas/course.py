@@ -60,6 +60,19 @@ class VideoReorder(BaseModel):
     video_ids: list[str]  # 按新顺序排列的 video ID 列表
 
 
+class CourseMaterialOut(BaseModel):
+    id: str
+    course_id: str
+    original_name: str
+    file_size: int | None = None
+    file_type: str
+    sort_order: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class CourseCreate(BaseModel):
     title: str
     # 历史字段：保留以兼容老调用方，后端不再写入新值；统一改为 require_attendance
@@ -126,6 +139,8 @@ class CourseOut(BaseModel):
     chapters: list[ChapterOut] = []
     videos: list[VideoOut] = []
     video_count: int = 0
+    # 课程课件（PDF / PPT / HTML 等学习资料，本地 uploads/courses/）
+    materials: list[CourseMaterialOut] = []
     # 该课程的签到场次数（仅 require_attendance=True 时可能有值；否则恒为 0）
     session_count: int = 0
 

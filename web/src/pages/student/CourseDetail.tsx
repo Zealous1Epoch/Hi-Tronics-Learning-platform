@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronRight, ChevronDown, FileText } from "lucide-react";
 import { api } from "../../lib/api";
 import VideoPlayer from "../../components/VideoPlayer";
 import StudentCheckInCard, { type MyAttendance } from "../../components/attendance/StudentCheckInCard";
+import MaterialViewer, { type MaterialFile } from "../../components/course/MaterialViewer";
 
 interface VideoItem {
   id: string; course_id: string; chapter_id: string | null;
@@ -14,6 +15,8 @@ interface ChapterItem {
   id: string; course_id: string; title: string; sort_order: number;
   videos: VideoItem[];
 }
+/** 课程课件（PDF/PPT/HTML——与视频同级的课程内容，无视频课程也成立） */
+type MaterialItem = MaterialFile;
 interface CourseDetail {
   id: string; title: string; description: string | null;
   // 历史字段保留（响应兼容）
@@ -21,6 +24,7 @@ interface CourseDetail {
   require_attendance: boolean;
   chapters: ChapterItem[];
   videos: VideoItem[];
+  materials?: MaterialItem[];
   exam_id: string | null;
 }
 interface ExamInfo {
@@ -48,6 +52,8 @@ export default function CourseDetail() {
   const [progress, setProgress] = useState<CourseProgress | null>(null);
   const [attendance, setAttendance] = useState<MyAttendance | null>(null);
   const [playUrl, setPlayUrl] = useState<string | null>(null);
+  /** 当前打开的课件 id（null=看视频；无视频课程自动落到第一个课件） */
+  const [activeMaterialId, setActiveMaterialId] = useState<string | null>(null);
   const [currentVideoWatched, setCurrentVideoWatched] = useState(false);
   const [currentWatchSec, setCurrentWatchSec] = useState(0);
   const [currentTotalSec, setCurrentTotalSec] = useState(0);
@@ -63,6 +69,7 @@ export default function CourseDetail() {
     api<CourseDetail>(`/courses/${id}`).then(async (data) => {
       if (!mountedRef.current || gen !== genRef.current) return;
       setCourse(data);
+      setActiveMaterialId(null);
       // 默认展开所有有视频的章节
       setExpandedChapters(new Set((data.chapters || []).map(ch => ch.id)));
       // 进度统一按视频统计（所有课程）
@@ -162,7 +169,12 @@ export default function CourseDetail() {
   if (!course) return <p className="text-text-secondary">课程不存在</p>;
 
   const requireAttendance = course.require_attendance;
-  const activeVideo = allVideos[activeVideoIdx];
+  const materials = course.materials || [];
+  // 未手动点开课件时：无视频课程默认打开第一个课件（课件即课程内容）
+  const activeMaterial: MaterialItem | null = activeMaterialId
+    ? materials.find(m => m.id === activeMaterialId) || null
+    : (allVideos.length === 0 && materials.length > 0 ? materials[0] : null);
+  const activeVideo = activeMaterial ? undefined : allVideos[activeVideoIdx];
 
   // 签到状态刷新（签到/撤销后由 StudentCheckInCard 触发）
   const refreshAttendance = () => {
@@ -247,7 +259,7 @@ export default function CourseDetail() {
       <button
         key={v.id}
         data-video-idx={idx}
-        onClick={() => setActiveVideoIdx(idx)}
+        onClick={() => { setActiveMaterialId(null); setActiveVideoIdx(idx); }}
         className={`w-full text-left pl-9 pr-3 py-2 text-sm rounded ml-1 mr-2 mb-0.5 transition-colors border-l-2 ${
           isActive
             ? "bg-primary/5 text-primary font-medium border-l-primary"
@@ -287,7 +299,9 @@ export default function CourseDetail() {
         <div className="flex items-start justify-between mb-3">
           <h2 className="text-lg font-bold text-primary">{course.title}</h2>
           <span className="text-xs text-text-secondary shrink-0 ml-4 mt-0.5">
-            {`${progress?.completed_count || 0} / ${progress?.total_count || totalVideos} 节`}
+            {totalVideos > 0 || materials.length === 0
+              ? `${progress?.completed_count || 0} / ${progress?.total_count || totalVideos} 节`
+              : `课件 ${materials.length} 份`}
             {requireAttendance && attendance && (
               <span className="ml-2 text-violet-600">
                 · 已签到 {attendance.attended_count}/{attendance.required_count} 场
@@ -315,8 +329,11 @@ export default function CourseDetail() {
       <div className="flex gap-4">
         {/* 播放器（统一线上课程始终渲染） */}
         <div className="flex-1 min-w-0">
-          <div className="bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden">
-            {activeVideo && playUrl ? (
+          {/* 课件模式：卡片撑到视口底部，阅读器吃满高度（视频模式保持自适应） */}
+          <div className={`bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden ${activeMaterial ? "h-[calc(100vh-210px)]" : ""}`}>
+            {activeMaterial ? (
+              <MaterialViewer material={activeMaterial} />
+            ) : activeVideo && playUrl ? (
               <div className="bg-black">
                 <VideoPlayer
                   key={`${activeVideo.id}-${resumeTime}`}
@@ -333,10 +350,10 @@ export default function CourseDetail() {
               </div>
             ) : (
               <div className="p-12 text-center text-text-secondary">
-                暂无视频
+                课程内容准备中，请稍后再来
               </div>
             )}
-            {activeVideo && (
+            {activeVideo && !activeMaterial && (
               <div className="px-4 py-2.5 border-t border-border flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
                 <span className="text-sm font-medium truncate flex-1">{activeVideo.title}</span>
@@ -410,7 +427,7 @@ export default function CourseDetail() {
         {/* 章节列表 */}
         <div className="w-64 flex-shrink-0">
           <div className="bg-bg-base rounded-lg border border-border" ref={chapterListRef}>
-            <div className="px-4 py-3 text-sm font-bold text-primary/80">章节列表</div>
+            <div className="px-4 py-3 text-sm font-bold text-primary/80">课程内容</div>
             {/* 续播提示 */}
             {lastWatched && (
               <button
@@ -430,8 +447,8 @@ export default function CourseDetail() {
               </button>
             )}
             <div className="overflow-y-auto max-h-[calc(100vh-360px)]">
-              {(course.chapters || []).length === 0 && (course.videos || []).length === 0 ? (
-                <p className="text-sm text-text-secondary py-4 text-center">暂无章节</p>
+              {(course.chapters || []).length === 0 && (course.videos || []).length === 0 && materials.length === 0 ? (
+                <p className="text-sm text-text-secondary py-4 text-center">暂无内容</p>
               ) : (
                 <>
                   {/* 章节 + 视频树 */}
@@ -465,6 +482,29 @@ export default function CourseDetail() {
                   {/* 无归属章节的视频 */}
                   {(course.videos || []).length > 0 && (course.videos || []).map(v => renderVideoRow(v))}
                 </>
+              )}
+              {/* 课件：与视频同为课程内容，点开即在主区阅读 */}
+              {materials.length > 0 && (
+                <div className="border-t border-border mt-1.5 pt-1.5 pb-2">
+                  {materials.map(m => {
+                    const isActive = activeMaterial?.id === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => setActiveMaterialId(m.id)}
+                        title={m.original_name}
+                        className={`w-full flex items-center gap-2 pl-4 pr-3 py-2 text-sm rounded ml-1 mr-2 mb-0.5 transition-colors border-l-2 ${
+                          isActive
+                            ? "bg-primary/5 text-primary font-medium border-l-primary"
+                            : "text-text-secondary/70 border-l-transparent hover:bg-bg-layout hover:text-text-secondary"
+                        }`}
+                      >
+                        <FileText size={14} className={isActive ? "text-primary shrink-0" : "text-text-secondary/60 shrink-0"} />
+                        <span className="truncate flex-1 text-left">{m.original_name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>

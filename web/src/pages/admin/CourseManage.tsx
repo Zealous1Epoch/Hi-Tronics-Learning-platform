@@ -15,6 +15,7 @@ import DataTable, { type Column } from "../../components/ui/DataTable";
 import StatusTag from "../../components/ui/StatusTag";
 import AssignmentModal from "../../components/course/AssignmentModal";
 import CategoryDeleteImpactModal from "../../components/course/CategoryDeleteImpactModal";
+import CourseCreateDrawer from "../../components/course/CourseCreateDrawer";
 import { useToast } from "../../components/ui/Toast";
 import { useConfirm } from "../../components/ui/Confirm";
 import {
@@ -73,6 +74,8 @@ export default function CourseManage() {
 
   // 分配弹窗
   const [assigningCourse, setAssigningCourse] = useState<{ id: string; title: string } | null>(null);
+  // 新建课程右拉抽屉
+  const [createOpen, setCreateOpen] = useState(false);
 
   /** 已分配聚合（N+1，并发 ≤10，失败行降级 null → 显示 —） */
   const loadCounts = useCallback(async (rows: Course[], seq: number) => {
@@ -340,9 +343,9 @@ export default function CourseManage() {
     <div className="h-[calc(100vh-96px)] flex flex-col">
       <PageHead
         title="课程管理"
-        description="左侧按分类筛选，右侧管理课程；新建与编辑在独立页面完成"
+        description="左侧按分类筛选，右侧管理课程；新建在右拉抽屉中完成，编辑在独立页面"
         actions={
-          <button className="k-btn k-btn-primary" onClick={() => navigate("/admin/courses/new")}>
+          <button className="k-btn k-btn-primary" onClick={() => setCreateOpen(true)}>
             <Plus size={14} /> 新建课程
           </button>
         }
@@ -473,6 +476,15 @@ export default function CourseManage() {
           busy={impactBusy}
           onCancel={() => { setDeleteImpact(null); setDeletingCategoryId(null); }}
           onConfirm={confirmDeleteCategory}
+        />
+      )}
+
+      {/* 新建课程抽屉（鱼骨三段：内容→信息→分配） */}
+      {createOpen && (
+        <CourseCreateDrawer
+          defaultCategoryId={selectedId}
+          onClose={() => setCreateOpen(false)}
+          onPublished={() => void fetchData()}
         />
       )}
     </div>

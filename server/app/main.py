@@ -16,6 +16,7 @@ from app.routers.users import router as users_router
 from app.routers.org import router as org_router
 from app.routers.departments import router as departments_router
 from app.routers.courses import router as courses_router
+from app.routers.course_materials import router as course_materials_router
 from app.routers.videos import router as videos_router
 from app.routers.questions import router as questions_router
 from app.routers.exams import router as exams_router
@@ -132,6 +133,7 @@ app.include_router(users_router)
 app.include_router(org_router)
 app.include_router(departments_router)
 app.include_router(courses_router)
+app.include_router(course_materials_router)
 app.include_router(videos_router)
 app.include_router(questions_router)
 app.include_router(exams_router)

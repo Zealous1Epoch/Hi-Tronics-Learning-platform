@@ -38,7 +38,7 @@ class ProgressRow:
     exam_passed: bool
     has_exam: bool
     can_take_exam: bool
-    completed: bool          # 课程整体完成 = satisfied 且（无考试或考试通过）
+    completed: bool          # 课程整体完成；无视频课程：有考试且过考才算完成，纯课件不算
     # 签到附加进度：require_attendance=True 时才有意义
     # {"required": int, "attended": int, "satisfied": bool}
     attendance_progress: dict | None = None
@@ -122,6 +122,14 @@ def batch_progress_map(
         # 考试解锁只看视频进度；签到是「附加项」，不再卡考试入口
         can_take = True
 
+        # 完成口径与前端 isCourseDone 对齐：
+        # 课件（PDF/PPT/HTML）是与视频平级的第一等内容，但不采集阅读进度。
+        # 无视频课程：有考试则过考即完成；纯课件无考试不算完成（无可验证的学习痕迹）。
+        if total == 0:
+            completed = has_exam and exam_passed
+        else:
+            completed = done >= total and (not has_exam or exam_passed)
+
         out[c.id] = ProgressRow(
             course_id=c.id,
             course_type=c.course_type,
@@ -132,7 +140,7 @@ def batch_progress_map(
             exam_passed=exam_passed,
             has_exam=has_exam,
             can_take_exam=can_take,
-            completed=satisfied and (not has_exam or exam_passed),
+            completed=completed,
             attendance_progress=attendance_progress,
         )
     return out

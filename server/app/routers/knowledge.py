@@ -2,9 +2,8 @@
 
 import uuid
 import os
-import subprocess
-from shutil import which as shutil_which
 from app.services.log_service import write_log
+from app.services.office_convert import convert_office_to_pdf
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -32,51 +31,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
-# LibreOffice 路径（macOS App / Linux 命令行）
-_SOFFICE_CANDIDATES = [
-    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-    "soffice",
-    "libreoffice",
-]
-SOFFICE = next((p for p in _SOFFICE_CANDIDATES if os.path.exists(p) or shutil_which(p)), None)
-
-def _soffice_available() -> bool:
-    """检测 LibreOffice 是否可用"""
-    if not SOFFICE:
-        return False
-    try:
-        subprocess.run([SOFFICE, "--version"], capture_output=True, timeout=10)
-        return True
-    except Exception:
-        return False
-
-
-def _convert_to_pdf(filepath: str, ext: str) -> str | None:
-    """将 PPT/PPTX 转换为 PDF，返回 PDF 路径。失败返回 None。
-
-    修复：原先失败时 `except Exception: pass` 静默吞掉，运维无法发现
-    LibreOffice 缺失或转换失败（表现为学员端 PPT 预览一直空白）。现记录日志。
-    """
-    if ext not in ("ppt", "pptx"):
-        return None
-    if not _soffice_available():
-        logger.warning("LibreOffice 不可用，跳过 PPT→PDF 转换: %s", os.path.basename(filepath))
-        return None
-    try:
-        outdir = os.path.dirname(filepath)
-        subprocess.run(
-            [SOFFICE, "--headless", "--convert-to", "pdf", "--outdir", outdir, filepath],
-            capture_output=True, text=True, timeout=60,
-            check=True,
-        )
-        # LibreOffice 输出为同名 .pdf
-        pdf_path = os.path.splitext(filepath)[0] + ".pdf"
-        if os.path.exists(pdf_path):
-            return pdf_path
-        logger.warning("PPT→PDF 转换未生成输出文件: %s", os.path.basename(filepath))
-    except Exception as exc:  # noqa: BLE001 — 转换失败不应阻断上传
-        logger.error("PPT→PDF 转换失败: %s, error=%s", os.path.basename(filepath), exc)
-    return None
+# PPT/PPTX → PDF 转换已抽到 services/office_convert.py（课程课件共用）
 
 ALLOWED_EXTENSIONS = {
     "pdf", "ppt", "pptx", "doc", "docx", "xls", "xlsx",
@@ -420,12 +375,9 @@ async def upload_knowledge_file(
     db.commit()
     db.refresh(knowledge_file)
 
-    # PPT/PPTX 自动转 PDF
+    # PPT/PPTX 自动转 PDF（转换失败内部记日志，不影响上传）
     if ext in ("ppt", "pptx"):
-        try:
-            _convert_to_pdf(filepath, ext)
-        except Exception:
-            pass  # 转换失败不影响上传
+        convert_office_to_pdf(filepath, ext)
 
     write_log(
         db=db, operator=current_user.name, operator_id=current_user.id,

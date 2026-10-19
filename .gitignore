@@ -35,6 +35,9 @@ test.db
 *.sqlite
 *.sqlite3
 
+# pytest 临时目录（课件等测试用 --basetemp 重定向到项目内，避免沙箱限制）
+server/.pytest-tmp/
+
 # 构建产物
 web/dist/
 

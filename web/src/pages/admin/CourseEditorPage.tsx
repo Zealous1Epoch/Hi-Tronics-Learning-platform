@@ -21,6 +21,7 @@ import CategorySelect from "../../components/course/CategorySelect";
 import DeptUserPicker from "../../components/course/DeptUserPicker";
 import DateField from "../../components/ui/DateField";
 import VideoManager from "../../components/course/VideoManager";
+import MaterialManager from "../../components/course/MaterialManager";
 import SessionInlineEditor, {
   type InlineSession, validateInlineSessions,
 } from "../../components/attendance/SessionInlineEditor";
@@ -32,7 +33,7 @@ import {
   createCourse, createSession, deleteSession, getAssignments, getCourse, getCategoryFlat,
   getCategoryTree, listAllUsers, listSessions,
   postAssignments, removeAssignments, updateCourse, updateSession,
-  type Course, type UserRow, type Video,
+  type Course, type CourseMaterial, type UserRow, type Video,
   type TreeNode, type FlatCategory,
 } from "../../lib/courseApi";
 
@@ -74,7 +75,9 @@ export default function CourseEditorPage() {
   // 课程内容
   const [selectedChapterIds, setSelectedChapterIds] = useState<Set<string>>(new Set());
   const [videos, setVideos] = useState<Video[]>([]);
+  const [materials, setMaterials] = useState<CourseMaterial[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [materialUploading, setMaterialUploading] = useState(false);
 
   // 课程分配（暂存，纯 user_ids）；existing 为上次落库口径，保存时先清旧再写新
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
@@ -150,6 +153,7 @@ export default function CourseEditorPage() {
     setSelectedChapterIds(new Set((detail.chapters || []).map(ch => ch.id)));
     // 合并根级视频与章节内视频（与旧弹窗口径一致）
     setVideos([...(detail.videos || []), ...(detail.chapters || []).flatMap(ch => ch.videos)]);
+    setMaterials(detail.materials || []);
   };
 
   /** 后端场次 → 内联编辑器暂存态（datetime-local 本地格式） */
@@ -205,8 +209,8 @@ export default function CourseEditorPage() {
   }, [dirty]);
 
   const guardedBack = async () => {
-    if (uploading) {
-      toast.info("有视频正在上传，建议等待完成后再离开");
+    if (uploading || materialUploading) {
+      toast.info("有文件正在上传，建议等待完成后再离开");
     }
     if (dirty) {
       const ok = await confirm({
@@ -259,7 +263,7 @@ export default function CourseEditorPage() {
     if (createdIdRef.current) return createdIdRef.current;
     if (creatingRef.current) return creatingRef.current;
     if (!title.trim()) {
-      toast.error("请先在「基本信息」填写课程标题——上传视频会自动创建课程");
+      toast.error("请先在「基本信息」填写课程标题——上传文件会自动创建课程");
       setActiveTab("basic");
       return null;
     }
@@ -268,7 +272,7 @@ export default function CourseEditorPage() {
         const created = await createCourse(buildPayload("draft"));
         createdIdRef.current = created.id;
         setCreatedId(created.id);
-        toast.success("已自动创建课程草稿，开始上传视频");
+        toast.success("已自动创建课程草稿，开始上传");
         return created.id;
       } catch (e: any) {
         toast.error(`自动创建课程失败：${e.message || e}`);
@@ -401,11 +405,7 @@ export default function CourseEditorPage() {
     <div>
       <PageHead
         title={courseId ? "编辑课程" : "新建课程"}
-        description={
-          dirty ? "有未保存的修改"
-            : courseId ? "所有修改需点击右上角保存后生效"
-            : "填好课程标题即可直接上传视频（首次上传会自动创建课程）"
-        }
+        description={dirty ? "有未保存的修改" : "所有修改需点击右上角保存后生效"}
         back={{ onClick: guardedBack }}
         actions={
           <>
@@ -463,7 +463,7 @@ export default function CourseEditorPage() {
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="k-label">开始日期</label>
-                  <DateField value={startDate} min={endDate || undefined}
+                  <DateField value={startDate} max={endDate || undefined}
                     onChange={v => { setStartDate(v); markDirty(); }} placeholder="选择开始日期（可选）" />
                 </div>
                 <div className="flex-1">
@@ -486,11 +486,6 @@ export default function CourseEditorPage() {
                   />
                   <span className="text-sm">启用现场签到</span>
                 </label>
-                <p className="text-xs text-text-secondary/70 mt-1.5">
-                  {requireAttendance
-                    ? "开启后学员可通过扫码/输码在现场签到；请在「现场签到」Tab 配置场次（签到不影响考试解锁）。"
-                    : "关闭时课程为纯线上学习：学员看视频 → 考试，无签到环节。"}
-                </p>
               </div>
             </div>
           </DataPanel>
@@ -513,6 +508,20 @@ export default function CourseEditorPage() {
                 onUploadingChange={setUploading}
               />
             </DataPanel>
+            <DataPanel
+              title={<span>课件 {materials.length > 0 && <span className="text-text-secondary font-normal ml-1">（{materials.length} 个）</span>}</span>}
+              bodyPadding={14}
+              style={{ maxWidth: 860 }}
+            >
+              <MaterialManager
+                courseId={effCourseId}
+                ensureCourseId={ensureDraftForUpload}
+                materials={materials}
+                onAdded={m => setMaterials(prev => [...prev, m])}
+                onDeleted={mid => setMaterials(prev => prev.filter(m => m.id !== mid))}
+                onUploadingChange={setMaterialUploading}
+              />
+            </DataPanel>
           </div>
         )}
 
@@ -528,9 +537,6 @@ export default function CourseEditorPage() {
                 onChange={users => { setSelectedUsers(users); markDirty(); }}
                 listClass="max-h-[420px]"
               />
-              <p className="text-xs text-text-secondary/70 mt-2">
-                组织口径与用户管理的全公司名册一致；勾选部门连带其全部有账号成员，无账号人员需先在用户管理开通。分配结果在点击右上角保存后生效。
-              </p>
             </div>
           </DataPanel>
         )}

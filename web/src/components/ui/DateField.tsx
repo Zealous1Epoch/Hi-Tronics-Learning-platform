@@ -6,15 +6,17 @@ interface DateFieldProps {
   onChange: (v: string) => void;
   placeholder?: string;
   min?: string;
+  max?: string;
 }
 
-export default function DateField({ value, onChange, placeholder = "选择日期", min }: DateFieldProps) {
+export default function DateField({ value, onChange, placeholder = "选择日期", min, max }: DateFieldProps) {
   return (
     <div className="relative">
       <input
         type="date"
         value={value}
         min={min}
+        max={max}
         onChange={e => onChange(e.target.value)}
         className={`k-input${value ? "" : " k-date-empty"}`}
       />

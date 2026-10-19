@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Upload, X, Trash2, Pencil } from "lucide-react";
 import {
-  addVideo, deleteVideo, getUploadToken, renameVideo, uploadVideoToOSS, videoStreamUrl, type Video,
+  addVideo, deleteVideo, getUploadToken, probeVideoDuration, renameVideo, uploadVideoToOSS, videoStreamUrl, type Video,
 } from "../../lib/courseApi";
 import { useToast } from "../ui/Toast";
 import { useConfirm } from "../ui/Confirm";
@@ -18,24 +18,6 @@ import { useConfirm } from "../ui/Confirm";
 function extOf(name: string): string {
   const ext = name.toLowerCase().split(".").pop() || "mp4";
   return ["mp4", "mov", "avi", "mkv", "webm"].includes(ext) ? ext : "mp4";
-}
-
-/** 读取视频时长（秒），失败返回 null */
-function probeVideoDuration(file: File): Promise<number | null> {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const el = document.createElement("video");
-    el.preload = "metadata";
-    el.onloadedmetadata = () => {
-      URL.revokeObjectURL(url);
-      resolve(Number.isFinite(el.duration) ? Math.round(el.duration) : null);
-    };
-    el.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(null);
-    };
-    el.src = url;
-  });
 }
 
 interface UploadTask {
@@ -183,10 +165,7 @@ export default function VideoManager({
           {canUpload ? (
             <>
               <p className="text-sm text-text-secondary">点击选择文件或拖拽视频文件到此处</p>
-              <p className="text-xs text-text-secondary/60 mt-0.5">
-                支持 MP4 / MOV / AVI / MKV / WEBM，选择后立即上传并保存
-                {!courseId && "（当前为新建课程，首次上传会自动创建课程）"}
-              </p>
+              <p className="text-xs text-text-secondary/60 mt-0.5">支持 MP4 / MOV / AVI / MKV / WEBM，选择后立即上传并保存</p>
             </>
           ) : (
             <>

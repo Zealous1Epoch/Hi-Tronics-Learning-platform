@@ -131,6 +131,31 @@ class Chapter(Base):
     )
 
 
+class CourseMaterial(Base):
+    """课程课件：PDF / PPT(PPTX) / HTML 等非视频的学习文件。
+
+    文件落服务器本地 uploads/courses/（与知识库课件同套路，obs_key 为存储文件名）；
+    PPT/PPTX 上传时尝试 LibreOffice 转 PDF 作为预览产物，转换失败不阻断上传。
+    """
+
+    __tablename__ = "course_materials"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    course_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("courses.id"), nullable=False, index=True, comment="关联课程"
+    )
+    original_name: Mapped[str] = mapped_column(String(500), nullable=False, comment="原始文件名")
+    obs_key: Mapped[str] = mapped_column(String(500), nullable=False, comment="存储文件名")
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="文件大小(字节)")
+    file_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="扩展名（pdf/pptx/html…）")
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, comment="排序")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), comment="创建时间"
+    )
+
+
 class Video(Base):
     __tablename__ = "videos"
 

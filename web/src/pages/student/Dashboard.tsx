@@ -17,6 +17,7 @@ interface CourseWithProgress {
   start_date: string | null; end_date: string | null;
   completed_count: number; total_count: number;
   exam_passed: boolean; has_exam: boolean;
+  material_count: number;
 }
 
 interface StudentProfile {
@@ -34,6 +35,7 @@ interface DailyPlanCourse {
   start_date: string | null; end_date: string | null;
   completed_count: number; total_count: number;
   exam_passed: boolean; has_exam: boolean;
+  material_count: number;
 }
 
 interface DailyPlan { tasks: TaskItem[]; courses: DailyPlanCourse[]; }
@@ -45,14 +47,20 @@ interface NoticeItem {
 
 // ── 工具 ──
 
-const isDone = (c: { total_count: number; completed_count: number; has_exam: boolean; exam_passed: boolean }) =>
-  c.total_count > 0 && c.completed_count >= c.total_count && (!c.has_exam || c.exam_passed);
+// 完成判定与 MyCourses.isCourseDone 同口径：
+// 无视频课程「视频侧」视为看完（课件不采集阅读进度）；
+// 纯课件且无考试的课程不标记完成；有考试的课件课程通过考试即完成。
+const isDone = (c: { total_count: number; completed_count: number; has_exam: boolean; exam_passed: boolean }) => {
+  if (c.has_exam && !c.exam_passed) return false;
+  if (c.total_count === 0) return c.has_exam;
+  return c.completed_count >= c.total_count;
+};
 
 const isStarted = (c: { completed_count: number; exam_passed: boolean }) =>
   c.completed_count > 0 || c.exam_passed;
 
 const needExam = (c: CourseWithProgress) =>
-  c.has_exam && !c.exam_passed && c.total_count > 0 && c.completed_count >= c.total_count;
+  c.has_exam && !c.exam_passed && (c.total_count === 0 || c.completed_count >= c.total_count);
 
 function coursePercent(c: { total_count: number; completed_count: number; has_exam: boolean; exam_passed: boolean }) {
   if (c.total_count === 0) return c.has_exam ? (c.exam_passed ? 100 : 0) : 0;
@@ -173,10 +181,16 @@ function ContinueCard({ course, loading }: { course: CourseWithProgress | null; 
       </h2>
       <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>
         {needExam(course)
-          ? "视频已全部看完，可以参加考试了"
+          ? course.total_count > 0
+            ? "视频已全部看完，可以参加考试了"
+            : "可以参加考试了"
           : started
             ? `已学 ${course.completed_count}/${course.total_count} 个视频`
-            : `共 ${course.total_count} 个视频，还没有开始`}
+            : course.total_count > 0
+              ? `共 ${course.total_count} 个视频，还没有开始`
+              : course.material_count > 0
+                ? `课件 ${course.material_count} 份，还没有开始`
+                : "内容准备中"}
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0 16px" }}>
@@ -345,7 +359,11 @@ function TodayPlanCard({ date, onDateChange }: { date: string; onDateChange: (d:
                 <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   <Bar pct={coursePercent(c)} />
                   <span style={{ fontSize: 12, color: "var(--color-text-secondary)", minWidth: 62, textAlign: "right" }}>
-                    {c.total_count > 0 ? `${c.completed_count}/${c.total_count} 视频` : "暂无视频"}
+                    {c.total_count > 0
+                      ? `${c.completed_count}/${c.total_count} 视频`
+                      : c.material_count > 0
+                        ? `课件 ${c.material_count} 份`
+                        : "内容待上传"}
                   </span>
                 </span>
               </Link>

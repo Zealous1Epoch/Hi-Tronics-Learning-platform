@@ -9,13 +9,14 @@ from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.models.course import Course, Chapter, Video, course_chapters
+from app.models.course import Course, Chapter, Video, CourseMaterial, course_chapters
 from app.models.department import Department
 from app.models.question_category import QuestionCategory
 from app.schemas.course import (
     CourseCreate, CourseUpdate,
     CourseOut, VideoCreate, VideoOut, VideoReorder,
     ChapterCreate, ChapterUpdate, ChapterOut, ChapterReorder, ChapterAssign,
+    CourseMaterialOut,
 )
 from app.routers.auth import get_current_user, require_admin
 from app.routers.videos import delete_oss_object
@@ -69,6 +70,16 @@ def _courses_with_chapters(db: Session, courses: list[Course]) -> list[CourseOut
             videos_by_chapter[v.chapter_id].append(v)
         else:
             orphan_videos[v.course_id].append(v)
+    # 课程课件（本地文件，与视频分离的 PDF/PPT/HTML 学习资料）
+    all_materials = (
+        db.query(CourseMaterial)
+        .filter(CourseMaterial.course_id.in_(course_ids))
+        .order_by(CourseMaterial.sort_order, CourseMaterial.created_at)
+        .all()
+    )
+    materials_by_course: dict[str, list[CourseMaterial]] = defaultdict(list)
+    for m in all_materials:
+        materials_by_course[m.course_id].append(m)
     # 课程 → 章节映射
     chapters_by_course: dict[str, list[Chapter]] = defaultdict(list)
     for ch in all_chapters:
@@ -110,6 +121,7 @@ def _courses_with_chapters(db: Session, courses: list[Course]) -> list[CourseOut
             chapters=course_chapters_out,
             videos=root_videos,
             video_count=total_video_count,
+            materials=[CourseMaterialOut.model_validate(m) for m in materials_by_course.get(c.id, [])],
             session_count=session_counts.get(c.id, 0),
         ))
     return result
@@ -331,8 +343,13 @@ def delete_course(
             ),
         )
 
-    # 收集 OSS 对象，待数据库事务提交后再清理
+    # 收集 OSS 对象与本地课件文件（先取字符串快照，commit 后 ORM 实例已过期），
+    # 待数据库事务提交后再清理
     obs_keys = [v.obs_key for v in db.query(Video).filter(Video.course_id == course_id).all() if v.obs_key]
+    material_files = [
+        (m.obs_key, m.file_type)
+        for m in db.query(CourseMaterial).filter(CourseMaterial.course_id == course_id).all()
+    ]
 
     write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="course", action="delete", resource_type="课程", resource_name=course.title if hasattr(course, 'title') else "", description=f"{current_user.name} 删除了课程「{course.title}」", level="warning")
     db.query(LearningProgress).filter(LearningProgress.course_id == course_id).delete()
@@ -347,6 +364,7 @@ def delete_course(
         course_chapters.delete().where(course_chapters.c.course_id == course_id)
     )
     db.query(Video).filter(Video.course_id == course_id).delete()
+    db.query(CourseMaterial).filter(CourseMaterial.course_id == course_id).delete()
     # 签到：先删记录（引用场次与课程），再删场次，最后才能删课程
     db.query(AttendanceRecord).filter(
         AttendanceRecord.course_id == course_id
@@ -361,8 +379,11 @@ def delete_course(
     db.delete(course)
     db.commit()
 
-    # 事务成功后再删对象存储
+    # 事务成功后再删对象存储与本地课件文件
     removed = sum(1 for k in obs_keys if delete_oss_object(k))
+    from app.services import course_files
+    for obs_key, file_type in material_files:
+        course_files.remove_from_disk(obs_key, file_type)
     return {"ok": True, "deleted_oss_objects": removed}
 
 

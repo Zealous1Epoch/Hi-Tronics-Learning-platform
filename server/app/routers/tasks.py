@@ -243,11 +243,11 @@ def get_daily_plan(
     current_user: User = Depends(get_current_user),
 ):
     """获取指定日期的计划：个人任务 + 有效期内课程"""
-    from app.models.course import Course, CourseAssignment
+    from app.models.course import Course, CourseAssignment, CourseMaterial
     from app.models.learning_progress import LearningProgress
     from app.models.department import Department
     from app.models.exam import ExamResult
-    from sqlalchemy import or_, and_
+    from sqlalchemy import func, or_, and_
 
     day = _parse_date(date)
 
@@ -292,6 +292,18 @@ def get_daily_plan(
         # 统一进度口径：线上课程按视频节数、线下课程按签到场次数
         progress_map = batch_progress_map(db, current_user.id, course_rows)
 
+        # 课件数量：与视频平级的第一等课程内容，无视频课程也靠它构成学习内容
+        material_counts = (
+            dict(
+                db.query(CourseMaterial.course_id, func.count(CourseMaterial.id))
+                .filter(CourseMaterial.course_id.in_([c.id for c in course_rows]))
+                .group_by(CourseMaterial.course_id)
+                .all()
+            )
+            if course_rows
+            else {}
+        )
+
         courses = [
             {
                 "id": c.id,
@@ -308,6 +320,7 @@ def get_daily_plan(
                 "exam_passed": row.exam_passed,
                 "has_exam": row.has_exam,
                 "can_take_exam": row.can_take_exam,
+                "material_count": material_counts.get(c.id, 0),
             }
             for c in course_rows
             for row in [progress_map.get(c.id)]

@@ -13,7 +13,7 @@ from sqlalchemy import func, Integer, or_
 from app.database import get_db
 from app.models.user import User
 from app.models.attendance import AttendanceRecord
-from app.models.course import Course, CourseAssignment, Video
+from app.models.course import Course, CourseAssignment, Video, CourseMaterial
 from app.models.exam import Exam, ExamResult
 from app.models.learning_progress import LearningProgress
 from app.models.department import Department
@@ -255,6 +255,14 @@ def get_courses_with_progress(
         .all()
     )
 
+    # 批量获取课件数（无视频课程的内容也可能是 PDF/PPT/HTML）
+    material_counts = dict(
+        db.query(CourseMaterial.course_id, func.count(CourseMaterial.id))
+        .filter(CourseMaterial.course_id.in_(course_ids))
+        .group_by(CourseMaterial.course_id)
+        .all()
+    )
+
     # 批量获取进度（仅线上课程需要视频进度）
     progress_records = (
         db.query(LearningProgress)
@@ -313,6 +321,7 @@ def get_courses_with_progress(
             "cover_image": c.cover_image,
             "category_id": c.category_id,
             "video_count": video_counts.get(c.id, 0),
+            "material_count": material_counts.get(c.id, 0),
             "session_count": required_count,
             "unit_label": "节",
             "status": c.status,

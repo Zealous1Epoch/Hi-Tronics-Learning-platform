@@ -4,7 +4,7 @@
  * 统一从这里取数，不再散落裸 api() 调用。
  * 底层复用 lib/api.ts（Bearer 注入、401 跳登录、detail 报错），本文件不改其行为。
  */
-import { api, uploadToOSS, BASE } from "./api";
+import { api, uploadToOSS, uploadFileWithProgress, BASE } from "./api";
 import type { TreeNode, FlatCategory } from "../components/CourseTree";
 
 export type { TreeNode, FlatCategory };
@@ -32,8 +32,21 @@ export interface Course {
   chapters: Chapter[];
   videos: Video[];
   video_count: number;
+  /** 课程课件（PDF / PPT / HTML 等学习文件，本地存储） */
+  materials: CourseMaterial[];
   /** 签到场次数（require_attendance=False 时恒 0） */
   session_count: number;
+}
+
+/** CourseMaterialOut：课程课件（响应不携带存储文件名 obs_key） */
+export interface CourseMaterial {
+  id: string;
+  course_id: string;
+  original_name: string;
+  file_size: number | null;
+  file_type: string;
+  sort_order: number;
+  created_at: string;
 }
 
 export interface Chapter {
@@ -311,6 +324,31 @@ export async function deleteVideo(videoId: string): Promise<void> {
   await api(`/videos/${videoId}?confirm=true`, { method: "DELETE" });
 }
 
+// ───────────────────────── 课程课件（本地存储，非视频学习资料） ─────────────────────────
+
+/** 上传课件（multipart）。后端白名单 pdf/ppt/pptx/html/htm，≤50MB，PPT 自动转 PDF 预览 */
+export function uploadMaterial(
+  courseId: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<CourseMaterial> {
+  return uploadFileWithProgress<CourseMaterial>(`/courses/${courseId}/materials`, file, onProgress);
+}
+
+export async function deleteMaterial(materialId: string): Promise<void> {
+  await api(`/course-materials/${materialId}?confirm=true`, { method: "DELETE" });
+}
+
+/** 预览端点（PPT/PPTX 后端自动返回转好的 PDF；管理端与学员端同一路径，鉴权走课程分配） */
+export function materialPreviewPath(materialId: string): string {
+  return `/course-materials/${materialId}/preview`;
+}
+
+/** 下载端点（原始文件） */
+export function materialDownloadPath(materialId: string): string {
+  return `/course-materials/${materialId}/download`;
+}
+
 /** 视频流地址（token 走 query，后端 <img>/<video> 场景无法带 Header）。
  *  修复旧页面硬编码 "/api/learning-platform" 的问题，统一用 BASE。 */
 export function videoStreamUrl(obsKey: string): string {
@@ -322,6 +360,24 @@ export function videoStreamUrl(obsKey: string): string {
 export function videoExtOf(name: string): string {
   const ext = name.toLowerCase().split(".").pop() || "mp4";
   return ["mp4", "mov", "avi", "mkv", "webm"].includes(ext) ? ext : "mp4";
+}
+
+/** 读取视频时长（秒），失败返回 null（上传前探测用，VideoManager 与新建抽屉共用） */
+export function probeVideoDuration(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const el = document.createElement("video");
+    el.preload = "metadata";
+    el.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(Number.isFinite(el.duration) ? Math.round(el.duration) : null);
+    };
+    el.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    el.src = url;
+  });
 }
 
 // ───────────────────────── 分类树（题库分类共用） ─────────────────────────

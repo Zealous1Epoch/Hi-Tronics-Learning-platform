@@ -10,6 +10,8 @@ interface CourseWithProgress {
   course_type: string;
   require_attendance: boolean;
   video_count: number; status: string;
+  /** 课件数（PDF/PPT/HTML——无视频课程的内容同样构成课程） */
+  material_count: number;
   start_date: string | null; end_date: string | null;
   completed_count: number; total_count: number; exam_passed: boolean;
   has_exam: boolean;
@@ -122,9 +124,17 @@ function TreeSidebar({
   );
 }
 
+/** 课程是否学完：有视频的看观看数 + 考试通过；
+ *  纯课件且无考试的课程不采集阅读进度，不标记为已完成 */
+function isCourseDone(c: CourseWithProgress): boolean {
+  const videosDone = c.total_count === 0 || c.completed_count >= c.total_count;
+  if (c.has_exam && !c.exam_passed) return false;
+  return c.total_count > 0 || c.has_exam ? videosDone : false;
+}
+
 function CourseCard({ course }: { course: CourseWithProgress }) {
-  const isDone = (course.total_count > 0 && course.completed_count >= course.total_count) && (!course.has_exam || course.exam_passed);
-  const videosDone = course.total_count > 0 && course.completed_count >= course.total_count;
+  const videosDone = course.total_count === 0 || course.completed_count >= course.total_count;
+  const isDone = isCourseDone(course);
   const needExam = course.has_exam && videosDone && !course.exam_passed;
   const videoPct = course.has_exam
     ? (course.total_count > 0 ? Math.round((course.completed_count / course.total_count) * 80) : 0)
@@ -144,7 +154,11 @@ function CourseCard({ course }: { course: CourseWithProgress }) {
       <div className="mb-1.5">
         <div className="flex items-center justify-between text-[11px] text-text-secondary mb-0.5">
           <span>
-            {course.total_count} 个视频
+            {course.total_count > 0
+              ? `${course.total_count} 个视频`
+              : course.material_count > 0
+                ? `课件 ${course.material_count} 份`
+                : "内容待上传"}
             {course.require_attendance && (
               <span className="ml-2 text-violet-600">
                 · 已签到 {course.attended_count ?? 0}/{course.required_count ?? 0} 场
@@ -152,8 +166,8 @@ function CourseCard({ course }: { course: CourseWithProgress }) {
             )}
           </span>
           <span className="text-primary">
-            {course.exam_passed && course.total_count === 0
-              ? "考试已通过"
+            {course.total_count === 0
+              ? (course.exam_passed ? "考试已通过" : "点开学习")
               : `${course.completed_count}/${course.total_count} 完成`}
           </span>
         </div>
@@ -233,15 +247,14 @@ export default function MyCourses() {
     });
   };
 
-  // 按状态过滤
+  // 按状态过滤（完成口径与卡片一致，走 isCourseDone）
   const filteredByStatus = courses.filter((c) => {
     if (tab === "in_progress") {
       const hasProgress = c.completed_count > 0 || c.exam_passed;
-      const isComplete = (c.total_count > 0 && c.completed_count >= c.total_count) && (!c.has_exam || c.exam_passed);
-      return hasProgress && !isComplete;
+      return hasProgress && !isCourseDone(c);
     }
     if (tab === "done") {
-      return (c.total_count > 0 && c.completed_count >= c.total_count) && (!c.has_exam || c.exam_passed);
+      return isCourseDone(c);
     }
     if (tab === "not_started") {
       return c.completed_count === 0 && !c.exam_passed;

@@ -15,6 +15,7 @@ from app.services.org_sync import (
     SyncInProgress,
     build_fused_payload,
     list_unlinked_accounts,
+    provision_all_members,
     sync_all,
 )
 
@@ -38,6 +39,19 @@ def trigger_org_sync(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"组织架构数据源不可达，本地名册保持上一次同步结果不变。{e}",
         )
+
+
+@router.post("/provision")
+def provision_org_accounts(
+    db: Session = Depends(get_db),
+    operator: User = Depends(require_admin),
+):
+    """为名册全员批量开通无密码账号（幂等，可重复执行）。
+
+    username=工号、student、password_hash=None——只能经 OA/企微 SSO 进入，
+    密码登录路径 fail-closed。已开户者跳过；返回统计供前端 toast。
+    """
+    return provision_all_members(db, operator)
 
 
 @router.get("/members")

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.org_member import OrgMember, OrgSyncMeta
 from app.models.user import User
+from app.services.department_sync import ensure_department_path
 from app.services.log_service import write_log
 
 # 源不可达（连接失败/源表缺失/查询异常）
@@ -279,3 +280,98 @@ def list_unlinked_accounts(db: Session) -> list[dict]:
             }
         )
     return out
+
+
+def provision_all_members(db: Session, operator: User) -> dict:
+    """为名册全员批量开通无密码账号（find-or-create，幂等可重复执行）。
+
+    口径与 SSO JIT 建号（sso.py `_create_user_from_oa`）完全一致：
+    - username = 工号、role=student、status=active、password_hash=None；
+    - 无密码账号在 auth.py 密码登录路径 fail-closed（空 hash 直接 401），
+      只能经 OA / 企微 SSO 进入；员工后续首点 SSO 时按工号命中
+      `_find_user_by_workcode` 已建的行，不会重复建号；
+    - 部门：dept_path（'>' 分隔）转 '-' 路径后经 ensure_department_path
+      挂部门链并回填 department_id（与 POST /users 开通账号同口径）。
+
+    跳过规则：
+    - 工号为空 → no_employee_id；
+    - users.employee_id（TRIM 归一）已有账号 → existing；
+    - 工号文本被「工号对不上」的存量账号占用为 username → conflict，
+      不强行建（避开 username 唯一键），列入 conflict_samples 供人工处置。
+
+    单事务：全部成功才 commit，任何写异常整体回滚。
+    """
+    members = db.scalars(select(OrgMember).order_by(OrgMember.seq)).all()
+    accounts = db.execute(select(User.username, User.employee_id)).all()
+    linked_emps = {(a.employee_id or "").strip() for a in accounts} - {""}
+    used_usernames = {a.username for a in accounts}
+
+    created = 0
+    existing = 0
+    no_emp = 0
+    conflicts: list[str] = []
+
+    try:
+        for m in members:
+            emp = (m.emp_id or "").strip()
+            if not emp:
+                no_emp += 1
+                continue
+            if emp in linked_emps:
+                existing += 1
+                continue
+            if emp in used_usernames:
+                conflicts.append(f"{m.name}({emp})")
+                continue
+
+            dept_text = None
+            if m.dept_path:
+                parts = [s.strip() for s in m.dept_path.split(">") if s.strip()]
+                if parts:
+                    dept_text = "-".join(parts)
+            department_id = None
+            if dept_text:
+                leaf = ensure_department_path(db, dept_text)
+                department_id = leaf.id if leaf else None
+
+            db.add(User(
+                username=emp,
+                password_hash=None,
+                name=m.name,
+                employee_id=emp,
+                department=dept_text,
+                department_id=department_id,
+                role="student",
+                status="active",
+            ))
+            linked_emps.add(emp)
+            used_usernames.add(emp)
+            created += 1
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    result = {
+        "total": len(members),
+        "created": created,
+        "existing": existing,
+        "conflict": len(conflicts),
+        "conflict_samples": conflicts[:10],
+        "no_employee_id": no_emp,
+    }
+    write_log(
+        db=db,
+        operator=operator.name,
+        operator_id=operator.id,
+        category="user",
+        action="create",
+        resource_type="组织架构",
+        description=(
+            f"{operator.name} 为名册全员批量开通账号：新建 {created}，"
+            f"已有账号 {existing}，用户名冲突跳过 {len(conflicts)}，无工号跳过 {no_emp}"
+        ),
+        detail=result,
+        level="info",
+    )
+    return result

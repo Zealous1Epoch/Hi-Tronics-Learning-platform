@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { api, BASE } from "../../lib/api";
-import type { OrgMembersResponse, OrgMemberRow, OrgSyncResult } from "../../lib/api";
+import type { OrgMembersResponse, OrgMemberRow, OrgSyncResult, OrgProvisionResult } from "../../lib/api";
 import OrgDeptTree from "../../components/OrgDeptTree";
 import DeptManageModal from "../../components/DeptManageModal";
 import {
@@ -11,7 +11,7 @@ import {
   COMPANY_KEY,
   UNASSIGNED_KEY,
 } from "../../lib/orgTree";
-import { Plus, RefreshCw, Settings2 } from "lucide-react";
+import { Plus, RefreshCw, Settings2, UserPlus } from "lucide-react";
 
 const PAGE_SIZE = 50;
 
@@ -26,6 +26,9 @@ export default function DepartmentUserManage() {
   // 同步
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // 批量开通账号
+  const [provisioning, setProvisioning] = useState(false);
 
   // 树选中 / 筛选
   const [selectedKey, setSelectedKey] = useState<string>(COMPANY_KEY);
@@ -123,6 +126,37 @@ export default function DepartmentUserManage() {
       setSyncMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
       setSyncing(false);
+    }
+  };
+
+  // ── 批量开通账号（为「未开通」名册人员建无密码学生账号） ──
+  const handleProvision = async () => {
+    const pending = org
+      ? org.members.filter(m => !m.account && (m.emp_id || "").trim()).length
+      : 0;
+    if (
+      !confirm(
+        `将为名册中 ${pending} 名未开通账号的员工批量创建账号。\n\n` +
+          `· 用户名 = 工号，角色 = 学员，不设置密码——只能经 OA / 企业微信登录进入，\n` +
+          `  密码登录入口对这类账号关闭（防弱密码/代登录风险）\n` +
+          `· 已有账号、无工号、用户名被占用的会跳过；操作幂等，可重复执行\n\n` +
+          `确定继续？`
+      )
+    )
+      return;
+    setProvisioning(true);
+    setSyncMsg(null);
+    try {
+      const r = await api<OrgProvisionResult>("/org/provision", { method: "POST" });
+      const parts = [`新建 ${r.created}`, `已有账号 ${r.existing}`];
+      if (r.conflict > 0) parts.push(`用户名冲突跳过 ${r.conflict}`);
+      if (r.no_employee_id > 0) parts.push(`无工号跳过 ${r.no_employee_id}`);
+      setSyncMsg({ ok: true, text: `批量开通完成（名册共 ${r.total} 人）：${parts.join("，")}` });
+      await fetchOrg();
+    } catch (e) {
+      setSyncMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setProvisioning(false);
     }
   };
 
@@ -337,6 +371,19 @@ export default function DepartmentUserManage() {
           >
             <RefreshCw size={12} className={`inline mr-1 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "同步中..." : "同步全员"}
+          </button>
+          <button
+            onClick={handleProvision}
+            disabled={provisioning || !org?.meta}
+            title={
+              org?.meta
+                ? "为名册中所有未开通账号的员工创建无密码学生账号（仅可经 OA/企业微信登录），可重复执行"
+                : "请先同步全员名册"
+            }
+            className="px-3 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout disabled:opacity-50"
+          >
+            <UserPlus size={12} className="inline mr-1" />
+            {provisioning ? "开通中..." : "为全员开通账号"}
           </button>
           <button
             onClick={() => openCreate()}

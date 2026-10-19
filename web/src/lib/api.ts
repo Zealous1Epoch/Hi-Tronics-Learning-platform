@@ -117,6 +117,16 @@ export interface OrgSyncResult {
   source_imported_at: string | null;
 }
 
+/** POST /org/provision 批量开户结果（幂等，可重复执行） */
+export interface OrgProvisionResult {
+  total: number;
+  created: number;
+  existing: number;
+  conflict: number;
+  conflict_samples: string[];
+  no_employee_id: number;
+}
+
 export interface LoginResponse {
   access_token: string;
   token_type: string;

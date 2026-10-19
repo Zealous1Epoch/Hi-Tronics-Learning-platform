@@ -106,7 +106,11 @@ def test_sync_rejects_empty_and_shrunken_source(client, admin_headers, db, monke
 
 def test_org_endpoints_require_admin(client, student_headers, db, monkeypatch):
     monkeypatch.setattr(org_sync, "fetch_source_rows", lambda: make_source_rows(1))
-    for path, method in [("/api/org/members", "get"), ("/api/org/sync", "post")]:
+    for path, method in [
+        ("/api/org/members", "get"),
+        ("/api/org/sync", "post"),
+        ("/api/org/provision", "post"),
+    ]:
         assert getattr(client, method)(path, headers=student_headers).status_code == 403
         assert getattr(client, method)(path).status_code == 401
 
@@ -238,3 +242,69 @@ def test_batch_import_backfills_dept_and_rejects_dup_emp(client, admin_headers, 
     assert imported is not None and imported.department_id is not None
     leaf = db.get(Department, imported.department_id)
     assert leaf.name == "新车间"
+
+
+# ────────────────────── 名册全员批量开通账号 ──────────────────────
+
+
+def _sync_fixture(client, admin_headers, monkeypatch, n=3):
+    monkeypatch.setattr(org_sync, "fetch_source_rows", lambda: make_source_rows(n))
+    assert client.post("/api/org/sync", headers=admin_headers).status_code == 200
+
+
+def test_provision_creates_passwordless_students(client, admin_headers, db, monkeypatch):
+    _sync_fixture(client, admin_headers, monkeypatch, 3)
+
+    res = client.post("/api/org/provision", headers=admin_headers)
+    assert res.status_code == 200
+    body = res.json()
+    assert body == {
+        "total": 3, "created": 3, "existing": 0,
+        "conflict": 0, "conflict_samples": [], "no_employee_id": 0,
+    }
+
+    u = db.query(User).filter(User.username == "000001").one()
+    assert u.password_hash is None
+    assert u.employee_id == "000001"
+    assert u.role == "student" and u.status == "active"
+    # dept_path '>' 转 '-' 且挂上 Department 链
+    assert u.department == "生产部-车间1-班组1"
+    leaf = db.get(Department, u.department_id)
+    assert leaf.name == "班组1" and leaf.parent.name == "车间1" and leaf.parent.parent.name == "生产部"
+
+
+def test_provision_idempotent_and_skips_linked(client, admin_headers, db, monkeypatch):
+    _sync_fixture(client, admin_headers, monkeypatch, 3)
+    # 000002 已有手工账号（工号已关联）→ 应计入 existing 而不是重复建
+    add_user(db, "manual_2", employee_id=" 000002 ")
+
+    first = client.post("/api/org/provision", headers=admin_headers).json()
+    assert first["created"] == 2 and first["existing"] == 1
+
+    # 重复执行 → 全部 existing，不再新建
+    second = client.post("/api/org/provision", headers=admin_headers).json()
+    assert second["created"] == 0 and second["existing"] == 3
+    assert db.query(User).filter(User.employee_id.isnot(None)).count() == 3
+
+
+def test_provision_username_conflict_skipped(client, admin_headers, db, monkeypatch):
+    _sync_fixture(client, admin_headers, monkeypatch, 3)
+    # 存量账号占用了工号 000003 作为 username，但 employee_id 对不上 → conflict 跳过
+    add_user(db, "000003", employee_id=None)
+
+    body = client.post("/api/org/provision", headers=admin_headers).json()
+    assert body["created"] == 2 and body["conflict"] == 1
+    assert body["conflict_samples"] and "000003" in body["conflict_samples"][0]
+    # 未被强行建重复 username（唯一键不炸）
+    assert db.query(User).filter(User.username == "000003").count() == 1
+
+
+def test_provision_empty_emp_id_skipped(client, admin_headers, db, monkeypatch):
+    _sync_fixture(client, admin_headers, monkeypatch, 2)
+    # 同步后再插空工号镜像行（sync 会全量替换，顺序不能反）
+    db.add(OrgMember(emp_id="", name="无工号", dept_path="生产部", seq=99))
+    db.commit()
+
+    body = client.post("/api/org/provision", headers=admin_headers).json()
+    assert body["total"] == 3 and body["created"] == 2 and body["no_employee_id"] == 1
+    assert db.query(User).filter(User.username == "").count() == 0

@@ -244,6 +244,18 @@ export default function CourseManage() {
   };
 
   // ── 表格列 ──
+  /** 后端 created_at 为服务器本地时钟（naive 无时区标记），直接截读即北京时间；
+   * 若带 Z（UTC）则换算东八区。输出 "YYYY-MM-DD HH:mm" 单行显示 */
+  const fmtTime = (s: string | null): string => {
+    if (!s) return "—";
+    if (s.endsWith("Z")) {
+      const d = new Date(s);
+      const p = (n: number) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+    return s.replace("T", " ").slice(0, 16);
+  };
+
   const assignText = (c: Course): string => {
     if (countsPending && counts[c.id] === undefined) return "…";
     const n = counts[c.id];
@@ -255,9 +267,9 @@ export default function CourseManage() {
 
   const columns: Column<Course>[] = useMemo(() => [
     {
-      key: "title", title: "课程标题",
+      key: "title", title: "课程标题", width: 240, align: "center",
       render: (c) => (
-        <button className="k-link text-left truncate max-w-full" style={{ maxWidth: 360 }}
+        <button className="k-link truncate max-w-full" style={{ maxWidth: 216 }}
           title={c.title} onClick={() => navigate(`/admin/courses/${c.id}`)}>
           {c.title}
         </button>
@@ -296,9 +308,18 @@ export default function CourseManage() {
       text: (c) => assignText(c),
     },
     {
-      key: "created_at", title: "创建时间", width: 130, align: "center",
-      render: (c) => <span className="text-text-secondary">{(c.created_at || "").slice(0, 16)}</span>,
-      text: (c) => c.created_at,
+      key: "period", title: "起止日期", width: 150, align: "center",
+      render: (c) => {
+        const s = (c.start_date || "").slice(0, 10);
+        const e = (c.end_date || "").slice(0, 10);
+        return <span className="text-text-secondary whitespace-nowrap">{s || e ? `${s || "—"} ~ ${e || "—"}` : "—"}</span>;
+      },
+      text: (c) => `${(c.start_date || "").slice(0, 10)}~${(c.end_date || "").slice(0, 10)}`,
+    },
+    {
+      key: "created_at", title: "创建时间", width: 138, align: "center",
+      render: (c) => <span className="text-text-secondary whitespace-nowrap">{fmtTime(c.created_at)}</span>,
+      text: (c) => fmtTime(c.created_at),
     },
     {
       key: "ops", title: "操作", width: 168, align: "center",

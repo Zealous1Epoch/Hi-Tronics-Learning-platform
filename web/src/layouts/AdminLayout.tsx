@@ -13,7 +13,6 @@ import logoImg from "../assets/logo.png";
 // 仅在访问对应路由时才下载，避免全部页面代码进入首屏。
 const AdminDashboard = lazy(() => import("../pages/admin/Dashboard"));
 const CourseManage = lazy(() => import("../pages/admin/CourseManage"));
-const CourseEditorPage = lazy(() => import("../pages/admin/CourseEditorPage"));
 const QuestionBank = lazy(() => import("../pages/admin/QuestionBank"));
 const PaperManage = lazy(() => import("../pages/admin/PaperManage"));
 const ExamManage = lazy(() => import("../pages/admin/ExamManage"));
@@ -494,9 +493,9 @@ export default function AdminLayout() {
         <Routes>
             <Route index element={<AdminDashboard />} />
             <Route path="courses/:id" element={<CoursePreview />} />
-            {/* 课程编辑页：静态段 courses/new 优先于 courses/:id 匹配；courses/:id/edit 与预览页不冲突 */}
-            <Route path="courses/new" element={<CourseEditorPage />} />
-            <Route path="courses/:id/edit" element={<CourseEditorPage />} />
+            {/* 编辑已并入课程抽屉（与新建同界面）；旧编辑地址重定向回列表 */}
+            <Route path="courses/new" element={<Navigate to="/admin/courses" replace />} />
+            <Route path="courses/:id/edit" element={<Navigate to="/admin/courses" replace />} />
             <Route path="courses" element={<CourseManage />} />
             <Route path="question-bank" element={<QuestionBank />} />
             <Route path="questions" element={<QuestionManage />} />

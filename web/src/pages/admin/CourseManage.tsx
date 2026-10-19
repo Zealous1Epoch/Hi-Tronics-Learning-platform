@@ -2,7 +2,7 @@
  *
  * - 左：纯分类树（hover 行内操作 +/✎/✕、新增顶级在底部行内输入）
  * - 右：扁平高密度表格（DataPanel + DataTable compact），列含章节/视频/已分配聚合数
- * - 新建/编辑跳独立页 /admin/courses/new、/admin/courses/:id/edit；分配走轻量弹窗（即时保存）
+ * - 新建与编辑统一在右拉抽屉 CourseFormDrawer 中完成；分配走轻量弹窗（即时保存）
  * - 状态列 StatusTag 即发布/下架开关；原生 confirm/alert 已清零
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,7 +15,7 @@ import DataTable, { type Column } from "../../components/ui/DataTable";
 import StatusTag from "../../components/ui/StatusTag";
 import AssignmentModal from "../../components/course/AssignmentModal";
 import CategoryDeleteImpactModal from "../../components/course/CategoryDeleteImpactModal";
-import CourseCreateDrawer from "../../components/course/CourseCreateDrawer";
+import CourseFormDrawer from "../../components/course/CourseFormDrawer";
 import { useToast } from "../../components/ui/Toast";
 import { useConfirm } from "../../components/ui/Confirm";
 import {
@@ -74,8 +74,9 @@ export default function CourseManage() {
 
   // 分配弹窗
   const [assigningCourse, setAssigningCourse] = useState<{ id: string; title: string } | null>(null);
-  // 新建课程右拉抽屉
+  // 课程右拉抽屉（新建与编辑同一界面；editCourseId 为空即新建）
   const [createOpen, setCreateOpen] = useState(false);
+  const [editCourseId, setEditCourseId] = useState<string | null>(null);
 
   /** 已分配聚合（N+1，并发 ≤10，失败行降级 null → 显示 —） */
   const loadCounts = useCallback(async (rows: Course[], seq: number) => {
@@ -329,7 +330,7 @@ export default function CourseManage() {
       render: (c) => (
         <span className="inline-flex items-center gap-2 whitespace-nowrap">
           <button className="k-link" onClick={() => navigate(`/admin/courses/${c.id}`)}>预览</button>
-          <button className="k-link" onClick={() => navigate(`/admin/courses/${c.id}/edit`)}>编辑</button>
+          <button className="k-link" onClick={() => setEditCourseId(c.id)}>编辑</button>
           <button className="k-link" onClick={() => setAssigningCourse({ id: c.id, title: c.title })}>分配</button>
           <button className="k-link k-link-danger" onClick={() => handleDeleteCourse(c)}>删除</button>
         </span>
@@ -343,7 +344,7 @@ export default function CourseManage() {
     <div className="h-[calc(100vh-96px)] flex flex-col">
       <PageHead
         title="课程管理"
-        description="左侧按分类筛选，右侧管理课程；新建在右拉抽屉中完成，编辑在独立页面"
+        description="左侧按分类筛选，右侧管理课程；新建与编辑均在右拉抽屉中完成"
         actions={
           <button className="k-btn k-btn-primary" onClick={() => setCreateOpen(true)}>
             <Plus size={14} /> 新建课程
@@ -479,12 +480,14 @@ export default function CourseManage() {
         />
       )}
 
-      {/* 新建课程抽屉（鱼骨三段：内容→信息→分配） */}
-      {createOpen && (
-        <CourseCreateDrawer
+      {/* 课程抽屉（鱼骨：内容→信息→分配[→签到]），新建与编辑共用 */}
+      {(createOpen || editCourseId) && (
+        <CourseFormDrawer
+          key={editCourseId ?? "new"}
+          editCourseId={editCourseId}
           defaultCategoryId={selectedId}
-          onClose={() => setCreateOpen(false)}
-          onPublished={() => void fetchData()}
+          onClose={() => { setCreateOpen(false); setEditCourseId(null); }}
+          onSaved={() => void fetchData()}
         />
       )}
     </div>

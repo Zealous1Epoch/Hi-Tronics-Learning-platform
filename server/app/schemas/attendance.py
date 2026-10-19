@@ -20,6 +20,7 @@ class SessionCreate(BaseModel):
     require_network: bool = False
     require_geofence: bool = False
     dedupe_device: bool = False
+    # 兼容保留（轮换功能已废除，2026-10-19）：服务端不消费传入值，创建恒写固定大周期
     code_rotate_seconds: int = Field(default=30, ge=10, le=600)
     remark: str | None = None
 
@@ -47,6 +48,7 @@ class SessionUpdate(BaseModel):
     require_network: bool | None = None
     require_geofence: bool | None = None
     dedupe_device: bool | None = None
+    # 兼容保留（轮换功能已废除，2026-10-19）：更新时该字段被服务端忽略
     code_rotate_seconds: int | None = Field(default=None, ge=10, le=600)
     remark: str | None = None
 
@@ -79,7 +81,7 @@ class SessionOut(BaseModel):
         from_attributes = True
 
 
-# ── 管理端：投屏签到码 ──
+# ── 管理端：投屏二维码 ──
 
 class ProjectorCodeOut(BaseModel):
     session_id: str
@@ -97,7 +99,7 @@ class ProjectorCodeOut(BaseModel):
 
 
 class StudentCodeOut(BaseModel):
-    """学员扫码页拉取当前动态签到码（只读，不写库）。"""
+    """学员扫码页拉取签到码（只读，不写库）。轮换废除后签到码本场次内固定。"""
 
     session_id: str
     course_id: str
@@ -194,9 +196,8 @@ class MySessionState(BaseModel):
 
 class MyAttendanceOut(BaseModel):
     course_id: str
-    # 历史字段保留（响应兼容），新前端按 require_attendance 判定
+    # 历史字段保留（响应兼容），签到卡片按 sessions/required_count 渲染
     course_type: str
-    # 是否启用现场签到（前端据此决定是否渲染签到卡片）
     require_attendance: bool = False
     sessions: list[MySessionState]
     required_count: int

@@ -1,8 +1,9 @@
-"""线下面授签到功能回归测试。
+"""课程签到功能回归测试。
 
-覆盖：场次 CRUD 约束、签到时间窗、动态码轮换与过期、重复签到、
-可选网络/定位/设备去重、管理员补签与撤销、线下课程考试闸门、
-多场次完成度、以及进度口径统一（完成项 = 场次）。
+覆盖：场次 CRUD 约束（任何课程均可建场次）、签到时间窗、签到码派生与过期
+（轮换算法保留在 service 层，端点侧已废除轮换、码本场次内固定）、
+重复签到、可选网络/定位/设备去重、管理员补签与撤销、考试不卡签到、
+以及进度口径统一（主进度=视频数，签到按场次作附加项）。
 """
 
 import uuid
@@ -66,10 +67,14 @@ def _make_session(
     title: str = "第一场",
     start_offset_min: int = -5,
     duration_min: int = 60,
-    rotate: int = 30,
+    rotate: int = 86400,
     **extra,
 ) -> AttendanceSession:
-    """默认创建一个「已开放、尚未结束」的场次。"""
+    """默认创建一个「已开放、尚未结束」的场次。
+
+    rotate 默认 86400：签到码轮换功能已废除（2026-10-19），端点按
+    max(存储值, 86400) 取码，码在本场次内固定。
+    """
     now = datetime.now()
     session = AttendanceSession(
         id=str(uuid.uuid4()),
@@ -122,27 +127,27 @@ def _checkin(client, student_headers, session: AttendanceSession, code: str, **k
 
 
 def _valid_code(session: AttendanceSession) -> str:
-    """模拟投屏页取码：服务端按当前时间槽派生。"""
-    return att.generate_code(session.id, session.code_rotate_seconds)
+    """模拟投屏页取码：与端点一致按 effective 周期派生（轮换废除后恒为固定码）。"""
+    return att.generate_code(session.id, max(session.code_rotate_seconds, 86400))
 
 
 # ───────────────────────── 场次 CRUD 约束 ─────────────────────────
 
-def test_online_course_cannot_have_sessions(client, admin_headers, db):
-    """未开启「现场签到」的课程不应能建签到场次（避免给管理员造成「已配置签到」的错觉）。"""
+def test_any_course_can_have_sessions(client, admin_headers, db):
+    """2026-10-19 口径：签到与课程类型解绑，任何课程都可建签到场次。"""
     course = _make_online_course(db)
     now = datetime.now()
     res = client.post(
         f"/api/attendance/sessions?course_id={course.id}",
         json={
-            "title": "误建场次",
+            "title": "普通线上课程的签到",
             "start_time": now.isoformat(),
             "end_time": (now + timedelta(hours=1)).isoformat(),
         },
         headers=admin_headers,
     )
-    assert res.status_code == 400
-    assert "现场签到" in res.json()["detail"]
+    assert res.status_code == 201
+    assert res.json()["title"] == "普通线上课程的签到"
 
 
 def test_session_time_window_validated(client, admin_headers, db):

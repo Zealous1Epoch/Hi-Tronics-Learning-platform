@@ -195,7 +195,7 @@ def list_courses(
 
 @router.post("/courses", response_model=CourseOut)
 def create_course(data: CourseCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    # 不再强校验 course_type（历史字段保留兼容）；新逻辑统一由 require_attendance 控制
+    # 不再强校验 course_type（历史字段保留兼容）；签到要求由「签到场次」驱动
     course = Course(
         id=str(uuid.uuid4()),
         title=data.title,

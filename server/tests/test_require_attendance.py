@@ -1,6 +1,8 @@
-"""统一线上课程 + 可选现场签到 的端到端测试。
+"""课程签到口径的端到端测试。
 
-覆盖：模型字段可读写、PUT 切换、签到闸门、考试不再卡签到、进度统一按视频统计。
+2026-10-19 起：签到与课程类型（require_attendance 旧开关）解绑，任何课程都可
+配置签到场次，签到统计/闸门完全由「是否存在场次」驱动。require_attendance
+字段本身保留（响应兼容、PUT 可写），本文件同时覆盖旧字段读写与新口径行为。
 """
 import uuid
 from datetime import datetime, timedelta
@@ -76,20 +78,59 @@ def test_require_attendance_can_be_toggled_via_api(client, admin_headers, db):
     assert res.json()["require_attendance"] is True
 
 
-def test_online_course_cannot_have_attendance_sessions(client, admin_headers, db):
-    """未开启现场签到的课程建场次应被 400 拒绝。"""
+def test_course_without_flag_can_have_attendance_sessions(client, admin_headers, db):
+    """2026-10-19 口径：签到与课程类型解绑，未开启旧开关的课程同样能建场次。"""
     c = _make_course(db, require_attendance=False)
     now = datetime.now()
     res = client.post(
         f"/api/attendance/sessions?course_id={c.id}",
         json={
-            "title": "误建", "start_time": now.isoformat(),
+            "title": "任意课程签到", "start_time": now.isoformat(),
             "end_time": (now + timedelta(hours=1)).isoformat(),
         },
         headers=admin_headers,
     )
-    assert res.status_code == 400
-    assert "现场签到" in res.json()["detail"]
+    assert res.status_code == 201, res.text
+    assert res.json()["title"] == "任意课程签到"
+
+
+def test_sessions_drive_attendance_stats_without_flag(
+    client, student_headers, admin_headers, db,
+):
+    """核心回归：require_attendance=False 但配了场次的课程，签到统计照常生效。
+
+    场次是签到要求的唯一判定依据：progress 详情返回 attendance 明细、
+    courses-with-progress 返回 attended/required，均不再看旧开关。
+    """
+    c = _make_course(db, require_attendance=False)
+    _make_video(db, c)
+    _make_session(db, c)
+    user = db.query(User).filter(User.username == "student1").first()
+    _assign(client, admin_headers, c.id, user.id)
+
+    progress = client.get(f"/api/student/progress/{c.id}", headers=student_headers).json()
+    assert progress["attendance"] is not None, "有场次的课程必须返回签到明细（与开关无关）"
+    assert progress["attendance"]["required_count"] == 1
+    assert progress["attendance"]["attended_count"] == 0
+
+    rows = client.get("/api/student/courses-with-progress", headers=student_headers).json()
+    row = next(r for r in rows if r["id"] == c.id)
+    assert row["required_count"] == 1
+    assert row["attended_count"] == 0
+    assert row["session_count"] == 1
+
+
+def test_no_session_course_has_no_attendance_detail(
+    client, student_headers, admin_headers, db,
+):
+    """无场次课程的 attendance 为 None（旧开关 True 但没建场次同样不拦不显示）。"""
+    c = _make_course(db, require_attendance=True)  # 历史脏数据：开关开着但没场次
+    _make_video(db, c)
+    user = db.query(User).filter(User.username == "student1").first()
+    _assign(client, admin_headers, c.id, user.id)
+
+    progress = client.get(f"/api/student/progress/{c.id}", headers=student_headers).json()
+    assert progress["attendance"] is None
 
 
 def test_exam_unlock_ignores_attendance(client, student_headers, admin_headers, db):

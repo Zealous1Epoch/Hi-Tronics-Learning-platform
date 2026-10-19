@@ -130,6 +130,16 @@ def _record_out(record: AttendanceRecord, user: User) -> RecordOut:
 
 # ───────────────────────── 管理端：场次 CRUD ─────────────────────────
 
+# 轮换功能已废除（2026-10-19）：签到码在场次期间固定有效，不再周期性变化。
+# code_rotate_seconds 列与 API 字段保留兼容，但服务端不消费客户端传入值：
+# 创建时恒写固定大周期（一天），存量旧场次在取码接口也统一按该值兜底。
+CODE_ROTATE_STATIC_SECONDS = 86400
+
+
+def _effective_rotate_seconds(session: AttendanceSession) -> int:
+    """运行时轮换周期：一律取固定大值，保证签到码本场次内不变（含存量旧场次）。"""
+    return max(int(session.code_rotate_seconds or 0), CODE_ROTATE_STATIC_SECONDS)
+
 @router.get("/sessions", response_model=list[SessionOut])
 def list_sessions(
     course_id: str = Query(..., description="课程 ID"),
@@ -152,15 +162,10 @@ def create_session(
 ):
     """创建签到场次。
 
-    注意：只有开启了「现场签到」（course.require_attendance=True）的课程才能配置签到场次。
-    未开启签到的课程若误建场次不会生效，但为避免混淆这里直接拒绝。
+    口径（2026-10-19 起）：任何课程都可以配置签到场次，签到要求完全由
+    「课程是否存在签到场次」驱动，不再依赖旧的 require_attendance 类型开关。
     """
     course = _get_course_or_404(db, course_id)
-    if not course.require_attendance:
-        raise HTTPException(
-            status_code=400,
-            detail="请先在课程设置中开启「现场签到」开关，再配置签到场次",
-        )
 
     session = AttendanceSession(
         course_id=course_id,
@@ -176,7 +181,7 @@ def create_session(
         require_network=data.require_network,
         require_geofence=data.require_geofence,
         dedupe_device=data.dedupe_device,
-        code_rotate_seconds=data.code_rotate_seconds,
+        code_rotate_seconds=CODE_ROTATE_STATIC_SECONDS,  # 轮换已废除：签到码本场次内固定
         remark=data.remark,
         created_by=current_user.id,
     )
@@ -204,6 +209,8 @@ def update_session(
     """更新签到场次。"""
     session = _get_session_or_404(db, session_id)
     update = data.model_dump(exclude_unset=True)
+    # 轮换功能已废除（2026-10-19）：忽略该字段的修改请求，签到码本场次内固定
+    update.pop("code_rotate_seconds", None)
 
     for field, value in update.items():
         setattr(session, field, value)
@@ -265,7 +272,7 @@ def delete_session(
     return {"ok": True, "removed_records": record_count}
 
 
-# ───────────────────────── 管理端：投屏签到码 ─────────────────────────
+# ───────────────────────── 管理端：投屏二维码 ─────────────────────────
 
 @router.get("/sessions/{session_id}/code", response_model=ProjectorCodeOut)
 def get_projector_code(
@@ -273,9 +280,10 @@ def get_projector_code(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """投屏页轮询接口：返回当前动态签到码与剩余有效时间。
+    """投屏页轮询接口：返回签到码与签到进度。
 
-    该接口只做「读取 + 计算」，不写库，因此投屏页可以按秒轮询。
+    轮换废除（2026-10-19）后签到码本场次内固定；该接口仍只做「读取 + 计算」，
+    不写库，投屏页可以按秒轮询刷新签到人数。
     """
     session = _get_session_or_404(db, session_id)
     course = _get_course_or_404(db, session.course_id)
@@ -293,9 +301,9 @@ def get_projector_code(
         session_title=session.title,
         course_title=course.title,
         location_name=session.location_name,
-        code=att.generate_code(session.id, session.code_rotate_seconds),
-        rotate_seconds=session.code_rotate_seconds,
-        expires_in=att.code_expires_in(session.code_rotate_seconds),
+        code=att.generate_code(session.id, _effective_rotate_seconds(session)),
+        rotate_seconds=_effective_rotate_seconds(session),
+        expires_in=att.code_expires_in(_effective_rotate_seconds(session)),
         server_time=datetime.now(),
         state=att.session_state(session),
         checked_in_count=checked_in,
@@ -653,9 +661,9 @@ def my_session_code(
         session_title=session.title,
         course_title=course.title,
         location_name=session.location_name,
-        code=att.generate_code(session.id, session.code_rotate_seconds),
-        rotate_seconds=session.code_rotate_seconds,
-        expires_in=att.code_expires_in(session.code_rotate_seconds),
+        code=att.generate_code(session.id, _effective_rotate_seconds(session)),
+        rotate_seconds=_effective_rotate_seconds(session),
+        expires_in=att.code_expires_in(_effective_rotate_seconds(session)),
         state=att.session_state(session),
     )
 
@@ -683,7 +691,7 @@ def check_in(
         raise HTTPException(status_code=403, detail="未分配该课程")
 
     # ── 动态码校验（扫码/输码方式特有；企微方式跳过）──
-    verify = att.verify_code(session.id, session.code_rotate_seconds, data.code, now)
+    verify = att.verify_code(session.id, _effective_rotate_seconds(session), data.code, now)
     if not verify["ok"]:
         raise HTTPException(
             status_code=400,
@@ -704,7 +712,7 @@ def check_in(
             evidence_extra={
                 "code_verified": True,
                 "matched_slot": verify.get("matched_slot"),
-                "slot_now": att.current_slot(session.code_rotate_seconds, now),
+                "slot_now": att.current_slot(_effective_rotate_seconds(session), now),
                 "window": [session.start_time.isoformat(), session.end_time.isoformat()],
             },
         )

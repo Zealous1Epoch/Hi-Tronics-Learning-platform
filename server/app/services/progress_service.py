@@ -2,8 +2,9 @@
 
 统一线上课程形态下：
 - 进度完成项 = 视频节数（必选，所有课程都按视频统计）
-- 启用现场签到（course.require_attendance=True）的课程，签到作为可选项返回附加进度
+- 配置了签到场次（AttendanceSession）的课程，签到作为可选项返回附加进度
   （attendance_progress: {required, attended, satisfied}），不参与主进度计算。
+  2026-10-19 起签到不再区分课程类型：任何课程都可配场次，有场次即有附加进度。
 
 对外统一暴露 `completed_count / total_count / unit_label`，使「我的课程」「学习档案」
 「管理端学员进度」「代办任务」等所有页面无需按课程类型写分支即可正确显示。
@@ -28,7 +29,7 @@ from app.services.attendance_service import (
 @dataclass(frozen=True)
 class ProgressRow:
     course_id: str
-    # 历史字段保留（响应兼容）；业务判定改走 require_attendance
+    # 历史字段保留（响应兼容）；签到口径由场次驱动，不再读课程类型开关
     course_type: str
     completed_count: int
     total_count: int
@@ -39,7 +40,7 @@ class ProgressRow:
     has_exam: bool
     can_take_exam: bool
     completed: bool          # 课程整体完成；无视频课程：有考试且过考才算完成，纯课件不算
-    # 签到附加进度：require_attendance=True 时才有意义
+    # 签到附加进度：课程配置了签到场次时才有值
     # {"required": int, "attended": int, "satisfied": bool}
     attendance_progress: dict | None = None
 
@@ -92,13 +93,12 @@ def batch_progress_map(
         .all()
     }
 
-    # ── 签到附加项（仅在 require_attendance=True 时计算，避免无谓查询）──
-    attendance_cids = [c.id for c in courses if c.require_attendance]
+    # ── 签到附加项（场次驱动：session_ids_by_course 只返回有场次的课程）──
+    sessions_by_course = session_ids_by_course(db, course_ids)
+    attendance_cids = [cid for cid, ids in sessions_by_course.items() if ids]
     if attendance_cids:
-        sessions_by_course = session_ids_by_course(db, attendance_cids)
         attend_counts = batch_offline_counts(db, [user_id], attendance_cids)
     else:
-        sessions_by_course = {}
         attend_counts = {}
 
     out: dict[str, ProgressRow] = {}
@@ -109,8 +109,8 @@ def batch_progress_map(
         done = video_done.get(c.id, 0)
 
         attendance_progress = None
-        if c.require_attendance:
-            req = len(sessions_by_course.get(c.id, []))
+        if sessions_by_course.get(c.id):
+            req = len(sessions_by_course[c.id])
             att_n = attend_counts.get((user_id, c.id), 0)
             attendance_progress = {
                 "required": req,

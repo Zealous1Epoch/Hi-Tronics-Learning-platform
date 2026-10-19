@@ -77,7 +77,7 @@ class CourseCreate(BaseModel):
     title: str
     # 历史字段：保留以兼容老调用方，后端不再写入新值；统一改为 require_attendance
     course_type: str = "online"
-    # 启用现场签到（统一线上课程形态，可选开签到）
+    # 历史字段：保留兼容老调用方；签到要求已改由「签到场次」驱动（2026-10-19）
     require_attendance: bool = False
     description: str | None = None
     cover_image: str | None = None
@@ -100,7 +100,7 @@ class CourseUpdate(BaseModel):
     title: str | None = None
     # 历史字段保留，PUT 时不再触发改写逻辑
     course_type: str | None = None
-    # True=启用现场签到；False=纯线上（仅看视频）
+    # 历史字段：保留兼容；业务不再读取，签到要求由场次决定
     require_attendance: bool | None = None
     description: str | None = None
     cover_image: str | None = None
@@ -124,7 +124,7 @@ class CourseOut(BaseModel):
     title: str
     # 历史字段保留（响应兼容）
     course_type: str = "online"
-    # 是否启用现场签到（统一线上课程形态下，唯一可选开关）
+    # 历史字段保留（响应兼容）；签到要求由该课程是否存在签到场次决定
     require_attendance: bool = False
     description: str | None = None
     cover_image: str | None = None
@@ -141,7 +141,7 @@ class CourseOut(BaseModel):
     video_count: int = 0
     # 课程课件（PDF / PPT / HTML 等学习资料，本地 uploads/courses/）
     materials: list[CourseMaterialOut] = []
-    # 该课程的签到场次数（仅 require_attendance=True 时可能有值；否则恒为 0）
+    # 该课程的签到场次数（>0 即表示该课需要签到，是签到要求的唯一判定依据）
     session_count: int = 0
 
     class Config:

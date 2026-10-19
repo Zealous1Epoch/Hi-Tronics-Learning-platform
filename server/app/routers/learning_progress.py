@@ -198,12 +198,13 @@ def get_course_progress(
     completed_count = sum(1 for r in records if r.completed)
     videos_done = total_video_count > 0 and completed_count >= total_video_count
 
-    attendance = None
-    if course.require_attendance:
-        attendance = course_attendance_detail(db, current_user.id, course)
+    # 签到附加信息（场次驱动）：配置了签到场次的课程恒返回明细，无场次则为 None
+    attendance = course_attendance_detail(db, current_user.id, course)
+    if attendance["required_count"] == 0:
+        attendance = None
 
     return {
-        # 历史字段保留（响应兼容）；新前端按 require_attendance 判定
+        # 历史字段保留（响应兼容）；签到口径已改为「是否有场次」驱动
         "course_type": "online",
         "require_attendance": course.require_attendance,
         "unit_label": "节",
@@ -276,9 +277,9 @@ def get_courses_with_progress(
     for pr in progress_records:
         progress_by_course[pr.course_id].append(pr)
 
-    # 启用现场签到的课程：批量取「应签到场次数」与「已有效签到场次数」
-    attendance_cids = [c.id for c in courses if c.require_attendance]
-    sessions_by_course = session_ids_by_course(db, attendance_cids)
+    # 签到附加项（场次驱动）：批量取「应签到场次数」与「已有效签到场次数」
+    sessions_by_course = session_ids_by_course(db, course_ids)
+    attendance_cids = [cid for cid, ids in sessions_by_course.items() if ids]
     attendance_count = batch_offline_counts(db, [current_user.id], attendance_cids)
 
     # 批量获取考试状态
@@ -308,9 +309,9 @@ def get_courses_with_progress(
         progress_list = progress_by_course.get(c.id, [])
         completed_count = sum(1 for p in progress_list if p.completed)
         total_count = video_counts.get(c.id, 0)
-        # 签到附加项（仅启用签到的课程有值）
-        attended_count = attendance_count.get((current_user.id, c.id), 0) if c.require_attendance else 0
-        required_count = len(sessions_by_course.get(c.id, [])) if c.require_attendance else 0
+        # 签到附加项（场次驱动：配置了场次的课程才有值）
+        required_count = len(sessions_by_course.get(c.id, []))
+        attended_count = attendance_count.get((current_user.id, c.id), 0) if required_count else 0
 
         result.append({
             "id": c.id,
@@ -329,7 +330,7 @@ def get_courses_with_progress(
             "end_date": c.end_date.isoformat() if c.end_date else None,
             "completed_count": completed_count,
             "total_count": total_count,
-            # 签到附加项（仅 require_attendance=True 时有效）
+            # 签到附加项（场次驱动：配置了场次的课程才有值）
             "attended_count": attended_count,
             "required_count": required_count,
             "exam_passed": exam_passed,
@@ -378,20 +379,14 @@ def get_student_profile(
     completed_courses = completed_course_count(db, current_user.id, assigned_courses)
     assigned_count = len(assigned_courses)
 
-    # 启用现场签到的课程签到统计（并入档案，便于学员看到自己的出勤）
-    attendance_courses = [c for c in assigned_courses if c.require_attendance]
-    attendance_stat = {"required": 0, "attended": 0, "sessions": 0}
-    if attendance_courses:
-        counts = batch_progress_map(db, current_user.id, attendance_courses)
-        attendance_stat = {
-            "required": sum(
-                (r.attendance_progress or {}).get("required", 0) for r in counts.values()
-            ),
-            "attended": sum(
-                (r.attendance_progress or {}).get("attended", 0) for r in counts.values()
-            ),
-            "sessions": len(attendance_courses),
-        }
+    # 配置了签到场次的课程签到统计（并入档案，便于学员看到自己的出勤）
+    counts = batch_progress_map(db, current_user.id, assigned_courses)
+    att_progress_rows = [r.attendance_progress for r in counts.values() if r.attendance_progress]
+    attendance_stat = {
+        "required": sum(a.get("required", 0) for a in att_progress_rows),
+        "attended": sum(a.get("attended", 0) for a in att_progress_rows),
+        "sessions": len(att_progress_rows),
+    }
 
     # 考试记录
     exam_results = (
@@ -441,7 +436,7 @@ def admin_progress(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """管理员查看所有学员的学习进度（线上=视频节数，线下=签到场次数）。"""
+    """管理员查看所有学员的学习进度（统一按视频节数，签到按场次作附加项）。"""
     courses_query = db.query(Course).order_by(Course.created_at.desc())
     if course_id:
         courses_query = courses_query.filter(Course.id == course_id)
@@ -456,9 +451,9 @@ def admin_progress(
         .group_by(Video.course_id)
         .all()
     )
-    # 启用现场签到的课程：单独取其场次数以便按签到统计附加项
-    attendance_cids = [c.id for c in courses if c.require_attendance]
-    sessions_by_course = session_ids_by_course(db, attendance_cids)
+    # 签到附加项（场次驱动）：直接取全部课程的场次分布
+    sessions_by_course = session_ids_by_course(db, all_ids)
+    attendance_cids = [cid for cid, ids in sessions_by_course.items() if ids]
 
     def total_items(c: Course) -> int:
         # 进度统一按视频统计；签到仅作为附加项
@@ -495,7 +490,7 @@ def admin_progress(
 
     students = db.query(User).filter(User.id.in_(user_ids), User.role == "student").all()
 
-    # 启用签到的课程：批量取每名学员的签到场次数（附加信息用）
+    # 有签到场次的课程：批量取每名学员的签到场次数（附加信息用）
     attendance_count: dict[tuple[str, str], int] = {}
     if attendance_cids:
         attend_rows = (
@@ -522,8 +517,8 @@ def admin_progress(
         for cid, course in course_map.items():
             completed = user_progress.get(student.id, {}).get(cid, 0)
             total = total_items(course)
-            att_required = len(sessions_by_course.get(cid, [])) if course.require_attendance else 0
-            att_attended = attendance_count.get((student.id, cid), 0) if course.require_attendance else 0
+            att_required = len(sessions_by_course.get(cid, []))
+            att_attended = attendance_count.get((student.id, cid), 0)
             course_progress.append({
                 "course_id": cid,
                 "course_title": course.title,
@@ -583,7 +578,6 @@ def _build_progress_overview(
 
     # 课程完成项定义：统一按视频数（避免 N+1）
     course_ids = [c.id for c in courses]
-    attendance_cids = [c.id for c in courses if c.require_attendance]
 
     video_counts_raw = (
         db.query(Video.course_id, func.count(Video.id))
@@ -594,7 +588,8 @@ def _build_progress_overview(
     course_video_counts: dict[str, int] = {
         cid: count for cid, count in video_counts_raw if count > 0
     }
-    sessions_by_course = session_ids_by_course(db, attendance_cids)
+    sessions_by_course = session_ids_by_course(db, course_ids)
+    attendance_cids = [cid for cid, ids in sessions_by_course.items() if ids]
 
     def total_items(c: Course) -> int:
         # 统一按视频统计
@@ -641,7 +636,7 @@ def _build_progress_overview(
         for row in progress_rows:
             user_video_progress[row.user_id][row.course_id] = row.completed
 
-    # 启用签到的课程：批量取每名学员的签到场次数（附加信息用）
+    # 有签到场次的课程：批量取每名学员的签到场次数（附加信息用）
     attendance_count: dict[tuple[str, str], int] = {}
     if attendance_cids:
         attend_rows = (
@@ -712,8 +707,8 @@ def _build_progress_overview(
             completed = user_video_progress.get(student.id, {}).get(cid, 0)
             total_count = total_items(c)
             exam_info = user_exam_info.get(student.id, {}).get(cid, {})
-            att_required = len(sessions_by_course.get(cid, [])) if c.require_attendance else 0
-            att_attended = attendance_count.get((student.id, cid), 0) if c.require_attendance else 0
+            att_required = len(sessions_by_course.get(cid, []))
+            att_attended = attendance_count.get((student.id, cid), 0)
             course_progress.append({
                 "course_id": cid,
                 "course_title": c.title,
@@ -789,7 +784,7 @@ def admin_progress_export(
     done_font = Font(name="微软雅黑", size=10, color="2E7D32")
 
     headers = [
-        "序号", "姓名", "用户名", "部门", "课程", "课程类型",
+        "序号", "姓名", "用户名", "部门", "课程", "签到情况",
         "完成数", "总数", "单位", "完成率", "考试通过", "最佳成绩", "考试次数",
     ]
     for col_idx, h in enumerate(headers, start=1):
@@ -813,11 +808,14 @@ def admin_progress_export(
             else:
                 pct = round(completed / total * 100) if total else (100 if exam_passed else 0)
 
+            att_required = c.get("required_count") or 0
+            att_attended = c.get("attended_count") or 0
+
             seq += 1
             vals = [
                 seq, student["user_name"], student["username"], student["department"] or "",
                 c["course_title"],
-                "线上（含现场签到）" if c.get("require_attendance") else "线上",
+                f"{att_attended}/{att_required} 场" if att_required else "无签到",
                 completed, total, c.get("unit_label", ""),
                 f"{pct}%",
                 "是" if exam_passed else "否",
@@ -918,9 +916,10 @@ def admin_progress_detail(
             for r in exam_records
         ]
 
-    # 启用现场签到的课程：附带该学员的签到明细（供管理员核对出勤与异常）
+    # 配置了签到场次的课程：附带该学员的签到明细（供管理员核对出勤与异常）
     attendance = None
-    if course and course.require_attendance:
+    sessions_list = load_sessions(db, course_id) if course else []
+    if sessions_list:
         records = {
             r.session_id: r
             for r in db.query(AttendanceRecord).filter(
@@ -931,7 +930,7 @@ def admin_progress_detail(
         now = datetime.now()
         items = []
         attended = 0
-        for sess in load_sessions(db, course_id):
+        for sess in sessions_list:
             rec = records.get(sess.id)
             ok = rec is not None and rec.status in EFFECTIVE_STATUSES
             if ok:

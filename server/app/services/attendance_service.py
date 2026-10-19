@@ -197,22 +197,21 @@ def offline_counts(db: Session, user_id: str, sessions: list[AttendanceSession])
 def attendance_blockers(
     db: Session, user_id: str, course: Course, sessions: list[AttendanceSession] | None = None
 ) -> tuple[bool, list[str]]:
-    """签到闸门：仅对 require_attendance=True 的课程生效。
+    """签到闸门：按「课程是否配置了签到场次」驱动（2026-10-19 起）。
+
+    旧的 require_attendance 课程类型开关已废弃，不再参与判定——任何课程
+    只要建了签到场次就受签到约束，没建场次则完全放行。
 
     返回 (是否满足, 阻止原因列表)。
 
     规则：
-    - 未启用签到：直接放行，blockers 为空（不影响考试/进度）
-    - 启用签到、全部场次签到 → 满足
-    - 启用签到、未完成 → 返回具体提示
-    - 启用签到、但一场都没配置 → 视为未就绪并阻止（避免管理员漏配导致闸门失效）
+    - 未配置场次：直接放行，blockers 为空（不影响考试/进度）
+    - 有场次、已有有效签到记录 → 满足
+    - 有场次、无签到记录 → 返回具体提示（含待开始场次引导）
     """
-    if not course.require_attendance:
-        return True, []
-
     sessions = sessions if sessions is not None else load_sessions(db, course.id)
     if not sessions:
-        return False, ["管理员尚未为本课程配置签到场次，请联系管理员"]
+        return True, []
 
     session_ids = [s.id for s in sessions]
     records = effective_records(load_records(db, session_ids, user_id))

@@ -16,6 +16,7 @@ import StatusTag from "../../components/ui/StatusTag";
 import AssignmentModal from "../../components/course/AssignmentModal";
 import CategoryDeleteImpactModal from "../../components/course/CategoryDeleteImpactModal";
 import CourseFormDrawer from "../../components/course/CourseFormDrawer";
+import AttendanceSessionModal from "../../components/attendance/AttendanceSessionModal";
 import { useToast } from "../../components/ui/Toast";
 import { useConfirm } from "../../components/ui/Confirm";
 import {
@@ -74,6 +75,8 @@ export default function CourseManage() {
 
   // 分配弹窗
   const [assigningCourse, setAssigningCourse] = useState<{ id: string; title: string } | null>(null);
+  // 签到管理弹窗（操作列「签到」直达：场次列表 + 名单/补签/导出）
+  const [fullMgmtCourse, setFullMgmtCourse] = useState<{ id: string; title: string } | null>(null);
   // 课程右拉抽屉（新建与编辑同一界面；editCourseId 为空即新建）
   const [createOpen, setCreateOpen] = useState(false);
   const [editCourseId, setEditCourseId] = useState<string | null>(null);
@@ -280,10 +283,6 @@ export default function CourseManage() {
       ),
     },
     {
-      key: "type", title: "类型", width: 96, align: "center",
-      render: (c) => <StatusTag value={c.require_attendance ? "type:attendance" : "type:online"} />,
-    },
-    {
       key: "status", title: "状态", width: 96, align: "center",
       render: (c) => (
         <StatusTag
@@ -318,12 +317,16 @@ export default function CourseManage() {
       render: (c) => <span className="text-text-secondary whitespace-nowrap">{fmtTime(c.created_at)}</span>,
     },
     {
-      key: "ops", title: "操作", width: 168, align: "center",
+      key: "ops", title: "操作", width: 208, align: "center",
       render: (c) => (
         <span className="inline-flex items-center gap-2 whitespace-nowrap">
           <button className="k-link" onClick={() => navigate(`/admin/courses/${c.id}`)}>预览</button>
           <button className="k-link" onClick={() => setEditCourseId(c.id)}>编辑</button>
           <button className="k-link" onClick={() => setAssigningCourse({ id: c.id, title: c.title })}>分配</button>
+          <button className="k-link" title={c.session_count > 0 ? `已有 ${c.session_count} 个签到场次` : "设置签到并生成二维码"}
+            onClick={() => setFullMgmtCourse({ id: c.id, title: c.title })}>
+            {c.session_count > 0 ? `签到·${c.session_count}` : "签到"}
+          </button>
           <button className="k-link k-link-danger" onClick={() => handleDeleteCourse(c)}>删除</button>
         </span>
       ),
@@ -459,6 +462,15 @@ export default function CourseManage() {
         onClose={() => setAssigningCourse(null)}
       />
 
+      {/* 签到管理（操作列「签到」直达）：场次列表 + 名单/补签/导出；投屏入口在场次行「投屏二维码」按钮 */}
+      {fullMgmtCourse && (
+        <AttendanceSessionModal
+          courseId={fullMgmtCourse.id}
+          courseTitle={fullMgmtCourse.title}
+          onClose={() => { setFullMgmtCourse(null); void fetchData(); }}
+        />
+      )}
+
       {/* 删分类影响明细 */}
       {deleteImpact && (
         <CategoryDeleteImpactModal
@@ -469,7 +481,7 @@ export default function CourseManage() {
         />
       )}
 
-      {/* 课程抽屉（鱼骨：内容→信息→分配[→签到]），新建与编辑共用 */}
+      {/* 课程抽屉（内容→信息→分配），新建与编辑共用；签到走操作列「签到」按钮 */}
       {(createOpen || editCourseId) && (
         <CourseFormDrawer
           key={editCourseId ?? "new"}

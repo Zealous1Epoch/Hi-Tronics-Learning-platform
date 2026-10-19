@@ -15,9 +15,9 @@ export type { TreeNode, FlatCategory };
 export interface Course {
   id: string;
   title: string;
-  /** 历史字段保留（后端不再按它分支，统一看 require_attendance） */
+  /** 历史字段保留（响应兼容，前端不再按它分支） */
   course_type: string;
-  /** 是否启用现场签到 */
+  /** 历史字段保留（响应兼容）；签到要求由 session_count / 签到场次驱动 */
   require_attendance: boolean;
   description: string | null;
   cover_image: string | null;
@@ -34,7 +34,7 @@ export interface Course {
   video_count: number;
   /** 课程课件（PDF / PPT / HTML 等学习文件，本地存储） */
   materials: CourseMaterial[];
-  /** 签到场次数（require_attendance=False 时恒 0） */
+  /** 签到场次数（>0 即该课需要签到，是签到要求的唯一判定依据） */
   session_count: number;
 }
 
@@ -106,49 +106,6 @@ export interface AssignmentsResp {
 export interface AssignPayload {
   user_ids: string[];
   department_ids: string[];
-}
-
-/** SessionOut（含派生统计字段） */
-export interface AttendanceSession {
-  id: string;
-  course_id: string;
-  title: string;
-  start_time: string;
-  end_time: string;
-  late_after_minutes: number | null;
-  location_name: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  radius_m: number;
-  ip_allowlist: string[] | null;
-  require_network: boolean;
-  require_geofence: boolean;
-  dedupe_device: boolean;
-  code_rotate_seconds: number;
-  remark: string | null;
-  created_at: string;
-  state: string; // upcoming / open / closed
-  checked_in_count: number;
-  expected_count: number;
-  risk_count: number;
-}
-
-/** 场次创建/更新请求体（SessionCreate/SessionUpdate 并集） */
-export interface SessionPayload {
-  title?: string;
-  start_time?: string;
-  end_time?: string;
-  late_after_minutes?: number | null;
-  location_name?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
-  radius_m?: number;
-  ip_allowlist?: string[] | null;
-  require_network?: boolean;
-  require_geofence?: boolean;
-  dedupe_device?: boolean;
-  code_rotate_seconds?: number;
-  remark?: string | null;
 }
 
 /** GET /question-categories/{id}/impact 响应（删除影响弹窗） */
@@ -254,33 +211,6 @@ export async function postAssignments(courseId: string, payload: AssignPayload):
 /** DELETE 同 body；移除部门时后端按部门名连带移除成员 */
 export async function removeAssignments(courseId: string, payload: AssignPayload): Promise<void> {
   await api(`/courses/${courseId}/assignments`, { method: "DELETE", body: JSON.stringify(payload) });
-}
-
-// ───────────────────────── 签到场次 ─────────────────────────
-
-export function listSessions(courseId: string): Promise<AttendanceSession[]> {
-  return api<AttendanceSession[]>(`/attendance/sessions?course_id=${courseId}`);
-}
-
-export function createSession(courseId: string, payload: SessionPayload): Promise<AttendanceSession> {
-  return api<AttendanceSession>(`/attendance/sessions?course_id=${courseId}`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function updateSession(sessionId: string, payload: SessionPayload): Promise<AttendanceSession> {
-  return api<AttendanceSession>(`/attendance/sessions/${sessionId}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
-}
-
-/** 已有签到记录时后端 409，需再传 force=true 二次确认 */
-export async function deleteSession(sessionId: string, force = false): Promise<void> {
-  await api(`/attendance/sessions/${sessionId}?confirm=true${force ? "&force=true" : ""}`, {
-    method: "DELETE",
-  });
 }
 
 // ───────────────────────── 视频（OSS 直传三步流） ─────────────────────────

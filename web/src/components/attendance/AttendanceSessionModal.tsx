@@ -105,7 +105,7 @@ function toLocalInput(iso: string): string {
  * 按北京时间 datetime.now() 做签到时间窗判断、返回值又不含时区，会造成
  * 整整 8 小时的偏移。前后端统一存「naive 本地时间」口径才一致。
  */
-export function toNaiveLocal(value: string): string {
+function toNaiveLocal(value: string): string {
   if (!value) return "";
   const d = new Date(value);
   if (isNaN(d.getTime())) return "";
@@ -122,9 +122,6 @@ const EMPTY_FORM = {
   title: "",
   start_time: "",
   end_time: "",
-  location_name: "",
-  late_after_minutes: "",
-  code_rotate_seconds: 30,
   latitude: "",
   longitude: "",
   radius_m: 200,
@@ -138,7 +135,9 @@ const EMPTY_FORM = {
  * 签到场次管理弹窗。
  *
  * 左侧：场次列表 + 新建/编辑表单；右侧：选中场次的应到名单（含异常标记、补签、撤销）。
- * 投屏签到码通过新标签页打开 `/admin/attendance/:id/board`，便于用投影仪展示。
+ * 投屏二维码通过新标签页打开 `/admin/attendance/:id/board`，便于用投影仪展示。
+ * 签到码轮换功能已废除（2026-10-19）：码在本场次内固定，表单不再提供
+ * 地点 / 迟到阈值 / 轮换周期配置（后端列与 API 字段保留兼容）。
  */
 export default function AttendanceSessionModal({
   courseId,
@@ -222,9 +221,6 @@ export default function AttendanceSessionModal({
       title: s.title,
       start_time: toLocalInput(s.start_time),
       end_time: toLocalInput(s.end_time),
-      location_name: s.location_name || "",
-      late_after_minutes: s.late_after_minutes == null ? "" : String(s.late_after_minutes),
-      code_rotate_seconds: s.code_rotate_seconds,
       latitude: s.latitude == null ? "" : String(s.latitude),
       longitude: s.longitude == null ? "" : String(s.longitude),
       radius_m: s.radius_m,
@@ -244,9 +240,6 @@ export default function AttendanceSessionModal({
         title: form.title.trim(),
         start_time: toNaiveLocal(form.start_time),
         end_time: toNaiveLocal(form.end_time),
-        location_name: form.location_name.trim() || null,
-        late_after_minutes: form.late_after_minutes === "" ? null : Number(form.late_after_minutes),
-        code_rotate_seconds: Number(form.code_rotate_seconds) || 30,
         latitude: form.latitude === "" ? null : Number(form.latitude),
         longitude: form.longitude === "" ? null : Number(form.longitude),
         radius_m: Number(form.radius_m) || 200,
@@ -342,7 +335,7 @@ export default function AttendanceSessionModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
       <div
-        className="bg-bg-base rounded-lg shadow-xl w-full max-w-6xl max-h-[92vh] flex flex-col"
+        className="bg-bg-base rounded-lg shadow-xl w-full max-w-6xl max-h-[92vh] min-h-[733px] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 头部 */}
@@ -373,7 +366,7 @@ export default function AttendanceSessionModal({
               {loading && <p className="text-xs text-text-secondary">加载中...</p>}
               {!loading && sessions.length === 0 && (
                 <p className="text-xs text-text-secondary py-3">
-                  尚未配置签到场次。线下课程必须至少配置一个场次，否则学员无法参加考试。
+                  尚未配置签到场次。配置场次后，学员须先完成签到才能参加考试。
                 </p>
               )}
 
@@ -412,7 +405,7 @@ export default function AttendanceSessionModal({
                       }}
                       className="flex-1 text-xs text-primary hover:bg-primary/5 rounded py-1 border border-primary/20 flex items-center justify-center gap-1"
                     >
-                      <ExternalLink size={11} /> 投屏签到码
+                      <ExternalLink size={11} /> 投屏二维码
                     </button>
                     <button
                       onClick={(e) => {
@@ -486,39 +479,6 @@ export default function AttendanceSessionModal({
                     className={inputCls}
                   />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={labelCls}>地点（选填）</label>
-                  <input
-                    className={inputCls}
-                    value={form.location_name}
-                    onChange={(e) => setForm({ ...form, location_name: e.target.value })}
-                    placeholder="如：三楼培训室"
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>迟到阈值（分钟）</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={form.late_after_minutes}
-                    onChange={(e) => setForm({ ...form, late_after_minutes: e.target.value })}
-                    placeholder="留空=不区分迟到"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className={labelCls}>签到码轮换周期（秒）</label>
-                <input
-                  type="number"
-                  className={inputCls}
-                  value={form.code_rotate_seconds}
-                  onChange={(e) => setForm({ ...form, code_rotate_seconds: Number(e.target.value) })}
-                />
-                <p className="text-[11px] text-text-secondary/70 mt-1">
-                  越短越安全（截图/转发很快就会失效），但学员输码时间也更紧。建议 30 秒。
-                </p>
               </div>
 
               <button

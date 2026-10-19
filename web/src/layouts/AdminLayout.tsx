@@ -509,7 +509,7 @@ export default function AdminLayout() {
             <Route path="users/manage" element={<UserManage />} />
             <Route path="users" element={<DepartmentUserManage />} />
             <Route path="logs" element={<LogViewer />} />
-            {/* 投屏签到码页：全屏 fixed 布局，仍需登录态，因此挂在 AdminLayout 下 */}
+            {/* 投屏二维码页：全屏 fixed 布局，仍需登录态，因此挂在 AdminLayout 下 */}
             <Route path="attendance/:sessionId/board" element={<AttendanceBoard />} />
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Routes>

@@ -10,9 +10,6 @@ const STATUS_MAP: Record<string, { label: string; tone: TagTone }> = {
   // 课程状态
   draft: { label: "草稿", tone: "default" },
   published: { label: "已发布", tone: "success" },
-  // 课程类型（require_attendance 派生）
-  "type:attendance": { label: "现场签到", tone: "primary" },
-  "type:online": { label: "线上学习", tone: "default" },
   // 账号状态（用户管理已在用同口径）
   active: { label: "正常", tone: "success" },
   disabled: { label: "已禁用", tone: "danger" },

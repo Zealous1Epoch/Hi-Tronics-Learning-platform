@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { X } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
@@ -10,8 +10,6 @@ interface ProjectorCode {
   course_title: string;
   location_name: string | null;
   code: string;
-  rotate_seconds: number;
-  expires_in: number;
   server_time: string;
   state: "upcoming" | "open" | "closed";
   checked_in_count: number;
@@ -20,25 +18,20 @@ interface ProjectorCode {
 }
 
 /**
- * 投屏签到码页（投影仪/大屏用）。
+ * 投屏二维码页（投影仪/大屏用）。
  *
  * 设计要点：
- * - 每秒轮询 `/attendance/sessions/{id}/code`，取当前时间槽的码与剩余秒数。
- *   该接口只读不写，因此可以高频轮询而不产生数据库写入。
- * - 剩余时间用进度条可视化，学员能直观看到「还剩几秒」。
- * - 签到人数实时刷新，方便现场掌握进度。
+ * - 签到码轮换功能已废除（2026-10-19）：二维码与签到码在本场次内固定不变。
+ * - 每 5 秒轮询 `/attendance/sessions/{id}/code`（只读接口）刷新签到人数与状态。
  */
 export default function AttendanceBoard() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState<ProjectorCode | null>(null);
   const [error, setError] = useState("");
-  const [secondsLeft, setSecondsLeft] = useState(0);
   // 扫码落地页链接：由后端根据 FRONTEND_URL 生成，确保手机可访问
   const checkInUrl = data?.checkin_url ?? `${window.location.origin}/learning-platform/checkin/${sessionId}`;
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 每秒拉取一次当前码
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -46,7 +39,6 @@ export default function AttendanceBoard() {
         const res = await api<ProjectorCode>(`/attendance/sessions/${sessionId}/code`);
         if (alive) {
           setData(res);
-          setSecondsLeft(res.expires_in);
           setError("");
         }
       } catch (e) {
@@ -54,22 +46,12 @@ export default function AttendanceBoard() {
       }
     };
     load();
-    const poll = setInterval(load, 1000);
+    const poll = setInterval(load, 5000);
     return () => {
       alive = false;
       clearInterval(poll);
     };
   }, [sessionId]);
-
-  // 本地秒级倒数，避免等待网络造成的跳动
-  useEffect(() => {
-    tickRef.current = setInterval(() => {
-      setSecondsLeft((s) => (s <= 1 ? 0 : s - 1));
-    }, 1000);
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-    };
-  }, []);
 
   if (error) {
     return (
@@ -91,9 +73,6 @@ export default function AttendanceBoard() {
       </div>
     );
   }
-
-  const rotate = Math.max(data.rotate_seconds, 1);
-  const progress = Math.max(0, Math.min(1, secondsLeft / rotate));
 
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col">
@@ -155,33 +134,16 @@ export default function AttendanceBoard() {
                 <p className="text-sm text-text-secondary mt-2.5">扫码输入工号签到</p>
               </div>
 
-              {/* 动态码（已登录学员 / 弱网兜底） */}
+              {/* 签到码（本场次内固定不变） */}
               <div className="flex flex-col items-center">
                 <div className="text-[150px] leading-none font-bold text-primary tracking-[0.15em] tabular-nums">
                   {data.code}
                 </div>
-                <div className="w-[360px] mt-4">
-                  <div className="h-3 rounded-full bg-bg-layout overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-[width] duration-1000 ease-linear"
-                      style={{
-                        width: `${progress * 100}%`,
-                        background: progress > 0.35 ? "var(--color-primary)" : "#E24B4A",
-                      }}
-                    />
-                  </div>
-                  <p className="text-center text-base text-text-secondary mt-2.5">
-                    签到码 {secondsLeft} 秒后自动更换
-                  </p>
-                </div>
+                <p className="text-center text-base text-text-secondary mt-4">签到码本场次内有效，无需等待刷新</p>
               </div>
             </div>
           </>
         )}
-      </div>
-
-      <div className="px-10 py-5 border-t border-border text-center text-sm text-text-secondary">
-        签到码每 {rotate} 秒自动更换，过期码无效；请提醒学员以屏幕上的最新码为准
       </div>
     </div>
   );

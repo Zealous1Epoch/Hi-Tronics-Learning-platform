@@ -22,6 +22,7 @@ interface CourseDetail {
   id: string; title: string; description: string | null;
   // 历史字段保留（响应兼容）
   course_type: string;
+  /** 历史字段保留（响应兼容）；签到卡片按 attendance.required_count 渲染 */
   require_attendance: boolean;
   chapters: ChapterItem[];
   videos: VideoItem[];
@@ -77,12 +78,10 @@ export default function CourseDetail() {
       api<CourseProgress>(`/student/progress/${id}`).then((p) => {
         if (mountedRef.current && gen === genRef.current) setProgress(p);
       }).catch(() => {});
-      // 启用现场签到的课程额外拉签到状态
-      if (data.require_attendance) {
-        api<MyAttendance>(`/student/courses/${id}/attendance`).then((a) => {
-          if (mountedRef.current && gen === genRef.current) setAttendance(a);
-        }).catch(() => {});
-      }
+      // 签到状态恒拉取：任何课程都可能配了签到场次，渲染以 required_count>0 为准
+      api<MyAttendance>(`/student/courses/${id}/attendance`).then((a) => {
+        if (mountedRef.current && gen === genRef.current) setAttendance(a);
+      }).catch(() => {});
       // 检查考试状态
       if (data.exam_id) {
         try {
@@ -170,7 +169,6 @@ export default function CourseDetail() {
   if (loading) return <p className="text-text-secondary">加载中...</p>;
   if (!course) return <p className="text-text-secondary">课程不存在</p>;
 
-  const requireAttendance = course.require_attendance;
   const materials = course.materials || [];
   // 未手动点开课件时：无视频课程默认打开第一个课件（课件即课程内容）
   const activeMaterial: MaterialItem | null = activeMaterialId
@@ -304,7 +302,7 @@ export default function CourseDetail() {
             {totalVideos > 0 || materials.length === 0
               ? `${progress?.completed_count || 0} / ${progress?.total_count || totalVideos} 节`
               : `课件 ${materials.length} 份`}
-            {requireAttendance && attendance && (
+            {attendance && attendance.required_count > 0 && (
               <span className="ml-2 text-violet-600">
                 · 已签到 {attendance.attended_count}/{attendance.required_count} 场
               </span>
@@ -368,8 +366,8 @@ export default function CourseDetail() {
             )}
           </div>
 
-          {/* 启用现场签到：签到卡片 */}
-          {requireAttendance && attendance && (
+          {/* 签到卡片（课程配置了签到场次时显示） */}
+          {attendance && attendance.required_count > 0 && (
             <StudentCheckInCard attendance={attendance} onChanged={refreshAttendance} />
           )}
           {course.description && (

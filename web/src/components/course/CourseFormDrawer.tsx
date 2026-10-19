@@ -1,16 +1,16 @@
-/** 课程新建 / 编辑 · 右拉抽屉（单页分区：课程内容 → 课程信息 → 课程分配 [→ 现场签到]）
+/** 课程新建 / 编辑 · 右拉抽屉（单页分区：课程内容 → 课程信息 → 课程分配）
  *
  * 所有信息同页展示、不换面板：一个滚动面板内按分区排列，校验失败自动滚动定位。
  * 两种模式共用一套界面与上传动线（用户要求：编辑与新建界面一致）：
  * - 新建：不传 editCourseId。首次选文件静默创建课程草稿拿 ID（与编辑页
  *   ensureDraftForUpload 同套路），发布时才写入正式标题与信息。
- * - 编辑：传 editCourseId。挂载即装载课程详情/分配/场次——既有视频与课件
+ * - 编辑：传 editCourseId。挂载即装载课程详情/分配——既有视频与课件
  *   直接进「已上传」列表（可预览、删除即时落库，与旧编辑页同口径）；
  *   分配装载含历史「整部门分配」展开为成员的兼容逻辑。
  * - 保存语义：编辑模式底栏恒有「保存」（维持当前状态，抽屉不关），
  *   状态为草稿时另有「发布」（终态达成即关）；新建模式「保存草稿/发布课程」。
- * - 签到是可选分区：开关打开才出现第 4 分区；场次为暂存式，
- *   保存时按编辑页同款编排（增改删 + 有签到记录删除的 force 二次确认）。
+ * - 签到不在本抽屉配置（2026-10-19 起）：任何课程都可签到，入口是课程列表
+ *   操作列的「签到」按钮（AttendanceSessionModal：场次列表 + 名单/补签/导出）。
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X, Upload, Film, FileText, Image as ImageIcon, Trash2, RotateCw } from "lucide-react";
@@ -19,20 +19,16 @@ import CategorySelect from "./CategorySelect";
 import MaterialViewer, { type MaterialFile } from "./MaterialViewer";
 import DateField from "../ui/DateField";
 import StatusTag from "../ui/StatusTag";
-import SessionInlineEditor, {
-  type InlineSession, validateInlineSessions,
-} from "../attendance/SessionInlineEditor";
-import AttendanceSessionModal, { toNaiveLocal } from "../attendance/AttendanceSessionModal";
 import { useToast } from "../ui/Toast";
 import { useConfirm } from "../ui/Confirm";
 import { api, type OrgMemberRow, type OrgMembersResponse } from "../../lib/api";
 import type { TreeNode, FlatCategory } from "../CourseTree";
 import {
-  addVideo, createCourse, createSession, deleteMaterial, deleteSession, deleteVideo,
+  addVideo, createCourse, deleteMaterial, deleteVideo,
   getAssignments, getCategoryFlat, getCategoryTree, getCourse, getUploadToken,
-  listAllUsers, listSessions, postAssignments, probeVideoDuration, removeAssignments,
-  updateCourse, updateSession, uploadMaterial, uploadVideoRelay, uploadVideoToOSS, videoExtOf, videoStreamUrl,
-  type CoursePayload, type SessionPayload,
+  listAllUsers, postAssignments, probeVideoDuration, removeAssignments,
+  updateCourse, uploadMaterial, uploadVideoRelay, uploadVideoToOSS, videoExtOf, videoStreamUrl,
+  type CoursePayload,
 } from "../../lib/courseApi";
 
 type Kind = "video" | "material";
@@ -60,15 +56,6 @@ function fmtSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-/** ISO 时间串 → datetime-local 输入值（本地时区，精确到分钟） */
-function toLocalInputVal(iso: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 interface UploadTask {
@@ -163,15 +150,9 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
   const [categoryId, setCategoryId] = useState<string>(defaultCategoryId ?? "");
   const [catTree, setCatTree] = useState<TreeNode[]>([]);
   const [catFlat, setCatFlat] = useState<FlatCategory[]>([]);
-  const [requireAttendance, setRequireAttendance] = useState(false);
 
   // 章节归属（编辑模式回传存量，UI 不提供勾选——与旧编辑页"章节勾选已下线"口径一致）
   const chapterIdsRef = useRef<string[]>([]);
-
-  // 签到场次（暂存式，保存时编排）；loadedSessionIds 为已落库场次
-  const [sessions, setSessions] = useState<InlineSession[]>([]);
-  const loadedSessionIds = useRef<string[]>([]);
-  const [attendanceModalOpen, setAttendanceModalOpen] = useState(false);
 
   // 分区3：分配（单页形态挂载即拉名册）
   const [members, setMembers] = useState<OrgMemberRow[]>([]);
@@ -219,28 +200,14 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
 
   const touch = () => { dirtyRef.current = true; };
 
-  /** 后端场次 → 内联编辑器暂存态（datetime-local 本地格式） */
-  const applySessions = (rows: { id: string; title: string; start_time: string; end_time: string; location_name: string | null; late_after_minutes: number | null }[]) => {
-    const inline: InlineSession[] = rows.map(s => ({
-      id: s.id,
-      title: s.title,
-      start_time: toLocalInputVal(s.start_time),
-      end_time: toLocalInputVal(s.end_time),
-      location_name: s.location_name || "",
-      late_after_minutes: s.late_after_minutes == null ? "" : String(s.late_after_minutes),
-    }));
-    setSessions(inline);
-    loadedSessionIds.current = inline.map(s => s.id).filter(Boolean) as string[];
-  };
-
-  // 编辑模式：挂载装载全量（详情/分配/场次/用户表——部门分配展开需要）
+  // 编辑模式：挂载装载全量（详情/分配/用户表——部门分配展开需要）
   useEffect(() => {
     if (!editCourseId) return;
     let cancelled = false;
     (async () => {
       try {
-        const [detail, assignments, sessionRows, users] = await Promise.all([
-          getCourse(editCourseId), getAssignments(editCourseId), listSessions(editCourseId), listAllUsers(),
+        const [detail, assignments, users] = await Promise.all([
+          getCourse(editCourseId), getAssignments(editCourseId), listAllUsers(),
         ]);
         if (cancelled) return;
         setStatus(detail.status);
@@ -249,7 +216,6 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
         setCategoryId(detail.category_id || "");
         setStartDate((detail.start_date || "").slice(0, 10));
         setEndDate((detail.end_date || "").slice(0, 10));
-        setRequireAttendance(Boolean(detail.require_attendance));
         chapterIdsRef.current = (detail.chapters || []).map(ch => ch.id);
         // 存量视频（根级 + 章节内）与课件进统一「已上传」列表，可预览可删
         const allVids = [...(detail.videos || []), ...(detail.chapters || []).flatMap(ch => ch.videos)];
@@ -268,7 +234,6 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
           user_ids: assignments.users.map(u => u.id),
           department_ids: assignments.departments.map(d => d.id),
         };
-        applySessions(sessionRows);
         setDataReady(true);
         dirtyRef.current = false;
       } catch (e: any) {
@@ -393,27 +358,6 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
     }
   };
 
-  /** 打开完整场次弹窗（即时写库）：装载后以服务端数据覆盖暂存态 */
-  const openAttendanceModal = async () => {
-    const cid = await ensureDraft();
-    if (!cid) return;
-    try {
-      applySessions(await listSessions(cid));
-      dirtyRef.current = false;
-      setAttendanceModalOpen(true);
-    } catch (e: any) {
-      toast.error(`加载场次失败：${e.message || e}`);
-    }
-  };
-
-  const closeAttendanceModal = async () => {
-    setAttendanceModalOpen(false);
-    if (courseId) {
-      // 弹窗内是即时写库，关闭后重拉保持两边一致
-      try { applySessions(await listSessions(courseId)); } catch { /* 保留现状，下次保存时以后端为准 */ }
-    }
-  };
-
   const requestClose = async () => {
     if (busyRef.current) {
       const ok = await confirm({
@@ -447,22 +391,15 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
     if (!title.trim()) { gotoSection("info"); toast.error("请填写课程标题"); return; }
     if (startDate && endDate && endDate < startDate) { gotoSection("info"); toast.error("结束日期不能早于开始日期"); return; }
     if (busyRef.current) { gotoSection("content"); toast.info("还有文件正在上传，请等待完成后再保存"); return; }
-    if (requireAttendance) {
-      if (sessions.length === 0) {
-        gotoSection("attendance"); toast.error("启用了「现场签到」必须至少配置 1 个签到场次"); return;
-      }
-      const sessionErr = validateInlineSessions(sessions);
-      if (sessionErr) { gotoSection("attendance"); toast.error(sessionErr); return; }
-    }
     setSaving(true);
     try {
+      // 不携带 require_attendance：签到与课程类型解绑，由列表「签到」按钮独立管理
       const payload: CoursePayload = {
         title: title.trim(),
         description: description.trim() || null,
         start_date: startDate || null,
         end_date: endDate || null,
         category_id: categoryId || null,
-        require_attendance: requireAttendance,
         status: targetStatus,
         // 编辑模式回传存量章节归属（UI 不提供勾选，防止后端把关联清掉）
         ...(isEdit ? { chapter_ids: [...chapterIdsRef.current] } : {}),
@@ -488,51 +425,6 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
         existingAssignments.current = { user_ids: [...selectedUsers], department_ids: [] };
       } else if (selectedUsers.size > 0) {
         await postAssignments(id, { user_ids: [...selectedUsers], department_ids: [] });
-      }
-      // 签到场次（统一按北京时间 naive 提交）
-      if (requireAttendance) {
-        const bodyFor = (s: InlineSession): SessionPayload => ({
-          title: s.title.trim(),
-          start_time: toNaiveLocal(s.start_time),
-          end_time: toNaiveLocal(s.end_time),
-          location_name: s.location_name.trim() || null,
-          late_after_minutes: s.late_after_minutes === "" ? null : Number(s.late_after_minutes),
-          code_rotate_seconds: 30,
-          dedupe_device: false,
-        });
-        const newIds: (string | undefined)[] = [];
-        for (const s of sessions) {
-          if (s.id) {
-            await updateSession(s.id, bodyFor(s));
-            newIds.push(s.id);
-          } else {
-            const created = await createSession(id, bodyFor(s));
-            newIds.push(created.id);
-          }
-        }
-        // 回填 id：避免再次保存时把已落库场次当新的重复创建
-        setSessions(prev0 => prev0.map((s, i) => (s.id ? s : { ...s, id: newIds[i] })));
-        const keptIds = new Set(newIds.filter(Boolean) as string[]);
-        for (const oldId of loadedSessionIds.current) {
-          if (keptIds.has(oldId)) continue;
-          try {
-            await deleteSession(oldId);
-          } catch (e: any) {
-            const msg = String(e?.message || e);
-            if (msg.includes("签到记录")) {
-              const ok = await confirm({
-                title: "删除签到场次",
-                message: "该场次已有签到记录，确定连记录一起删除吗？此操作不可恢复。",
-                confirmText: "删除",
-                danger: true,
-              });
-              if (ok) await deleteSession(oldId, true);
-            } else {
-              throw e;
-            }
-          }
-        }
-        loadedSessionIds.current = [...keptIds];
       }
       setStatus(targetStatus);
       dirtyRef.current = false;
@@ -756,21 +648,6 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                         onChange={v => { setEndDate(v); touch(); }} placeholder="选择结束日期（可选）" />
                     </div>
                   </div>
-                  <div>
-                    <label className="k-label">现场签到</label>
-                    <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                      <input
-                        type="checkbox" role="switch"
-                        checked={requireAttendance}
-                        onChange={(e) => { setRequireAttendance(e.target.checked); touch(); }}
-                        className="appearance-none w-9 h-5 rounded-full bg-border checked:bg-primary transition-colors relative
-                                   before:content-[''] before:absolute before:top-0.5 before:left-0.5 before:w-4 before:h-4
-                                   before:rounded-full before:bg-white before:transition-transform
-                                   checked:before:translate-x-4"
-                      />
-                      <span className="text-sm">启用现场签到</span>
-                    </label>
-                  </div>
                 </div>
               </section>
 
@@ -794,28 +671,6 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                   />
                 )}
               </section>
-
-              {/* 4 现场签到（可选分区，开关打开才出现） */}
-              {requireAttendance && (
-                <section ref={el => { secRefs.current.attendance = el; }}>
-                  <SectionHead n={4} title="现场签到" extra={
-                    <button type="button" className="k-btn k-btn-sm k-btn-default" onClick={openAttendanceModal}
-                      title="直接读写服务端：定位/网络校验/设备去重/手动补签等完整功能">
-                      完整场次管理
-                    </button>
-                  } />
-                  <div className="space-y-3">
-                    <SessionInlineEditor
-                      sessions={sessions}
-                      onChange={next => { setSessions(next); touch(); }}
-                    />
-                    <p className="text-xs text-text-secondary/70">
-                      场次为简化配置（名称/起止时间/地点/迟到阈值），动态码 30 秒轮换；防代签高级选项保持默认，保存后生效。
-                      需要定位/网络校验、手动补签等完整能力请用「完整场次管理」（即时写库）。
-                    </p>
-                  </div>
-                </section>
-              )}
             </div>
           )}
         </div>
@@ -845,14 +700,6 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
           )}
         </div>
       </div>
-
-      {attendanceModalOpen && courseId && (
-        <AttendanceSessionModal
-          courseId={courseId}
-          courseTitle={title}
-          onClose={closeAttendanceModal}
-        />
-      )}
     </div>
   );
 }

@@ -11,8 +11,6 @@ interface SessionCode {
   course_title: string;
   location_name: string | null;
   code: string;
-  rotate_seconds: number;
-  expires_in: number;
   state: string;
 }
 
@@ -25,8 +23,8 @@ const STATE_LABEL: Record<string, string> = {
 /**
  * 学员扫码落地页（手机浏览器打开）。
  *
- * 投屏二维码只编码本页链接 + 场次 ID，因此二维码静态不变；本页打开后实时向服务端
- * 拉取「当前这一轮」的动态码，点「确认签到」时再用最新码提交，避免输码过期。
+ * 投屏二维码只编码本页链接 + 场次 ID，签到码轮换已废除（2026-10-19），
+ * 码在本场次内固定；点「确认签到」时仍实时取一次码提交，保证与服务端一致。
  */
 export default function ScanCheckIn() {
   const { sessionId } = useParams();
@@ -34,7 +32,6 @@ export default function ScanCheckIn() {
   const [info, setInfo] = useState<SessionCode | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [secondsLeft, setSecondsLeft] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   // result.ok: 成功；result.done: 已签到过；result.fail: 失败
   const [result, setResult] = useState<{ kind: "ok" | "done" | "fail"; text: string } | null>(null);
@@ -45,7 +42,6 @@ export default function ScanCheckIn() {
       const res = await api<SessionCode>(`/student/attendance/sessions/${sessionId}/code`);
       if (!aliveRef.current) return;
       setInfo(res);
-      setSecondsLeft(res.expires_in);
       setError("");
     } catch (e) {
       if (aliveRef.current) setError(e instanceof Error ? e.message : "加载失败");
@@ -58,12 +54,11 @@ export default function ScanCheckIn() {
     aliveRef.current = true;
     setLoading(true);
     load();
+    // 5 秒刷新一次场次状态（未开始/进行中/已结束）；签到码本身固定不变
     const poll = setInterval(load, 5000);
-    const tick = setInterval(() => setSecondsLeft((s) => (s <= 1 ? 0 : s - 1)), 1000);
     return () => {
       aliveRef.current = false;
       clearInterval(poll);
-      clearInterval(tick);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
@@ -179,7 +174,7 @@ export default function ScanCheckIn() {
       {/* 签到进行中 */}
       {state === "open" && !result && (
         <div className="rounded-lg border border-border bg-bg-base p-6 text-center">
-          <p className="text-text-secondary mb-4">当前签到码每 {info?.rotate_seconds} 秒更换，点击下方按钮即自动使用最新码签到</p>
+          <p className="text-text-secondary mb-4">点击下方按钮，确认完成本场次签到</p>
           <button
             onClick={submit}
             disabled={submitting}
@@ -187,9 +182,6 @@ export default function ScanCheckIn() {
           >
             {submitting ? "签到中..." : "确认签到"}
           </button>
-          {secondsLeft > 0 && (
-            <p className="text-xs text-text-secondary/70 mt-3">本码剩余 {secondsLeft} 秒</p>
-          )}
         </div>
       )}
 

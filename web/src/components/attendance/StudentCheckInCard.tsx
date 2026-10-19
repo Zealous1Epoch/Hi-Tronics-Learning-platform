@@ -20,7 +20,7 @@ export interface MySessionState {
 
 export interface MyAttendance {
   course_id: string;
-  // 历史字段保留（响应兼容）；新前端按 require_attendance 判定
+  // 历史字段保留（响应兼容）；卡片由宿主按 required_count>0 决定是否渲染
   course_type: string;
   require_attendance: boolean;
   sessions: MySessionState[];
@@ -237,7 +237,7 @@ export default function StudentCheckInCard({
                           value={code}
                           onChange={(e) => setCode(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && submitCheckIn(s)}
-                          placeholder="输入投屏签到码"
+                          placeholder="输入签到码"
                           maxLength={16}
                           autoFocus
                           className="w-36 border border-border rounded-md px-2.5 py-1.5 text-sm tracking-widest uppercase"

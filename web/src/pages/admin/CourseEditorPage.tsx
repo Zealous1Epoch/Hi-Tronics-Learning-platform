@@ -397,6 +397,12 @@ export default function CourseEditorPage() {
                   tree={tree} flatCategories={flatCategories}
                   value={categoryId}
                   onChange={v => { setCategoryId(v); markDirty(); }}
+                  allowCreate
+                  onCreated={() => {
+                    void Promise.all([getCategoryTree(), getCategoryFlat()])
+                      .then(([t, flat]) => { setTree(t); setFlatCategories(flat); })
+                      .catch(() => { /* 分类列表刷新失败不阻断填写，下次装载会兜底 */ });
+                  }}
                 />
               </div>
               <div>

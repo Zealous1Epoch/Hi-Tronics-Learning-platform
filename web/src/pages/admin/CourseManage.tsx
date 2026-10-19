@@ -1,6 +1,6 @@
 /** 课程管理 · 列表页（课程管理重构 S8 重写，原 1873 行 → 本页只保留列表职责）
  *
- * - 左：纯分类树（hover 行内操作 +/✎/✕、拖拽同级排序、新增顶级在底部行内输入）
+ * - 左：纯分类树（hover 行内操作 +/✎/✕、新增顶级在底部行内输入）
  * - 右：扁平高密度表格（DataPanel + DataTable compact），列含章节/视频/已分配聚合数
  * - 新建/编辑跳独立页 /admin/courses/new、/admin/courses/:id/edit；分配走轻量弹窗（即时保存）
  * - 状态列 StatusTag 即发布/下架开关；原生 confirm/alert 已清零
@@ -19,7 +19,7 @@ import { useToast } from "../../components/ui/Toast";
 import { useConfirm } from "../../components/ui/Confirm";
 import {
   deleteCategory, deleteCourse, getCategoryFlat, getCategoryImpact, getCategoryTree,
-  getAssignments, listCourses, renameCategory, createCategory, reorderCategoriesBatch,
+  getAssignments, listCourses, renameCategory, createCategory,
   updateCourseStatus,
   type CategoryImpact, type Course,
 } from "../../lib/courseApi";
@@ -154,43 +154,6 @@ export default function CourseManage() {
       fetchData();
     } catch (e: any) {
       toast.error(e.message || "创建分类失败");
-    }
-  };
-
-  const getSiblingIds = (parentId: string | null): string[] => {
-    if (parentId === null) return tree.map((n) => n.id);
-    for (const node of tree) {
-      if (node.id === parentId) return node.children.map((c) => c.id);
-      const found = (function search(nodes: TreeNode[], pid: string): string[] | null {
-        for (const n of nodes) {
-          if (n.id === pid) return n.children.map((c) => c.id);
-          const r = search(n.children, pid);
-          if (r) return r;
-        }
-        return null;
-      })(node.children, parentId);
-      if (found) return found;
-    }
-    return [];
-  };
-
-  /** 拖拽重排：仅同级交换（与旧实现口径一致） */
-  const handleReorder = async (dragId: string, targetId: string) => {
-    const dragNode = flatCategories.find((c) => c.id === dragId);
-    const targetNode = flatCategories.find((c) => c.id === targetId);
-    if (!dragNode || !targetNode || dragNode.parent_id !== targetNode.parent_id) return;
-    const siblingIds = getSiblingIds(dragNode.parent_id);
-    const dragIdx = siblingIds.indexOf(dragId);
-    const targetIdx = siblingIds.indexOf(targetId);
-    if (dragIdx === -1 || targetIdx === -1) return;
-    siblingIds.splice(dragIdx, 1);
-    const insertAt = targetIdx > dragIdx ? targetIdx - 1 : targetIdx;
-    siblingIds.splice(insertAt, 0, dragId);
-    try {
-      await reorderCategoriesBatch(dragNode.parent_id, siblingIds);
-      fetchData();
-    } catch (e: any) {
-      toast.error(e.message || "排序失败");
     }
   };
 
@@ -376,8 +339,6 @@ export default function CourseManage() {
             placeholder="搜索分类..."
             loading={tree.length === 0 && loading}
             emptyText="暂无分类"
-            enableDrag
-            onReorder={handleReorder}
             expandedIds={expandedIds}
             onToggleExpanded={setExpandedIds}
             treeContainerClass="max-h-[calc(100vh-286px)]"
@@ -387,7 +348,7 @@ export default function CourseManage() {
                 <div className="flex items-center gap-1 py-1 px-2" style={{ paddingLeft: 8 }}>
                   <input
                     autoFocus value={editDraft}
-                    placeholder={treeEdit.kind === "addChild" ? `「${node.name}」下新建…` : "重命名分类"}
+                    placeholder={treeEdit.kind === "addChild" ? "分类名称" : "重命名分类"}
                     onChange={e => setEditDraft(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === "Enter") commitTreeEdit();
@@ -415,7 +376,7 @@ export default function CourseManage() {
                 {addingRoot ? (
                   <div className="flex items-center gap-1">
                     <input
-                      autoFocus value={newRootName} placeholder="顶级分类名称，回车确定"
+                      autoFocus value={newRootName} placeholder="课程类别名称，回车确定"
                       onChange={e => setNewRootName(e.target.value)}
                       onKeyDown={e => {
                         if (e.key === "Enter") commitAddRoot();
@@ -428,7 +389,7 @@ export default function CourseManage() {
                 ) : (
                   <button onClick={() => setAddingRoot(true)}
                     className="w-full text-xs text-text-secondary hover:text-primary flex items-center justify-center gap-1 py-1 rounded hover:bg-bg-layout">
-                    <Plus size={12} /> 新增顶级分类
+                    <Plus size={12} /> 新建课程类别
                   </button>
                 )}
               </div>

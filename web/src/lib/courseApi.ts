@@ -334,8 +334,15 @@ export function getCategoryFlat(): Promise<FlatCategory[]> {
   return api<FlatCategory[]>("/question-categories/flat");
 }
 
-export function createCategory(name: string, parentId?: string | null): Promise<unknown> {
-  return api("/question-categories", {
+export interface NewCategory {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  sort_order: number;
+}
+
+export function createCategory(name: string, parentId?: string | null): Promise<NewCategory> {
+  return api<NewCategory>("/question-categories", {
     method: "POST",
     body: JSON.stringify(parentId ? { name, parent_id: parentId } : { name }),
   });

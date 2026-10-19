@@ -38,6 +38,12 @@ interface CourseTreeProps {
   showHeader?: boolean;
   /** 是否显示搜索框，默认 true */
   showSearch?: boolean;
+  /** 是否在挂载时默认展开全部节点，默认 false */
+  defaultExpandedAll?: boolean;
+  /** 受控的展开节点集合。传入后由父组件控制，组件内 toggle 只读不写 */
+  expandedIds?: Set<string>;
+  /** 展开状态变化回调（受控模式下父组件必须监听并更新 state） */
+  onToggleExpanded?: (next: Set<string>) => void;
 }
 
 export function getCategoryPath(catId: string | null, flatCategories: FlatCategory[]): string {
@@ -116,27 +122,45 @@ export default function CourseTree({
   treeContainerClass = "max-h-[calc(100vh-240px)]",
   showHeader = true,
   showSearch = true,
+  defaultExpandedAll = false,
+  expandedIds: controlledExpandedIds,
+  onToggleExpanded,
 }: CourseTreeProps) {
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [internalExpandedIds, setInternalExpandedIds] = useState<Set<string>>(new Set());
   const [searchText, setSearchText] = useState("");
   const dragRef = useRef<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  // 受控模式下用 prop，否则用内部 state
+  const expandedIds = controlledExpandedIds ?? internalExpandedIds;
+
+  // 挂载时全展开（仅生效一次，避免与用户的折叠操作冲突）
+  useEffect(() => {
+    if (defaultExpandedAll && tree.length > 0 && controlledExpandedIds === undefined) {
+      setInternalExpandedIds(new Set(collectAllIds(tree)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleExpand = useCallback((id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }, []);
+    const next = new Set(expandedIds);
+    next.has(id) ? next.delete(id) : next.add(id);
+    if (controlledExpandedIds === undefined) {
+      setInternalExpandedIds(next);
+    }
+    onToggleExpanded?.(next);
+  }, [expandedIds, controlledExpandedIds, onToggleExpanded]);
 
   const filtered = searchText ? filterTree(tree, searchText) : tree;
 
   // 搜索时自动展开所有匹配节点
   useEffect(() => {
     if (!searchText) return;
-    setExpandedIds(new Set(collectAllIds(filtered)));
-  }, [searchText]);
+    const next = new Set(collectAllIds(filtered));
+    if (controlledExpandedIds === undefined) {
+      setInternalExpandedIds(next);
+    }
+    onToggleExpanded?.(next);
+  }, [searchText, filtered, controlledExpandedIds, onToggleExpanded]);
 
   // 拖拽
   const handleDragStart = (e: React.DragEvent, id: string) => {
@@ -183,7 +207,9 @@ export default function CourseTree({
           style={{ paddingLeft: `${8 + depth * 16}px` }}
           onClick={() => {
             onSelect(node.id);
-            if (hasChildren) toggleExpand(node.id);
+            // 无论是否有子节点都展开：让外部注入的 renderNodeFooter（如分类下挂章节）
+            // 能在「刚被选中」的节点下立即可见，避免叶节点选中后内容仍隐藏。
+            if (!expandedIds.has(node.id)) toggleExpand(node.id);
           }}
           draggable={enableDrag}
           onDragStart={(e) => handleDragStart(e, node.id)}
@@ -219,7 +245,7 @@ export default function CourseTree({
           <span className="truncate">{node.name}</span>
         </div>
         {isExpanded && hasChildren && node.children.map((child) => renderNode(child, depth + 1))}
-        {renderNodeFooter?.(node, depth)}
+        {isExpanded && renderNodeFooter?.(node, depth)}
       </div>
     );
   };

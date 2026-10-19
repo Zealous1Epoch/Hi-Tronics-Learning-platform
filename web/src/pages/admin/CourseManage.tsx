@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, uploadToOSS } from "../../lib/api";
 import CourseTree, { type TreeNode, type FlatCategory, getCategoryPath } from "../../components/CourseTree";
@@ -128,6 +128,7 @@ export default function CourseManage() {
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const blobUrlsRef = useRef<Map<File, string>>(new Map());
+  const fetchSeqRef = useRef(0);
 
   const getBlobUrl = (file: File): string => {
     const cached = blobUrlsRef.current.get(file);
@@ -168,27 +169,47 @@ export default function CourseManage() {
   // 分配章节（多选，关联课程分类树）
   const [allChapters, setAllChapters] = useState<ChapterItem[]>([]);
   const [editSelectedChapterIds, setEditSelectedChapterIds] = useState<Set<string>>(new Set());
-  const [chapterSearch, setChapterSearch] = useState("");
   const [newChapterName, setNewChapterName] = useState("");
   const [newChapterCategoryId, setNewChapterCategoryId] = useState<string>("");
   const [creatingChapter, setCreatingChapter] = useState(false);
+  // 分配章节弹窗的分类树展开状态（受控 CourseTree）
+  const [chapterExpandedIds, setChapterExpandedIds] = useState<Set<string>>(new Set());
+  // 主页左侧课程分类树的展开状态（受控 CourseTree）
+  const [leftTreeExpandedIds, setLeftTreeExpandedIds] = useState<Set<string>>(new Set());
+  // 收集分类树所有节点 ID（用于初始化时全展开）
+  const collectIdsDeep = (n: TreeNode): string[] => [n.id, ...n.children.flatMap(collectIdsDeep)];
   // 分配弹窗内当前选中的分类（左栏分类树）
   const [chapterActiveCatId, setChapterActiveCatId] = useState<string | null>(null);
-  // 当前选中分类下的章节（分配章节弹窗右栏用；选中「全部分类」时显示全部）
-  const chaptersUnderActiveCat = allChapters
-    .filter(ch => (chapterActiveCatId ? ch.category_id === chapterActiveCatId : true))
-    .filter(ch => !chapterSearch || ch.title.toLowerCase().includes(chapterSearch.toLowerCase()));
+  // 按分类 ID 索引章节，供分类树 footer 渲染（章节嵌到分类节点下）
+  const chaptersByCategoryId = useMemo(() => {
+    const map: Record<string, ChapterItem[]> = {};
+    for (const ch of allChapters) {
+      if (!ch.category_id) continue;
+      (map[ch.category_id] ||= []).push(ch);
+    }
+    for (const id in map) {
+      map[id].sort((a, b) => a.sort_order - b.sort_order);
+    }
+    return map;
+  }, [allChapters]);
   const editExistingAssignments = useRef<{ user_ids: string[]; department_ids: string[] }>({ user_ids: [], department_ids: [] });
 
   const fetchData = async () => {
-    const [treeData, flatData, coursesData] = await Promise.all([
+    const seq = ++fetchSeqRef.current;
+    const [treeData, flatData, coursesData, chaptersData] = await Promise.all([
       api<TreeNode[]>("/question-categories/tree"),
       api<FlatCategory[]>("/question-categories/flat"),
       api<CourseItem[]>(`/courses${selectedId ? `?category_id=${selectedId}` : ""}`),
+      api<ChapterItem[]>("/chapters"),
     ]);
+    // 如果在此期间有更新的 fetch 启动，跳过本批次，防止竞态覆盖新数据
+    if (seq !== fetchSeqRef.current) return;
     setTree(treeData);
     setFlatCategories(flatData);
     setCourses(coursesData);
+    setAllChapters(chaptersData || []);
+    // 默认展开所有分类节点：让分类下挂载的章节（renderNodeFooter）能立即可见
+    setLeftTreeExpandedIds(new Set(treeData.flatMap(collectIdsDeep)));
     setLoading(false);
   };
 
@@ -275,6 +296,8 @@ export default function CourseManage() {
       });
       setAllChapters(prev => [...prev, created]);
       setEditSelectedChapterIds(prev => new Set([...prev, created.id]));
+      // 触发同步：让已启动但未完成的 fetchData 过期，防止它覆盖新创建的章节
+      fetchData();
     } catch (e: any) {
       alert(`创建章节失败：${e.message || e}`);
     } finally {
@@ -392,10 +415,11 @@ export default function CourseManage() {
     setEditExpandedDeptIds(new Set());
     setAllChapters(chapters || []);
     setEditSelectedChapterIds(new Set());
-    setChapterSearch("");
     setNewChapterName("");
     setChapterActiveCatId(selectedId);
     setNewChapterCategoryId(selectedId || "");
+    // 默认展开所有分类节点（新建课程时也要看到现有章节，方便选择分配）
+    setChapterExpandedIds(new Set(tree.flatMap(collectIdsDeep)));
     setShowEditModal(true);
   };
 
@@ -444,13 +468,14 @@ export default function CourseManage() {
     setEditDeptSearch("");
     setEditActiveDeptId(null);
     setAllChapters(chapters || []);
+    // 默认展开所有分类节点（含挂载的章节立即可见）
+    setChapterExpandedIds(new Set(tree.flatMap(collectIdsDeep)));
     // 回显当前课程所属章节（从 detail.chapters 的 course_ids 中判断）
     setEditSelectedChapterIds(new Set(
       (chapters || [])
         .filter(ch => (detail.chapters || []).some(dc => dc.id === ch.id))
         .map(ch => ch.id)
     ));
-    setChapterSearch("");
     setNewChapterName("");
     setChapterActiveCatId(selectedId);
     setNewChapterCategoryId(selectedId || "");
@@ -632,6 +657,24 @@ export default function CourseManage() {
       setAllChapters(prev => [...prev, created]);
       setEditSelectedChapterIds(prev => new Set([...prev, created.id]));
       setNewChapterName("");
+      // 触发同步，防 fetchData 覆盖
+      fetchData();
+      // 新章节挂载到的分类节点及其祖先链全部展开，确保新建后立即可见
+      if (created.category_id) {
+        const catId = created.category_id;
+        setChapterExpandedIds(prev => {
+          const next = new Set(prev);
+          let cur: string | null | undefined = catId;
+          while (cur) {
+            next.add(cur);
+            const node = flatCategories.find(c => c.id === cur);
+            cur = node?.parent_id;
+          }
+          return next;
+        });
+        setChapterActiveCatId(catId);
+        setNewChapterCategoryId(catId);
+      }
     } catch (e: any) {
       alert(`创建章节失败：${e.message || e}`);
     } finally {
@@ -855,6 +898,8 @@ export default function CourseManage() {
             emptyText="暂无课程，点击下方按钮添加"
             enableDrag={true}
             onReorder={handleReorder}
+            expandedIds={leftTreeExpandedIds}
+            onToggleExpanded={setLeftTreeExpandedIds}
             renderTreeFooter={() =>
               addingRoot ? (
                 <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
@@ -877,28 +922,48 @@ export default function CourseManage() {
                 </div>
               ) : null
             }
-            renderNodeFooter={(node) =>
-              addingChildUnder === node.id ? (
-                <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${8 + 16}px` }}>
-                  <span className="w-5 shrink-0" />
-                  <input
-                    type="text"
-                    value={newChildName}
-                    onChange={e => setNewChildName(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter") {
-                        if (addingMode === "chapter") handleAddChapter(node.id);
-                        else handleAddChild(node.id);
-                      }
-                      if (e.key === "Escape") { setAddingChildUnder(null); setNewChildName(""); setAddingMode(null); }
-                    }}
-                    placeholder={addingMode === "chapter" ? "输入章节名称..." : "输入名称..."}
-                    className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                    autoFocus
-                  />
-                </div>
-              ) : null
-            }
+            renderNodeFooter={(node) => {
+              const chapterList = chaptersByCategoryId[node.id] || [];
+              const showInput = addingChildUnder === node.id;
+              if (!showInput && chapterList.length === 0) return null;
+              return (
+                <>
+                  {chapterList.length > 0 && (
+                    <div className="ml-7 mb-1 space-y-0.5">
+                      {chapterList.map(ch => (
+                        <div
+                          key={ch.id}
+                          className="flex items-center gap-1 py-0.5 px-1 text-xs text-text-secondary"
+                          title={ch.title}
+                        >
+                          <span className="truncate flex-1">📄 {ch.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {showInput && (
+                    <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${8 + 16}px` }}>
+                      <span className="w-5 shrink-0" />
+                      <input
+                        type="text"
+                        value={newChildName}
+                        onChange={e => setNewChildName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter") {
+                            if (addingMode === "chapter") handleAddChapter(node.id);
+                            else handleAddChild(node.id);
+                          }
+                          if (e.key === "Escape") { setAddingChildUnder(null); setNewChildName(""); setAddingMode(null); }
+                        }}
+                        placeholder={addingMode === "chapter" ? "输入章节名称..." : "输入名称..."}
+                        className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
+                        autoFocus
+                      />
+                    </div>
+                  )}
+                </>
+              );
+            }}
             renderActions={(sid) => (
               <div className="mt-2 space-y-1">
                 <button
@@ -907,7 +972,7 @@ export default function CourseManage() {
                 >
                   <Plus size={12} /> 添加课程
                 </button>
-                {sid && (
+                {sid ? (
                   <>
                     <button
                       onClick={startAddChapter}
@@ -934,6 +999,10 @@ export default function CourseManage() {
                       </button>
                     </div>
                   </>
+                ) : (
+                  <p className="text-xs text-text-secondary/70 px-2 py-1.5 text-center leading-snug">
+                    在左侧分类树点选一个分类<br/>后可重命名或删除
+                  </p>
                 )}
               </div>
             )}
@@ -1348,62 +1417,55 @@ export default function CourseManage() {
                     {creatingChapter ? "创建中…" : "新建章节"}
                   </button>
                 </div>
-                {/* 左：课程分类树（点击选择）  右：该分类下的章节 */}
-                <div className="flex gap-2 items-stretch">
-                  <div className="flex-1 border border-border rounded-md p-2 flex flex-col">
-                    <div className="text-xs text-text-secondary mb-1.5">课程分类（点击选择）</div>
-                    <div className="max-h-44 overflow-y-auto">
-                      <CourseTree
-                        tree={tree}
-                        flatCategories={flatCategories}
-                        selectedId={chapterActiveCatId}
-                        onSelect={setChapterActiveCatId}
-                        rootLabel="全部分类"
-                        treeContainerClass="max-h-40 border-0 p-0"
-                        showHeader={true}
-                        showSearch={true}
-                        placeholder="搜索分类..."
-                      />
-                    </div>
+                {/* 左：课程分类树（章节嵌到对应分类节点下） */}
+                <div className="border border-border rounded-md p-2 flex flex-col">
+                  <div className="text-xs text-text-secondary mb-1.5">
+                    课程分类（点击节点下的章节可勾选分配到本课程）
                   </div>
-                  <div className="flex-1 border border-border rounded-md p-2 flex flex-col">
-                    <div className="text-xs text-text-secondary mb-1.5">
-                      章节{chapterActiveCatId ? `（${getCategoryPath(chapterActiveCatId, flatCategories)}）` : "（全部分类）"}（{chaptersUnderActiveCat.length}）
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="搜索章节..."
-                      value={chapterSearch}
-                      onChange={e => setChapterSearch(e.target.value)}
-                      className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5"
-                    />
-                    <div className="max-h-40 overflow-y-auto space-y-0.5">
-                      {chaptersUnderActiveCat.length === 0 ? (
-                        <p className="text-xs text-text-secondary py-3 text-center">
-                          {chapterSearch ? "无匹配章节" : (chapterActiveCatId ? "该分类下暂无章节" : "暂无章节，使用上方新建")}
-                        </p>
-                      ) : (
-                        chaptersUnderActiveCat.map(ch => (
-                          <label key={ch.id} className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-bg-layout rounded text-xs cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={editSelectedChapterIds.has(ch.id)}
-                              onChange={() => {
-                                const next = new Set(editSelectedChapterIds);
-                                next.has(ch.id) ? next.delete(ch.id) : next.add(ch.id);
-                                setEditSelectedChapterIds(next);
-                              }}
-                              className="shrink-0"
-                            />
-                            <span className="truncate flex-1">{ch.title}</span>
-                            {ch.course_ids.length > 0 && (
-                              <span className="text-text-secondary shrink-0">({ch.course_ids.length} 课)</span>
-                            )}
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  </div>
+                  <CourseTree
+                    tree={tree}
+                    flatCategories={flatCategories}
+                    selectedId={chapterActiveCatId}
+                    onSelect={setChapterActiveCatId}
+                    rootLabel="全部分类"
+                    treeContainerClass="max-h-56 border-0 p-0"
+                    showHeader={true}
+                    showSearch={true}
+                    placeholder="搜索分类..."
+                    expandedIds={chapterExpandedIds}
+                    onToggleExpanded={setChapterExpandedIds}
+                    renderNodeFooter={(node) => {
+                      const list = chaptersByCategoryId[node.id] || [];
+                      if (list.length === 0) return null;
+                      return (
+                        <div className="ml-7 mb-1 space-y-0.5">
+                          {list.map(ch => (
+                            <label
+                              key={ch.id}
+                              className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-bg-layout rounded text-xs cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={editSelectedChapterIds.has(ch.id)}
+                                onChange={() => {
+                                  const next = new Set(editSelectedChapterIds);
+                                  if (next.has(ch.id)) next.delete(ch.id);
+                                  else next.add(ch.id);
+                                  setEditSelectedChapterIds(next);
+                                }}
+                                className="shrink-0"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <span className="truncate flex-1 text-text-base">{ch.title}</span>
+                              {ch.course_ids.length > 0 && (
+                                <span className="text-text-secondary shrink-0">({ch.course_ids.length} 课)</span>
+                              )}
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    }}
+                  />
                 </div>
                 {/* 已选汇总 */}
                 {editSelectedChapterIds.size > 0 && (

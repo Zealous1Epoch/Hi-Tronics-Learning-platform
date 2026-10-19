@@ -334,7 +334,7 @@ export async function deleteVideo(videoId: string): Promise<void> {
 
 // ───────────────────────── 课程课件（本地存储，非视频学习资料） ─────────────────────────
 
-/** 上传课件（multipart）。后端白名单 pdf/ppt/pptx/html/htm，≤50MB，PPT 自动转 PDF 预览 */
+/** 上传课件（multipart）。后端白名单 pdf/ppt/pptx/html/htm/png/jpg/jpeg/gif/webp，≤50MB，PPT 自动转 PDF 预览 */
 export function uploadMaterial(
   courseId: string,
   file: File,

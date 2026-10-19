@@ -1,13 +1,16 @@
-/** 课件内嵌查看器：直接在页面主内容区展示 PDF / PPT / HTML 课件。
+/** 课件内嵌查看器：直接在页面主内容区展示 PDF / PPT / HTML / 图片课件。
  *
  * 课件与视频同为课程内容——无视频的课程里它就是学员的「播放画面」。
  * PDF/PPT 走 blob iframe（PPT 由后端预览端点返回转好的 PDF），
- * HTML 走 srcdoc 沙箱；其余情况降级为下载引导。
+ * HTML 走 srcdoc 沙箱，图片走 blob <img> 等比居中预览；其余情况降级为下载引导。
  */
 import { useEffect, useRef, useState } from "react";
 import { Download, Loader2, FileWarning } from "lucide-react";
 import { BASE } from "../../lib/api";
 import { materialPreviewPath, materialDownloadPath } from "../../lib/courseApi";
+
+/** 图片课件扩展名，与后端 course_files.ALLOWED_EXTENSIONS 图片组一致（SVG 刻意不放行） */
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp"];
 
 export interface MaterialFile {
   id: string;
@@ -68,7 +71,9 @@ function Fallback({ material }: { material: MaterialFile }) {
 }
 
 /** 内嵌主体：父级以 key=material.id 重挂载，每份课件状态从干净开始，无需 effect 重置 */
-function ViewerBody({ material, isHtml }: { material: MaterialFile; isHtml: boolean }) {
+function ViewerBody({ material, isHtml, isImage }: {
+  material: MaterialFile; isHtml: boolean; isImage: boolean;
+}) {
   const [failed, setFailed] = useState(false);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [htmlText, setHtmlText] = useState<string | null>(null);
@@ -101,7 +106,7 @@ function ViewerBody({ material, isHtml }: { material: MaterialFile; isHtml: bool
         blobUrlRef.current = null;
       }
     };
-  }, [material.id, isHtml]);
+  }, [material.id, isHtml, isImage]);
 
   if (failed) return <Fallback material={material} />;
 
@@ -132,6 +137,13 @@ function ViewerBody({ material, isHtml }: { material: MaterialFile; isHtml: bool
       </div>
     );
   }
+  if (isImage) {
+    return (
+      <div className="w-full h-full overflow-auto flex items-center justify-center p-4">
+        <img src={blobUrl} alt={material.original_name} className="max-w-full max-h-full object-contain" />
+      </div>
+    );
+  }
   return <iframe src={blobUrl} title={material.original_name} className="w-full h-full border-0 bg-white" />;
 }
 
@@ -139,7 +151,8 @@ export default function MaterialViewer({ material }: { material: MaterialFile })
   const ext = material.file_type.toLowerCase();
   const isBlobEmbed = ["pdf", "ppt", "pptx"].includes(ext);
   const isHtml = ["html", "htm"].includes(ext);
-  const embeddable = isBlobEmbed || isHtml;
+  const isImage = IMAGE_EXTS.includes(ext);
+  const embeddable = isBlobEmbed || isHtml || isImage;
 
   const [downloading, setDownloading] = useState(false);
   const handleDownload = async () => {
@@ -171,7 +184,7 @@ export default function MaterialViewer({ material }: { material: MaterialFile })
 
       {/* 内容区：不可内嵌预览的格式直接落到下载引导（派生自 file_type） */}
       <div className="flex-1 min-h-0 bg-bg-layout">
-        {embeddable ? <ViewerBody key={material.id} material={material} isHtml={isHtml} /> : <Fallback material={material} />}
+        {embeddable ? <ViewerBody key={material.id} material={material} isHtml={isHtml} isImage={isImage} /> : <Fallback material={material} />}
       </div>
     </div>
   );

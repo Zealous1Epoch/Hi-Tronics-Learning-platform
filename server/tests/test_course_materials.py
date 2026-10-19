@@ -50,6 +50,33 @@ def test_upload_pdf_and_detail_lists_materials(client, admin_headers, course_id,
     assert len(mats) == 1 and mats[0]["id"] == body["id"]
 
 
+def test_upload_image_material_and_preview(client, admin_headers, course_id, db, materials_dir):
+    """图片课件：PNG/JPEG 放行、预览返回图片 Content-Type（前端 <img> 直接渲染）"""
+    png = bytes.fromhex("89504e470d0a1a0a") + b"\x00" * 24  # PNG 文件头 + 填充
+    res = _upload(client, admin_headers, course_id, "现场照片.png", content=png, mime="image/png")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["file_type"] == "png"
+
+    mid = body["id"]
+    key = db.query(CourseMaterial).filter(CourseMaterial.id == mid).first().obs_key
+    assert os.path.exists(course_files.resolve_path(key))
+
+    prev = client.get(f"/api/course-materials/{mid}/preview", headers=admin_headers)
+    assert prev.status_code == 200
+    assert prev.headers["content-type"].startswith("image/png")
+    assert prev.content == png
+
+    # JPEG 与 gif/webp 同组放行（file_type 列 String(20)，"jpeg" 装得下）
+    res2 = _upload(client, admin_headers, course_id, "chart.jpeg",
+                   content=b"\xff\xd8\xff" + b"\x00" * 10, mime="image/jpeg")
+    assert res2.status_code == 200 and res2.json()["file_type"] == "jpeg"
+
+    # SVG 刻意不放行——可内嵌脚本，浏览器直接预览有 XSS 风险
+    r = _upload(client, admin_headers, course_id, "evil.svg", content=b"<svg/>", mime="image/svg+xml")
+    assert r.status_code == 400
+
+
 def test_upload_rejects_bad_extension(client, admin_headers, course_id, materials_dir):
     res = _upload(client, admin_headers, course_id, "virus.exe", content=b"MZ...")
     assert res.status_code == 400

@@ -1,4 +1,4 @@
-"""课程课件路由：PDF / PPT(PPTX) / HTML 学习文件的上传、预览、下载、删除。
+"""课程课件路由：PDF / PPT(PPTX) / HTML / 图片 学习文件的上传、预览、下载、删除。
 
 文件存服务器本地 uploads/courses/（services/course_files.py 收敛路径与清理），
 预览/下载鉴权与 get_course 同口径：get_current_user + check_course_assignment
@@ -49,7 +49,7 @@ async def upload_course_material(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """上传课程课件（PDF/PPT/PPTX/HTML，≤50MB；PPT 自动尝试转 PDF 作预览产物）"""
+    """上传课程课件（PDF/PPT/PPTX/HTML/图片 PNG·JPG 等，≤50MB；PPT 自动尝试转 PDF 作预览产物）"""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")

@@ -19,8 +19,9 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB，与知识库课件一致
 
-# 用户明确的学习资料格式：PDF / PPT(PPTX) / HTML；视频走 OSS 三步流不在这里
-ALLOWED_EXTENSIONS = {"pdf", "ppt", "pptx", "html", "htm"}
+# 用户明确的学习资料格式：PDF / PPT(PPTX) / HTML / 图片(PNG JPG JPEG GIF WEBP)；
+# 视频走 OSS 三步流不在这里。SVG 刻意不放行——可内嵌脚本，预览有 XSS 风险
+ALLOWED_EXTENSIONS = {"pdf", "ppt", "pptx", "html", "htm", "png", "jpg", "jpeg", "gif", "webp"}
 
 MIME_MAP = {
     "pdf": "application/pdf",
@@ -28,6 +29,11 @@ MIME_MAP = {
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "html": "text/html",
     "htm": "text/html",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
 }
 
 

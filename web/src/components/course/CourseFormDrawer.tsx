@@ -13,7 +13,7 @@
  *   保存时按编辑页同款编排（增改删 + 有签到记录删除的 force 二次确认）。
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { X, Upload, Film, FileText, Trash2, RotateCw } from "lucide-react";
+import { X, Upload, Film, FileText, Image as ImageIcon, Trash2, RotateCw } from "lucide-react";
 import DeptUserPicker from "./DeptUserPicker";
 import CategorySelect from "./CategorySelect";
 import MaterialViewer, { type MaterialFile } from "./MaterialViewer";
@@ -38,8 +38,12 @@ import {
 type Kind = "video" | "material";
 
 const VIDEO_EXTS = ["mp4", "mov", "avi", "mkv", "webm"];
-const MATERIAL_EXTS = ["pdf", "ppt", "pptx", "html", "htm"];
+/** 图片课件：与 PDF/PPT/HTML 同走 materials 上传接口，预览按 <img> 渲染 */
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp"];
+const MATERIAL_EXTS = ["pdf", "ppt", "pptx", "html", "htm", ...IMAGE_EXTS];
 const ACCEPT = [...VIDEO_EXTS, ...MATERIAL_EXTS].map(e => "." + e).join(",");
+
+const extOfName = (name: string) => name.toLowerCase().split(".").pop() || "";
 
 function kindOf(name: string): Kind | null {
   const ext = name.toLowerCase().split(".").pop() || "";
@@ -611,7 +615,7 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                     <Upload size={24} className="mx-auto text-text-secondary mb-1.5" />
                     <p className="text-sm text-text-secondary">点击选择文件，或拖拽到此处</p>
                     <p className="text-xs text-text-secondary/60 mt-1">
-                      支持视频（MP4 / MOV / AVI / MKV / WEBM）与课件（PDF / PPT / PPTX / HTML），选择后立即上传
+                      支持视频（MP4 / MOV / AVI / MKV / WEBM）与课件（PDF / PPT / PPTX / HTML / PNG / JPG 等图片），选择后立即上传
                     </p>
                     <input
                       ref={fileInputRef} type="file" accept={ACCEPT} multiple className="hidden"
@@ -623,7 +627,11 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                   {tasks.map(t => (
                     <div key={t.key} className="py-1.5 px-3 bg-bg-layout rounded-md">
                       <div className="flex items-center gap-2">
-                        {t.kind === "video" ? <Film size={13} className="text-text-secondary shrink-0" /> : <FileText size={13} className="text-text-secondary shrink-0" />}
+                        {t.kind === "video"
+                          ? <Film size={13} className="text-text-secondary shrink-0" />
+                          : IMAGE_EXTS.includes(extOfName(t.file.name))
+                            ? <ImageIcon size={13} className="text-text-secondary shrink-0" />
+                            : <FileText size={13} className="text-text-secondary shrink-0" />}
                         <span className="text-sm text-text-secondary truncate flex-1 min-w-0" title={t.file.name}>{t.file.name}</span>
                         <span className="text-xs text-text-secondary/60 shrink-0">{fmtSize(t.file.size)}</span>
                         {t.status === "error" && (
@@ -671,7 +679,9 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                               title={isPreview ? "收起预览" : "点击预览"}>
                               {it.kind === "video"
                                 ? <Film size={13} className="text-primary shrink-0" />
-                                : <FileText size={13} className="text-primary shrink-0" />}
+                                : IMAGE_EXTS.includes((it.fileType || "").toLowerCase())
+                                  ? <ImageIcon size={13} className="text-primary shrink-0" />
+                                  : <FileText size={13} className="text-primary shrink-0" />}
                               <span className="text-sm truncate flex-1 min-w-0" title={it.name}>{it.name}</span>
                               <span className="text-xs text-text-secondary/60 shrink-0">{fmtSize(it.size)}</span>
                               <button type="button" onClick={e => { e.stopPropagation(); void removeItem(it); }}

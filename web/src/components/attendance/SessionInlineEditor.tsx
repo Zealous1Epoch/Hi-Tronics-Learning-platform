@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from "lucide-react";
+import { DateTimeField } from "../ui/DateField";
 
 /**
  * 建课/改课弹窗内嵌的签到场次编辑器（简化版）。
@@ -93,27 +94,21 @@ export default function SessionInlineEditor({
             </div>
             <div>
               <label className="block text-xs text-text-secondary mb-1">签到开始</label>
-              <div className="relative">
-                <input
-                  type="datetime-local"
-                  className={`${inputCls}${s.start_time ? "" : " k-date-empty"}`}
-                  value={s.start_time}
-                  onChange={(e) => update(idx, { start_time: e.target.value })}
-                />
-                {!s.start_time && <TimeHint text="选择开始时间" />}
-              </div>
+              <DateTimeField
+                value={s.start_time}
+                onChange={(v) => update(idx, { start_time: v })}
+                placeholder="选择开始时间"
+                className={inputCls}
+              />
             </div>
             <div>
               <label className="block text-xs text-text-secondary mb-1">签到结束</label>
-              <div className="relative">
-                <input
-                  type="datetime-local"
-                  className={`${inputCls}${s.end_time ? "" : " k-date-empty"}`}
-                  value={s.end_time}
-                  onChange={(e) => update(idx, { end_time: e.target.value })}
-                />
-                {!s.end_time && <TimeHint text="选择结束时间" />}
-              </div>
+              <DateTimeField
+                value={s.end_time}
+                onChange={(v) => update(idx, { end_time: v })}
+                placeholder="选择结束时间"
+                className={inputCls}
+              />
             </div>
             <div>
               <label className="block text-xs text-text-secondary mb-1">迟到阈值（分钟，选填）</label>
@@ -143,11 +138,3 @@ export default function SessionInlineEditor({
   );
 }
 
-/** 空时间控件上的中文占位（配合 index.css k-date-empty 隐藏原生水印） */
-function TimeHint({ text }: { text: string }) {
-  return (
-    <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-sm text-text-muted pointer-events-none">
-      {text}
-    </span>
-  );
-}

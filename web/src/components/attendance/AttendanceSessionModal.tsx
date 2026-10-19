@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { api } from "../../lib/api";
+import { DateTimeField } from "../ui/DateField";
 
 /* ── 类型 ── */
 interface SessionItem {
@@ -469,20 +470,20 @@ export default function AttendanceSessionModal({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className={labelCls}>签到开始</label>
-                  <input
-                    type="datetime-local"
-                    className={inputCls}
+                  <DateTimeField
                     value={form.start_time}
-                    onChange={(e) => setForm({ ...form, start_time: e.target.value })}
+                    onChange={(v) => setForm({ ...form, start_time: v })}
+                    placeholder="选择开始时间"
+                    className={inputCls}
                   />
                 </div>
                 <div>
                   <label className={labelCls}>签到结束</label>
-                  <input
-                    type="datetime-local"
-                    className={inputCls}
+                  <DateTimeField
                     value={form.end_time}
-                    onChange={(e) => setForm({ ...form, end_time: e.target.value })}
+                    onChange={(v) => setForm({ ...form, end_time: v })}
+                    placeholder="选择结束时间"
+                    className={inputCls}
                   />
                 </div>
               </div>

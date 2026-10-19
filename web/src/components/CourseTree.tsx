@@ -32,6 +32,10 @@ interface CourseTreeProps {
   renderTreeFooter?: () => React.ReactNode;
   renderActions?: (selectedId: string | null) => React.ReactNode;
   renderHeader?: () => React.ReactNode;
+  /** 节点行右端的 hover 操作区（新增子级/重命名/删除等），hover 行时浮现；不传不渲染 */
+  renderNodeActions?: (node: TreeNode) => React.ReactNode;
+  /** 整体替换节点行（inline 重命名/新增子分类输入行等）；返回 null 则照常渲染默认行 */
+  renderNodeOverride?: (node: TreeNode, depth: number) => React.ReactNode | null;
   /** 树容器高度类名，默认 max-h-[calc(100vh-240px)] */
   treeContainerClass?: string;
   /** 是否显示"全部X"头部，默认 true */
@@ -119,6 +123,8 @@ export default function CourseTree({
   renderNodeFooter,
   renderTreeFooter,
   renderActions,
+  renderNodeActions,
+  renderNodeOverride,
   treeContainerClass = "max-h-[calc(100vh-240px)]",
   showHeader = true,
   showSearch = true,
@@ -195,11 +201,13 @@ export default function CourseTree({
     const isSelected = selectedId === node.id;
     const hasChildren = node.children.length > 0;
     const isDragOver = dragOverId === node.id;
+    const override = renderNodeOverride?.(node, depth) ?? null;
 
     return (
       <div key={node.id}>
+        {override ?? (
         <div
-          className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer rounded text-sm transition-colors ${
+          className={`group flex items-center gap-1 py-1.5 px-2 cursor-pointer rounded text-sm transition-colors ${
             isSelected
               ? "bg-primary/10 text-primary font-medium"
               : "hover:bg-bg-layout"
@@ -243,7 +251,13 @@ export default function CourseTree({
             </span>
           )}
           <span className="truncate">{node.name}</span>
+          {renderNodeActions && (
+            <span className="ml-auto shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+              {renderNodeActions(node)}
+            </span>
+          )}
         </div>
+        )}
         {isExpanded && hasChildren && node.children.map((child) => renderNode(child, depth + 1))}
         {isExpanded && renderNodeFooter?.(node, depth)}
       </div>

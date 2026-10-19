@@ -1,320 +1,162 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+/** 课程管理 · 列表页（课程管理重构 S8 重写，原 1873 行 → 本页只保留列表职责）
+ *
+ * - 左：纯分类树（hover 行内操作 +/✎/✕、拖拽同级排序、新增顶级在底部行内输入）
+ * - 右：扁平高密度表格（DataPanel + DataTable compact），列含章节/视频/已分配聚合数
+ * - 新建/编辑跳独立页 /admin/courses/new、/admin/courses/:id/edit；分配走轻量弹窗（即时保存）
+ * - 状态列 StatusTag 即发布/下架开关；原生 confirm/alert 已清零
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, uploadToOSS } from "../../lib/api";
-import CourseTree, { type TreeNode, type FlatCategory, getCategoryPath } from "../../components/CourseTree";
-import AttendanceSessionModal, { toNaiveLocal } from "../../components/attendance/AttendanceSessionModal";
-import SessionInlineEditor, {
-  type InlineSession,
-  validateInlineSessions,
-} from "../../components/attendance/SessionInlineEditor";
-import { CalendarCheck, ChevronRight, ChevronDown, Plus, Pencil, Trash2, X, Upload } from "lucide-react";
+import { Plus, Pencil, Trash2, Search } from "lucide-react";
+import CourseTree, { type TreeNode, type FlatCategory } from "../../components/CourseTree";
+import PageHead from "../../components/ui/PageHead";
+import DataPanel from "../../components/ui/DataPanel";
+import DataTable, { type Column } from "../../components/ui/DataTable";
+import StatusTag from "../../components/ui/StatusTag";
+import AssignmentModal from "../../components/course/AssignmentModal";
+import CategoryDeleteImpactModal from "../../components/course/CategoryDeleteImpactModal";
+import { useToast } from "../../components/ui/Toast";
+import { useConfirm } from "../../components/ui/Confirm";
+import {
+  deleteCategory, deleteCourse, getCategoryFlat, getCategoryImpact, getCategoryTree,
+  getAssignments, listCourses, renameCategory, createCategory, reorderCategoriesBatch,
+  updateCourseStatus,
+  type CategoryImpact, type Course,
+} from "../../lib/courseApi";
 
-interface CourseItem {
-  id: string; title: string; category_id: string | null;
-  course_type: string;             // 历史字段保留
-  require_attendance: boolean;     // 是否启用现场签到
-  status: string; video_count: number; session_count: number; created_at: string;
-  start_date: string | null; end_date: string | null;
-}
-interface VideoItem {
-  id: string; course_id: string; chapter_id: string | null;
-  title: string; obs_key: string;
-  file_size: number | null; duration: number | null; sort_order: number;
-}
-interface ChapterItem {
-  id: string; title: string; sort_order: number;
-  category_id: string | null;      // 所属分类 ID
-  course_ids: string[];            // 多对多：章节所属的课程 ID 列表
-  videos: VideoItem[];
-}
-interface CourseDetail {
-  id: string; title: string; description: string | null;
-  course_type: string;             // 历史字段保留
-  require_attendance: boolean;     // 是否启用现场签到
-  cover_image: string | null; category_id: string | null;
-  exam_id: string | null; start_date: string | null;
-  end_date: string | null; status: string;
-  chapters: ChapterItem[];
-  videos: VideoItem[]; video_count: number;
-}
-interface UserItem {
-  id: string; name: string; department: string | null;
-}
-interface DeptItem {
-  id: string; name: string;
-  parent_id: string | null;
-  children?: DeptItem[];
-}
-interface PendingFile {
-  file: File;
-  title: string;
-  uploading: boolean;
-  progress: number;
-  duration: number | null;
-}
+const SS_SELECTED = "cm.tree.selectedId";
+const SS_EXPANDED = "cm.tree.expandedIds";
 
-/** ISO 时间串 → datetime-local 输入值（本地时区，精确到分钟） */
-function toLocalInputVal(iso: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+/** 已分配聚合：null = 拉取失败（列显示 —） */
+type AssignCount = { users: number; depts: number } | null;
 
-function probeVideoDuration(file: File): Promise<number | null> {  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const el = document.createElement("video");
-    el.preload = "metadata";
-    el.onloadedmetadata = () => {
-      URL.revokeObjectURL(url);
-      resolve(Number.isFinite(el.duration) ? Math.round(el.duration) : null);
-    };
-    el.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(null);
-    };
-    el.src = url;
-  });
-}
+/** 树行内编辑态：重命名 / 在其下新增子分类 */
+type TreeEdit = { kind: "rename"; id: string } | { kind: "addChild"; id: string } | null;
 
 export default function CourseManage() {
   const navigate = useNavigate();
-  // 树状态
+  const toast = useToast();
+  const confirm = useConfirm();
+
+  // 树状态（selectedId / 展开态 sessionStorage 持久化）
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => sessionStorage.getItem(SS_SELECTED) || null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    try { return new Set<string>(JSON.parse(sessionStorage.getItem(SS_EXPANDED) || "[]")); }
+    catch { return new Set<string>(); }
+  });
+  useEffect(() => {
+    if (selectedId) sessionStorage.setItem(SS_SELECTED, selectedId);
+    else sessionStorage.removeItem(SS_SELECTED);
+  }, [selectedId]);
+  useEffect(() => { sessionStorage.setItem(SS_EXPANDED, JSON.stringify([...expandedIds])); }, [expandedIds]);
 
-  // 树编辑状态
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
+  // 树编辑
+  const [treeEdit, setTreeEdit] = useState<TreeEdit>(null);
+  const [editDraft, setEditDraft] = useState("");
   const [addingRoot, setAddingRoot] = useState(false);
   const [newRootName, setNewRootName] = useState("");
-  const [addingChildUnder, setAddingChildUnder] = useState<string | null>(null);
-  const [addingMode, setAddingMode] = useState<"course" | "chapter" | null>(null);
-  const [newChildName, setNewChildName] = useState("");
 
-  // 删除确认弹窗
-  const [deleteImpact, setDeleteImpact] = useState<{
-    name: string; child_count: number;
-    courses: number; papers: number; questions: number;
-    details: { name: string; depth: number; courses: number; papers: number; questions: number }[];
-  } | null>(null);
+  // 删除分类影响
+  const [deleteImpact, setDeleteImpact] = useState<CategoryImpact | null>(null);
   const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
+  const [impactBusy, setImpactBusy] = useState(false);
 
-  // 课程列表
-  const [courses, setCourses] = useState<CourseItem[]>([]);
+  // 列表
+  const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // 编辑弹窗
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingCourse, setEditingCourse] = useState<CourseDetail | null>(null);
-  const [editRequireAttendance, setEditRequireAttendance] = useState<boolean>(false);
-  const [editCategoryId, setEditCategoryId] = useState<string>("");
-  // 线下课程的签到场次（内嵌编辑）：新建时攒在本地，保存课程后批量创建
-  const [editSessions, setEditSessions] = useState<InlineSession[]>([]);
-  // 打开编辑弹窗时后端已存在的场次 id，用于保存时识别「被删除」的场次
-  const [loadedSessionIds, setLoadedSessionIds] = useState<string[]>([]);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editStartDate, setEditStartDate] = useState("");
-  const [editEndDate, setEditEndDate] = useState("");
-  const [editVideos, setEditVideos] = useState<VideoItem[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-  const [dragOver, setDragOver] = useState(false);
-  const [categorySearch, setCategorySearch] = useState("");
-  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
-  const categoryDropdownRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const blobUrlsRef = useRef<Map<File, string>>(new Map());
+  const [search, setSearch] = useState("");
+  const [counts, setCounts] = useState<Record<string, AssignCount>>({});
+  const [countsPending, setCountsPending] = useState(false);
   const fetchSeqRef = useRef(0);
 
-  const getBlobUrl = (file: File): string => {
-    const cached = blobUrlsRef.current.get(file);
-    if (cached) return cached;
-    const url = URL.createObjectURL(file);
-    blobUrlsRef.current.set(file, url);
-    return url;
-  };
-
   // 分配弹窗
-  const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assigningCourseId, setAssigningCourseId] = useState<string | null>(null);
-  const [assigningTitle, setAssigningTitle] = useState("");
+  const [assigningCourse, setAssigningCourse] = useState<{ id: string; title: string } | null>(null);
 
-  // 线下课程签到管理弹窗
-  const [attendanceCourse, setAttendanceCourse] = useState<{ id: string; title: string } | null>(null);
-  const [allUsers, setAllUsers] = useState<UserItem[]>([]);
-  const [allDepts, setAllDepts] = useState<DeptItem[]>([]);
-  const [assignedUsers, setAssignedUsers] = useState<UserItem[]>([]);
-  const [assignedDepts, setAssignedDepts] = useState<DeptItem[]>([]);
-  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
-  const [selectedDepts, setSelectedDepts] = useState<Set<string>>(new Set());
-  const [userSearch, setUserSearch] = useState("");
-  const [deptSearch, setDeptSearch] = useState("");
-  const [activeDeptId, setActiveDeptId] = useState<string | null>(null);
-  const [expandedDeptIds, setExpandedDeptIds] = useState<Set<string>>(new Set());
-
-  // 编辑弹窗内分配
-  const [editAssignUsers, setEditAssignUsers] = useState<UserItem[]>([]);
-  const [editAssignDepts, setEditAssignDepts] = useState<DeptItem[]>([]);
-  const [editSelectedUsers, setEditSelectedUsers] = useState<Set<string>>(new Set());
-  const [editSelectedDepts, setEditSelectedDepts] = useState<Set<string>>(new Set());
-  const [editUserSearch, setEditUserSearch] = useState("");
-  const [editDeptSearch, setEditDeptSearch] = useState("");
-  const [editActiveDeptId, setEditActiveDeptId] = useState<string | null>(null);
-  const [editExpandedDeptIds, setEditExpandedDeptIds] = useState<Set<string>>(new Set());
-
-  // 分配章节（多选，关联课程分类树）
-  const [allChapters, setAllChapters] = useState<ChapterItem[]>([]);
-  const [editSelectedChapterIds, setEditSelectedChapterIds] = useState<Set<string>>(new Set());
-  const [newChapterName, setNewChapterName] = useState("");
-  const [newChapterCategoryId, setNewChapterCategoryId] = useState<string>("");
-  const [creatingChapter, setCreatingChapter] = useState(false);
-  // 分配章节弹窗的分类树展开状态（受控 CourseTree）
-  const [chapterExpandedIds, setChapterExpandedIds] = useState<Set<string>>(new Set());
-  // 主页左侧课程分类树的展开状态（受控 CourseTree）
-  const [leftTreeExpandedIds, setLeftTreeExpandedIds] = useState<Set<string>>(new Set());
-  // 收集分类树所有节点 ID（用于初始化时全展开）
-  const collectIdsDeep = (n: TreeNode): string[] => [n.id, ...n.children.flatMap(collectIdsDeep)];
-  // 分配弹窗内当前选中的分类（左栏分类树）
-  const [chapterActiveCatId, setChapterActiveCatId] = useState<string | null>(null);
-  // 按分类 ID 索引章节，供分类树 footer 渲染（章节嵌到分类节点下）
-  const chaptersByCategoryId = useMemo(() => {
-    const map: Record<string, ChapterItem[]> = {};
-    for (const ch of allChapters) {
-      if (!ch.category_id) continue;
-      (map[ch.category_id] ||= []).push(ch);
-    }
-    for (const id in map) {
-      map[id].sort((a, b) => a.sort_order - b.sort_order);
-    }
-    return map;
-  }, [allChapters]);
-  const editExistingAssignments = useRef<{ user_ids: string[]; department_ids: string[] }>({ user_ids: [], department_ids: [] });
-
-  const fetchData = async () => {
-    const seq = ++fetchSeqRef.current;
-    const [treeData, flatData, coursesData, chaptersData] = await Promise.all([
-      api<TreeNode[]>("/question-categories/tree"),
-      api<FlatCategory[]>("/question-categories/flat"),
-      api<CourseItem[]>(`/courses${selectedId ? `?category_id=${selectedId}` : ""}`),
-      api<ChapterItem[]>("/chapters"),
-    ]);
-    // 如果在此期间有更新的 fetch 启动，跳过本批次，防止竞态覆盖新数据
-    if (seq !== fetchSeqRef.current) return;
-    setTree(treeData);
-    setFlatCategories(flatData);
-    setCourses(coursesData);
-    setAllChapters(chaptersData || []);
-    // 默认展开所有分类节点：让分类下挂载的章节（renderNodeFooter）能立即可见
-    setLeftTreeExpandedIds(new Set(treeData.flatMap(collectIdsDeep)));
-    setLoading(false);
-  };
-
-  useEffect(() => { fetchData(); }, [selectedId]);
-
-  // 树操作
-  const handleRename = async () => {
-    if (!editingName.trim() || !editingId) return;
-    await api(`/question-categories/${editingId}`, {
-      method: "PUT",
-      body: JSON.stringify({ name: editingName.trim() }),
-    });
-    setEditingId(null);
-    setEditingName("");
-    fetchData();
-  };
-
-  const handleDeleteCategory = async (id: string) => {
-    try {
-      const impact = await api<{
-        name: string; child_count: number;
-        courses: number; papers: number; questions: number;
-        details: { name: string; depth: number; courses: number; papers: number; questions: number }[];
-      }>(`/question-categories/${id}/impact`);
-      setDeleteImpact(impact);
-      setDeletingCategoryId(id);
-    } catch (e: any) {
-      alert(e.message || "获取影响信息失败");
-    }
-  };
-
-  const confirmDeleteCategory = async () => {
-    if (!deletingCategoryId) return;
-    try {
-      const result = await api<{ ok: boolean; affected: { courses: number; papers: number; questions: number } }>(
-        `/question-categories/${deletingCategoryId}`, { method: "DELETE" }
-      );
-      if (selectedId === deletingCategoryId) setSelectedId(null);
-      setDeleteImpact(null);
-      setDeletingCategoryId(null);
-      // 提示用户
-      if (result.affected?.courses > 0 || result.affected?.papers > 0) {
-        const parts: string[] = [];
-        if (result.affected.courses > 0) parts.push(`${result.affected.courses} 门课程`);
-        if (result.affected.papers > 0) parts.push(`${result.affected.papers} 张试卷`);
-        alert(`分类已删除，${parts.join("、")}已归为"未分类"，可重新归类。`);
+  /** 已分配聚合（N+1，并发 ≤10，失败行降级 null → 显示 —） */
+  const loadCounts = useCallback(async (rows: Course[], seq: number) => {
+    setCounts({});
+    setCountsPending(true);
+    const results: Record<string, AssignCount> = {};
+    const queue = [...rows];
+    const workerCount = Math.min(10, queue.length);
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (queue.length > 0) {
+        const c = queue.shift();
+        if (!c) break;
+        try {
+          const a = await getAssignments(c.id);
+          results[c.id] = { users: a.users.length, depts: a.departments.length };
+        } catch {
+          results[c.id] = null;
+        }
       }
-      fetchData();
-    } catch (e: any) {
-      alert(e.message || "删除失败");
-    }
-  };
+    }));
+    if (seq === fetchSeqRef.current) { setCounts(results); setCountsPending(false); }
+  }, []);
 
-  const handleAddRoot = async () => {
-    if (!newRootName.trim()) return;
-    await api("/question-categories", {
-      method: "POST",
-      body: JSON.stringify({ name: newRootName.trim() }),
-    });
-    setNewRootName("");
-    setAddingRoot(false);
-    fetchData();
-  };
-
-  const handleAddChild = async (parentId: string) => {
-    if (!newChildName.trim()) return;
-    await api("/question-categories", {
-      method: "POST",
-      body: JSON.stringify({ name: newChildName.trim(), parent_id: parentId }),
-    });
-    setNewChildName("");
-    setAddingChildUnder(null);
-    setAddingMode(null);
-    fetchData();
-  };
-
-  const handleAddChapter = async (categoryId: string) => {
-    const name = newChildName.trim();
-    if (!name) return;
+  const fetchData = useCallback(async () => {
+    const seq = ++fetchSeqRef.current;
+    setLoading(true);
     try {
-      const created = await api<ChapterItem>("/chapters", {
-        method: "POST",
-        body: JSON.stringify({ title: name, category_id: categoryId }),
-      });
-      setAllChapters(prev => [...prev, created]);
-      setEditSelectedChapterIds(prev => new Set([...prev, created.id]));
-      // 触发同步：让已启动但未完成的 fetchData 过期，防止它覆盖新创建的章节
+      const [t, flat, list] = await Promise.all([
+        getCategoryTree(),
+        getCategoryFlat(),
+        listCourses({ category_id: selectedId, search: search.trim() || undefined }),
+      ]);
+      if (seq !== fetchSeqRef.current) return;
+      setTree(t);
+      setFlatCategories(flat);
+      setCourses(list);
+      setLoading(false);
+      void loadCounts(list, seq);
+    } catch (e: any) {
+      if (seq !== fetchSeqRef.current) return;
+      setLoading(false);
+      toast.error(`加载课程失败：${e.message || e}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, search, loadCounts]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // 搜索防抖由 fetchData 依赖 search 触发；输入即重查在低频管理端可接受
+
+  // ── 树操作 ──
+  const startRename = (node: TreeNode) => { setTreeEdit({ kind: "rename", id: node.id }); setEditDraft(node.name); };
+  const startAddChild = (node: TreeNode) => { setTreeEdit({ kind: "addChild", id: node.id }); setEditDraft(""); };
+
+  const commitTreeEdit = async () => {
+    if (!treeEdit) return;
+    const name = editDraft.trim();
+    if (!name) { setTreeEdit(null); return; }
+    try {
+      if (treeEdit.kind === "rename") await renameCategory(treeEdit.id, name);
+      else {
+        await createCategory(name, treeEdit.id);
+        setExpandedIds(prev => new Set(prev).add(treeEdit.id));
+      }
+      setTreeEdit(null);
       fetchData();
     } catch (e: any) {
-      alert(`创建章节失败：${e.message || e}`);
-    } finally {
-      setNewChildName("");
-      setAddingChildUnder(null);
-      setAddingMode(null);
+      toast.error(e.message || "操作失败");
     }
   };
 
-  const startAddChapter = () => {
-    if (!selectedId) return;
-    setAddingMode("chapter");
-    setNewChildName("");
-    setAddingChildUnder(selectedId);
+  const commitAddRoot = async () => {
+    const name = newRootName.trim();
+    if (!name) { setAddingRoot(false); return; }
+    try {
+      await createCategory(name);
+      setNewRootName("");
+      setAddingRoot(false);
+      fetchData();
+    } catch (e: any) {
+      toast.error(e.message || "创建分类失败");
+    }
   };
 
-  /** 在树中递归查找指定父级的子节点 ID 列表（按当前排序） */
   const getSiblingIds = (parentId: string | null): string[] => {
     if (parentId === null) return tree.map((n) => n.id);
     for (const node of tree) {
@@ -332,1542 +174,325 @@ export default function CourseManage() {
     return [];
   };
 
-  /** 拖拽重排：将 dragId 移到 targetId 的位置 */
+  /** 拖拽重排：仅同级交换（与旧实现口径一致） */
   const handleReorder = async (dragId: string, targetId: string) => {
     const dragNode = flatCategories.find((c) => c.id === dragId);
     const targetNode = flatCategories.find((c) => c.id === targetId);
-    if (!dragNode || !targetNode) return;
-    // 只允许同级交换
-    if (dragNode.parent_id !== targetNode.parent_id) return;
-
+    if (!dragNode || !targetNode || dragNode.parent_id !== targetNode.parent_id) return;
     const siblingIds = getSiblingIds(dragNode.parent_id);
     const dragIdx = siblingIds.indexOf(dragId);
     const targetIdx = siblingIds.indexOf(targetId);
     if (dragIdx === -1 || targetIdx === -1) return;
-
-    // 从原位置移除，再插入到目标位置
     siblingIds.splice(dragIdx, 1);
     const insertAt = targetIdx > dragIdx ? targetIdx - 1 : targetIdx;
     siblingIds.splice(insertAt, 0, dragId);
-
-    await api("/question-categories/reorder-batch", {
-      method: "PUT",
-      body: JSON.stringify({
-        parent_id: dragNode.parent_id,
-        ordered_ids: siblingIds,
-      }),
-    });
-    fetchData();
-  };
-
-  // 课程操作
-  const handleDeleteCourse = async (id: string) => {
-    if (!confirm("确定删除此课程？")) return;
     try {
-      await api(`/courses/${id}?confirm=true`, { method: "DELETE" });
+      await reorderCategoriesBatch(dragNode.parent_id, siblingIds);
       fetchData();
     } catch (e: any) {
-      const msg = e?.message || "删除失败";
-      // 课程已有学习/考试记录时后端返回 409，需二次确认才允许连历史一起删除
+      toast.error(e.message || "排序失败");
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    try {
+      const impact = await getCategoryImpact(id);
+      setDeleteImpact(impact);
+      setDeletingCategoryId(id);
+    } catch (e: any) {
+      toast.error(e.message || "获取影响信息失败");
+    }
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!deletingCategoryId || impactBusy) return;
+    setImpactBusy(true);
+    try {
+      const result = await deleteCategory(deletingCategoryId);
+      if (selectedId === deletingCategoryId) setSelectedId(null);
+      setDeleteImpact(null);
+      setDeletingCategoryId(null);
+      const parts: string[] = [];
+      if (result.affected?.courses > 0) parts.push(`${result.affected.courses} 门课程`);
+      if (result.affected?.papers > 0) parts.push(`${result.affected.papers} 张试卷`);
+      toast.success(parts.length > 0 ? `分类已删除，${parts.join("、")}已归为「未分类」` : "分类已删除");
+      fetchData();
+    } catch (e: any) {
+      toast.error(e.message || "删除失败");
+    } finally {
+      setImpactBusy(false);
+    }
+  };
+
+  // ── 课程操作 ──
+  const toggleStatus = async (c: Course) => {
+    const to = c.status === "published" ? "draft" : "published";
+    const ok = await confirm({
+      title: to === "published" ? "发布课程" : "下架课程",
+      message: to === "published"
+        ? `发布「${c.title}」？被分配的学员将立即可学习该课程。`
+        : `下架「${c.title}」？下架后学员端即时不可见，已产生的学习记录会保留。`,
+      confirmText: to === "published" ? "发布" : "下架",
+      danger: to !== "published",
+    });
+    if (!ok) return;
+    try {
+      await updateCourseStatus(c.id, to);
+      setCourses(prev => prev.map(x => (x.id === c.id ? { ...x, status: to } : x)));
+      toast.success(to === "published" ? "已发布" : "已下架");
+    } catch (e: any) {
+      toast.error(`操作失败：${e.message || e}`);
+    }
+  };
+
+  const handleDeleteCourse = async (c: Course) => {
+    const ok = await confirm({
+      title: "删除课程",
+      message: `确定删除课程「${c.title}」？该操作不可恢复。`,
+      confirmText: "删除",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteCourse(c.id);
+      toast.success("课程已删除");
+      fetchData();
+    } catch (e: any) {
+      const msg = String(e?.message || e);
       if (msg.includes("学习记录")) {
-        if (!confirm(`${msg}\n\n确定要连同这些学习/考试历史一起删除吗？此操作不可恢复。`)) return;
+        const forceOk = await confirm({
+          title: "强制删除课程",
+          message: "该课程已有学员学习记录，确定连同记录一起删除吗？此操作不可恢复。",
+          confirmText: "强制删除",
+          danger: true,
+        });
+        if (!forceOk) return;
         try {
-          await api(`/courses/${id}?confirm=true&force=true`, { method: "DELETE" });
+          await deleteCourse(c.id, true);
+          toast.success("课程已删除");
           fetchData();
         } catch (e2: any) {
-          alert(e2?.message || "删除失败");
+          toast.error(`删除失败：${e2.message || e2}`);
         }
-        return;
-      }
-      alert(msg);
-    }
-  };
-
-  // 编辑弹窗
-  const openCreate = async () => {
-    setEditingCourse(null);
-    setEditTitle("");
-    setEditDescription("");
-    setEditStartDate("");
-    setEditEndDate("");
-    setEditRequireAttendance(false);
-    setEditSessions([]);
-    setLoadedSessionIds([]);
-    setEditCategoryId(selectedId || "");
-    setEditVideos([]);
-    setPendingFiles([]);
-    setCategorySearch("");
-    setShowCategoryDropdown(false);
-    const [users, depts, chapters] = await Promise.all([
-      api<UserItem[]>("/users"),
-      api<DeptItem[]>("/departments"),
-      api<ChapterItem[]>("/chapters"),
-    ]);
-    editExistingAssignments.current = { user_ids: [], department_ids: [] };
-    setEditAssignUsers(users);
-    setEditAssignDepts(depts);
-    setAllChapters(chapters || []);
-    setEditSelectedUsers(new Set());
-    setEditSelectedDepts(new Set());
-    setEditUserSearch("");
-    setEditDeptSearch("");
-    setEditActiveDeptId(null);
-    setEditExpandedDeptIds(new Set());
-    setAllChapters(chapters || []);
-    setEditSelectedChapterIds(new Set());
-    setNewChapterName("");
-    setChapterActiveCatId(selectedId);
-    setNewChapterCategoryId(selectedId || "");
-    // 默认展开所有分类节点（新建课程时也要看到现有章节，方便选择分配）
-    setChapterExpandedIds(new Set(tree.flatMap(collectIdsDeep)));
-    setShowEditModal(true);
-  };
-
-  const openEdit = async (courseId: string) => {
-    const [detail, users, depts, assignments, sessions, chapters] = await Promise.all([
-      api<CourseDetail>(`/courses/${courseId}`),
-      api<UserItem[]>("/users"),
-      api<DeptItem[]>("/departments"),
-      api<{ users: UserItem[]; departments: DeptItem[] }>(`/courses/${courseId}/assignments`),
-      api<any[]>(`/attendance/sessions?course_id=${courseId}`),
-      api<ChapterItem[]>("/chapters"),
-    ]);
-    setEditingCourse(detail);
-    setEditTitle(detail.title);
-    setEditDescription(detail.description || "");
-    setEditStartDate(detail.start_date || "");
-    setEditEndDate(detail.end_date || "");
-    setEditRequireAttendance(Boolean(detail.require_attendance));
-    // 载入已有签到场次（datetime-local 输入需要本地格式）
-    const inlineSessions: InlineSession[] = sessions.map((s) => ({
-      id: s.id,
-      title: s.title,
-      start_time: toLocalInputVal(s.start_time),
-      end_time: toLocalInputVal(s.end_time),
-      location_name: s.location_name || "",
-      late_after_minutes: s.late_after_minutes == null ? "" : String(s.late_after_minutes),
-    }));
-    setEditSessions(inlineSessions);
-    setLoadedSessionIds(inlineSessions.map((s) => s.id).filter(Boolean) as string[]);
-    // 合并所有视频（章节内 + 根级别）
-    const allDetailVideos = [
-      ...(detail.videos || []),
-      ...(detail.chapters || []).flatMap(ch => ch.videos),
-    ];
-    setEditVideos(allDetailVideos);
-    setPendingFiles([]);
-    setEditAssignUsers(users);
-    setEditAssignDepts(depts);
-    editExistingAssignments.current = {
-      user_ids: assignments.users.map(u => u.id),
-      department_ids: assignments.departments.map(d => d.id),
-    };
-    setEditSelectedUsers(new Set(assignments.users.map(u => u.id)));
-    setEditSelectedDepts(new Set(assignments.departments.map(d => d.id)));
-    setEditUserSearch("");
-    setEditDeptSearch("");
-    setEditActiveDeptId(null);
-    setAllChapters(chapters || []);
-    // 默认展开所有分类节点（含挂载的章节立即可见）
-    setChapterExpandedIds(new Set(tree.flatMap(collectIdsDeep)));
-    // 回显当前课程所属章节（从 detail.chapters 的 course_ids 中判断）
-    setEditSelectedChapterIds(new Set(
-      (chapters || [])
-        .filter(ch => (detail.chapters || []).some(dc => dc.id === ch.id))
-        .map(ch => ch.id)
-    ));
-    setNewChapterName("");
-    setChapterActiveCatId(selectedId);
-    setNewChapterCategoryId(selectedId || "");
-    setShowEditModal(true);
-  };
-
-  const handleSaveCourse = async (status: string) => {
-    if (!editTitle.trim()) return;
-    // 启用现场签到的课程必须至少 1 个场次，且各场次时间合法
-    if (editRequireAttendance) {
-      if (editSessions.length === 0) {
-        alert("启用了「现场签到」必须至少配置 1 个签到场次");
-        return;
-      }
-      const sessionErr = validateInlineSessions(editSessions);
-      if (sessionErr) {
-        alert(sessionErr);
-        return;
-      }
-    }
-    setSaving(true);
-    try {
-      const body = {
-        title: editTitle,
-        // 不再发送 course_type（后端兼容）；新字段 require_attendance 控制行为
-        require_attendance: editRequireAttendance,
-        description: editDescription || null,
-        category_id: editingCourse ? editingCourse.category_id : (editCategoryId || null),
-        start_date: editStartDate || null,
-        end_date: editEndDate || null,
-        status,
-        chapter_ids: [...editSelectedChapterIds],
-      };
-      let courseId = editingCourse?.id;
-      if (editingCourse) {
-        await api(`/courses/${editingCourse.id}`, { method: "PUT", body: JSON.stringify(body) });
       } else {
-        const course = await api<CourseDetail>("/courses", { method: "POST", body: JSON.stringify(body) });
-        courseId = course.id;
-      }
-      if (courseId) {
-        if (editingCourse) {
-          const prev = editExistingAssignments.current;
-          if (prev.user_ids.length > 0 || prev.department_ids.length > 0) {
-            await api(`/courses/${courseId}/assignments`, {
-              method: "DELETE",
-              body: JSON.stringify({ user_ids: prev.user_ids, department_ids: prev.department_ids }),
-            });
-          }
-        }
-        if (editSelectedUsers.size > 0 || editSelectedDepts.size > 0) {
-          await api(`/courses/${courseId}/assignments`, {
-            method: "POST",
-            body: JSON.stringify({ user_ids: [...editSelectedUsers], department_ids: [...editSelectedDepts] }),
-          });
-        }
-      }
-      // 启用现场签到：同步签到场次（新增/修改/删除），统一按北京时间 naive 时间提交
-      if (editRequireAttendance && courseId) {
-        const bodyFor = (s: InlineSession) => ({
-          title: s.title.trim(),
-          start_time: toNaiveLocal(s.start_time),
-          end_time: toNaiveLocal(s.end_time),
-          location_name: s.location_name.trim() || null,
-          late_after_minutes: s.late_after_minutes === "" ? null : Number(s.late_after_minutes),
-          code_rotate_seconds: 30,
-          dedupe_device: false,
-        });
-        for (const s of editSessions) {
-          if (s.id) {
-            await api(`/attendance/sessions/${s.id}`, { method: "PUT", body: JSON.stringify(bodyFor(s)) });
-          } else {
-            await api(`/attendance/sessions?course_id=${courseId}`, { method: "POST", body: JSON.stringify(bodyFor(s)) });
-          }
-        }
-        const keptIds = new Set(editSessions.map((s) => s.id).filter(Boolean) as string[]);
-        for (const oldId of loadedSessionIds) {
-          if (!keptIds.has(oldId)) {
-            try {
-              await api(`/attendance/sessions/${oldId}?confirm=true`, { method: "DELETE" });
-            } catch (e: any) {
-              const msg = String(e?.message || e);
-              if (msg.includes("签到记录")) {
-                // 已有签到记录：需二次确认才能连带删除
-                if (confirm("该场次已有签到记录，确定连记录一起删除吗？此操作不可恢复。")) {
-                  await api(`/attendance/sessions/${oldId}?confirm=true&force=true`, { method: "DELETE" });
-                }
-              } else {
-                throw e;
-              }
-            }
-          }
-        }
-      }
-      if (courseId && pendingFiles.length > 0) {
-        for (let i = 0; i < pendingFiles.length; i++) {
-          const pf = pendingFiles[i];
-          setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: true, progress: 0 } : p));
-          try {
-            // 步骤 1：从服务器获取 OSS 直传凭证
-            const ext = pf.file.name.split(".").pop() || "mp4";
-            const content_type = pf.file.type || `video/${ext}`;
-            const { filename, upload_url } = await api<{ filename: string; upload_url: string }>(
-              `/videos/upload-token?ext=${ext}&content_type=${encodeURIComponent(content_type)}`,
-            );
-            // 步骤 2：浏览器直传 OSS（跳过服务器中转，速度取决于客户端上行带宽）
-            await uploadToOSS(upload_url, pf.file, content_type,
-              (progress) => setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, progress } : p)),
-            );
-            setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false, progress: 100 } : p));
-            const file_size = pf.file.size;
-            // 步骤 3：创建视频数据库记录
-            await api(`/courses/${courseId}/videos`, {
-              method: "POST",
-              body: JSON.stringify({ title: pf.title, obs_key: filename, file_size, duration: pf.duration, chapter_id: null }),
-            });
-          } catch (e: any) {
-            setPendingFiles(prev => prev.map((p, idx) => idx === i ? { ...p, uploading: false } : p));
-            console.error("视频上传失败", pf.file.name, e);
-            alert(`视频「${pf.file.name}」上传失败：${e.message || e}，其余内容已保存`);
-          }
-        }
-      }
-      setSaving(false);
-      setShowEditModal(false);
-      fetchData();
-    } catch (e: any) {
-      alert(`保存失败：${e.message || e}`);
-      setSaving(false);
-    }
-  };
-
-  const handleFiles = (files: FileList) => {
-    const newFiles: PendingFile[] = [];
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith("video/")) continue;
-      const name = file.name.replace(/\.[^.]+$/, "");
-      newFiles.push({ file, title: name, uploading: false, progress: 0, duration: null });
-    }
-    setPendingFiles(prev => [...prev, ...newFiles]);
-    newFiles.forEach(async (nf) => {
-      const duration = await probeVideoDuration(nf.file);
-      setPendingFiles(prev => prev.map(p => p.file === nf.file ? { ...p, duration } : p));
-    });
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
-  };
-
-  const updatePendingTitle = (index: number, title: string) => {
-    setPendingFiles(prev => prev.map((pf, i) => i === index ? { ...pf, title } : pf));
-  };
-
-  const removePendingFile = (index: number) => {
-    setPendingFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleDeleteVideo = async (videoId: string) => {
-    if (!editingCourse || !confirm("删除此视频？")) return;
-    await api(`/videos/${videoId}?confirm=true`, { method: "DELETE" });
-    setEditVideos(prev => prev.filter(v => v.id !== videoId));
-    const data = await api<CourseDetail>(`/courses/${editingCourse.id}`);
-    setEditVideos([...data.videos, ...data.chapters.flatMap(ch => ch.videos)]);
-  };
-
-  // 在编辑弹窗内新建独立章节（POST /chapters），创建后自动加入列表并选中
-  const handleCreateChapter = async () => {
-    const name = newChapterName.trim();
-    if (!name || creatingChapter) return;
-    setCreatingChapter(true);
-    try {
-      const created = await api<ChapterItem>("/chapters", {
-        method: "POST",
-        body: JSON.stringify({ title: name, category_id: newChapterCategoryId || null }),
-      });
-      setAllChapters(prev => [...prev, created]);
-      setEditSelectedChapterIds(prev => new Set([...prev, created.id]));
-      setNewChapterName("");
-      // 触发同步，防 fetchData 覆盖
-      fetchData();
-      // 新章节挂载到的分类节点及其祖先链全部展开，确保新建后立即可见
-      if (created.category_id) {
-        const catId = created.category_id;
-        setChapterExpandedIds(prev => {
-          const next = new Set(prev);
-          let cur: string | null | undefined = catId;
-          while (cur) {
-            next.add(cur);
-            const node = flatCategories.find(c => c.id === cur);
-            cur = node?.parent_id;
-          }
-          return next;
-        });
-        setChapterActiveCatId(catId);
-        setNewChapterCategoryId(catId);
-      }
-    } catch (e: any) {
-      alert(`创建章节失败：${e.message || e}`);
-    } finally {
-      setCreatingChapter(false);
-    }
-  };
-
-  // 分配弹窗
-  const openAssign = async (course: CourseItem) => {
-    setAssigningCourseId(course.id);
-    setAssigningTitle(course.title);
-    const [users, depts, assignments] = await Promise.all([
-      api<UserItem[]>("/users"),
-      api<DeptItem[]>("/departments"),
-      api<{ users: UserItem[]; departments: DeptItem[] }>(`/courses/${course.id}/assignments`),
-    ]);
-    setAllUsers(users);
-    setAllDepts(depts);
-    setAssignedUsers(assignments.users);
-    setAssignedDepts(assignments.departments);
-    setSelectedUsers(new Set());
-    setSelectedDepts(new Set());
-    setUserSearch("");
-    setDeptSearch("");
-    setActiveDeptId(null);
-    setExpandedDeptIds(new Set());
-    setShowAssignModal(true);
-  };
-
-  const findDeptNode = (nodes: DeptItem[], id: string): DeptItem | null => {
-    for (const node of nodes) {
-      if (node.id === id) return node;
-      if (node.children) {
-        const found = findDeptNode(node.children, id);
-        if (found) return found;
+        toast.error(`删除失败：${msg}`);
       }
     }
-    return null;
   };
 
-  const collectDescendantNames = (node: DeptItem): string[] => {
-    const names = [node.name];
-    for (const child of node.children || []) {
-      names.push(...collectDescendantNames(child));
-    }
-    return names;
+  // ── 表格列 ──
+  const assignText = (c: Course): string => {
+    if (countsPending && counts[c.id] === undefined) return "…";
+    const n = counts[c.id];
+    if (!n) return "—";
+    if (n.depts > 0 && n.users > 0) return `${n.users} 人 · ${n.depts} 部门`;
+    if (n.depts > 0) return `${n.depts} 部门`;
+    return `${n.users} 人`;
   };
 
-  const findDeptByName = (nodes: DeptItem[], name: string | null): DeptItem | null => {
-    if (!name) return null;
-    for (const node of nodes) {
-      if (node.name === name) return node;
-      if (node.children) {
-        const found = findDeptByName(node.children, name);
-        if (found) return found;
-      }
-    }
-    const parts = name.split("-");
-    for (const part of parts) {
-      for (const node of nodes) {
-        if (node.name === part) return node;
-        if (node.children) {
-          const found = findDeptByName(node.children, part);
-          if (found) return found;
-        }
-      }
-    }
-    return null;
-  };
-
-  const matchDept = (userDept: string | null, deptName: string) =>
-    userDept === deptName || (userDept || "").split("-").includes(deptName);
-
-  const handleAssign = async () => {
-    if (!assigningCourseId) return;
-    await api(`/courses/${assigningCourseId}/assignments`, {
-      method: "POST",
-      body: JSON.stringify({ user_ids: [...selectedUsers], department_ids: [...selectedDepts] }),
-    });
-    const assignments = await api<{ users: UserItem[]; departments: DeptItem[] }>(
-      `/courses/${assigningCourseId}/assignments`
-    );
-    setAssignedUsers(assignments.users);
-    setAssignedDepts(assignments.departments);
-    setSelectedUsers(new Set());
-    setSelectedDepts(new Set());
-  };
-
-  const handleRemoveAssignment = async (type: "user" | "dept", targetId: string) => {
-    if (!assigningCourseId) return;
-    const body: { user_ids: string[]; department_ids: string[] } = { user_ids: [], department_ids: [] };
-    if (type === "user") {
-      body.user_ids = [targetId];
-    } else {
-      body.department_ids = [targetId];
-      const deptName = findDeptNode(allDepts, targetId)?.name;
-      if (deptName) {
-        body.user_ids = assignedUsers.filter(u => u.department === deptName).map(u => u.id);
-      }
-    }
-    await api(`/courses/${assigningCourseId}/assignments`, {
-      method: "DELETE",
-      body: JSON.stringify(body),
-    });
-    const assignments = await api<{ users: UserItem[]; departments: DeptItem[] }>(
-      `/courses/${assigningCourseId}/assignments`
-    );
-    setAssignedUsers(assignments.users);
-    setAssignedDepts(assignments.departments);
-  };
-
-  // 点击外部关闭分类下拉
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(e.target as Node)) {
-        setShowCategoryDropdown(false);
-      }
-    };
-    if (showCategoryDropdown) {
-      document.addEventListener("mousedown", handleClick);
-      return () => document.removeEventListener("mousedown", handleClick);
-    }
-  }, [showCategoryDropdown]);
-
-  // 关闭编辑弹窗时释放 blob URL
-  useEffect(() => {
-    if (!showEditModal) {
-      blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
-      blobUrlsRef.current.clear();
-    }
-  }, [showEditModal]);
-
-  // 部门树展开/折叠
-  const toggleDeptExpand = (id: string) => {
-    setExpandedDeptIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const toggleEditDeptExpand = (id: string) => {
-    setEditExpandedDeptIds(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  const CourseCardItem = ({ c, openEdit, openAssign, handleDeleteCourse }: {
-    c: CourseItem;
-    openEdit: (id: string) => void;
-    openAssign: (course: CourseItem) => void;
-    handleDeleteCourse: (id: string) => void;
-  }) => {
-    const requireAttendance = c.require_attendance;
-    return (
-    <div className="bg-bg-base rounded-lg border border-border p-4 hover:border-primary/20 hover:shadow-sm transition-all">
-      <div className="flex items-start justify-between mb-2.5">
-        <h4 className="font-bold text-base truncate flex-1 min-w-0 text-primary">{c.title}</h4>
-        <div className="flex items-center gap-1 shrink-0 ml-2">
-          <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
-            requireAttendance ? "bg-violet-50 text-violet-600" : "bg-sky-50 text-sky-600"
-          }`}>
-            {requireAttendance ? "现场签到" : "线上学习"}
-          </span>
-          <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
-            c.status === "published" ? "bg-emerald-50 text-emerald-600" : "bg-bg-layout text-text-secondary"
-          }`}>
-            {c.status === "published" ? "已发布" : "草稿"}
-          </span>
-        </div>
-      </div>
-      <div className="space-y-1 text-xs text-text-secondary/70 mb-4">
-        <p className="truncate">{getCategoryPath(c.category_id, flatCategories) || "未分类"}</p>
-        <div className="flex items-center gap-3 flex-wrap">
-          <span>{c.video_count} 个视频</span>
-          {requireAttendance && (
-            <span className="text-violet-600">{c.session_count} 个签到场次</span>
-          )}
-          <span>{new Date(c.created_at).toLocaleDateString("zh-CN")}</span>
-        </div>
-        {c.start_date && c.end_date && (
-          <p className="text-primary/50">{c.start_date} ~ {c.end_date}</p>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5">
-        <button onClick={() => navigate(`/admin/courses/${c.id}`)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">预览</button>
-        <button onClick={() => openEdit(c.id)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">编辑</button>
-        <button onClick={() => openAssign(c)} className="flex-1 text-xs text-primary hover:bg-primary/5 rounded-md py-1.5 border border-primary/20 hover:border-primary/40 transition-colors">分配</button>
-        {requireAttendance && (
-          <button
-            onClick={() => setAttendanceCourse({ id: c.id, title: c.title })}
-            className="flex-1 text-xs text-violet-600 hover:bg-violet-50 rounded-md py-1.5 border border-violet-200 hover:border-violet-400 transition-colors flex items-center justify-center gap-1"
-            title="管理签到场次"
-          >
-            <CalendarCheck size={12} /> 签到
-          </button>
-        )}
-        <button onClick={() => handleDeleteCourse(c.id)} className="shrink-0 px-3 py-1.5 text-xs text-text-secondary hover:text-red-500 hover:bg-red-50 rounded-md transition-colors">删除</button>
-      </div>
-    </div>
-    );
-  };
+  const columns: Column<Course>[] = useMemo(() => [
+    {
+      key: "title", title: "课程标题",
+      render: (c) => (
+        <button className="k-link text-left truncate max-w-full" style={{ maxWidth: 360 }}
+          title={c.title} onClick={() => navigate(`/admin/courses/${c.id}`)}>
+          {c.title}
+        </button>
+      ),
+      text: (c) => c.title,
+    },
+    {
+      key: "type", title: "类型", width: 96, align: "center",
+      render: (c) => <StatusTag value={c.require_attendance ? "type:attendance" : "type:online"} />,
+      text: (c) => (c.require_attendance ? "现场签到" : "线上学习"),
+    },
+    {
+      key: "status", title: "状态", width: 96, align: "center",
+      render: (c) => (
+        <StatusTag
+          value={c.status}
+          title={c.status === "published" ? "点击下架（学员端即时不可见）" : "点击发布"}
+          onClick={() => toggleStatus(c)}
+        />
+      ),
+      text: (c) => (c.status === "published" ? "已发布" : "草稿"),
+    },
+    {
+      key: "chapters", title: "章节数", width: 72, align: "center",
+      render: (c) => c.chapters.length,
+      text: (c) => String(c.chapters.length),
+    },
+    {
+      key: "videos", title: "视频数", width: 72, align: "center",
+      render: (c) => c.video_count,
+      text: (c) => String(c.video_count),
+    },
+    {
+      key: "assigns", title: "已分配学员", width: 116, align: "center",
+      render: (c) => assignText(c),
+      text: (c) => assignText(c),
+    },
+    {
+      key: "created_at", title: "创建时间", width: 130, align: "center",
+      render: (c) => <span className="text-text-secondary">{(c.created_at || "").slice(0, 16)}</span>,
+      text: (c) => c.created_at,
+    },
+    {
+      key: "ops", title: "操作", width: 168, align: "center",
+      render: (c) => (
+        <span className="inline-flex items-center gap-2 whitespace-nowrap">
+          <button className="k-link" onClick={() => navigate(`/admin/courses/${c.id}`)}>预览</button>
+          <button className="k-link" onClick={() => navigate(`/admin/courses/${c.id}/edit`)}>编辑</button>
+          <button className="k-link" onClick={() => setAssigningCourse({ id: c.id, title: c.title })}>分配</button>
+          <button className="k-link k-link-danger" onClick={() => handleDeleteCourse(c)}>删除</button>
+        </span>
+      ),
+      text: () => "",
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [counts, countsPending, navigate]);
 
   return (
-    <div>
-      <h2 className="text-xl font-bold text-primary mb-4">课程管理</h2>
+    <div className="h-[calc(100vh-96px)] flex flex-col">
+      <PageHead
+        title="课程管理"
+        description="左侧按分类筛选，右侧管理课程；新建与编辑在独立页面完成"
+        actions={
+          <button className="k-btn k-btn-primary" onClick={() => navigate("/admin/courses/new")}>
+            <Plus size={14} /> 新建课程
+          </button>
+        }
+      />
 
-      <div className="flex gap-4 min-h-[calc(100vh-180px)]">
-        {/* 左侧课程树 */}
-        <div className="w-56 shrink-0 pr-5">
+      <div className="flex gap-4 flex-1 min-h-0">
+        {/* 左：纯分类树 */}
+        <aside className="w-60 shrink-0 flex flex-col min-h-0">
           <CourseTree
             tree={tree}
             flatCategories={flatCategories}
             selectedId={selectedId}
             onSelect={setSelectedId}
             rootLabel="全部课程"
-            placeholder="搜索课程..."
-            loading={loading}
-            emptyText="暂无课程，点击下方按钮添加"
-            enableDrag={true}
+            placeholder="搜索分类..."
+            loading={tree.length === 0 && loading}
+            emptyText="暂无分类"
+            enableDrag
             onReorder={handleReorder}
-            expandedIds={leftTreeExpandedIds}
-            onToggleExpanded={setLeftTreeExpandedIds}
-            renderTreeFooter={() =>
-              addingRoot ? (
-                <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: 8 }}>
-                  <span className="w-5 shrink-0" />
-                  <input
-                    type="text"
-                    value={newRootName}
-                    onChange={e => setNewRootName(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter") handleAddRoot();
-                      if (e.key === "Escape") { setAddingRoot(false); setNewRootName(""); }
-                    }}
-                    onBlur={() => {
-                      if (!newRootName.trim()) { setAddingRoot(false); setNewRootName(""); }
-                    }}
-                    placeholder="输入名称..."
-                    className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                    autoFocus
-                  />
-                </div>
-              ) : null
-            }
-            renderNodeFooter={(node) => {
-              const chapterList = chaptersByCategoryId[node.id] || [];
-              const showInput = addingChildUnder === node.id;
-              if (!showInput && chapterList.length === 0) return null;
+            expandedIds={expandedIds}
+            onToggleExpanded={setExpandedIds}
+            treeContainerClass="max-h-[calc(100vh-286px)]"
+            renderNodeOverride={(node) => {
+              if (!treeEdit || treeEdit.id !== node.id) return null;
               return (
-                <>
-                  {chapterList.length > 0 && (
-                    <div className="ml-7 mb-1 space-y-0.5">
-                      {chapterList.map(ch => (
-                        <div
-                          key={ch.id}
-                          className="flex items-center gap-1 py-0.5 px-1 text-xs text-text-secondary"
-                          title={ch.title}
-                        >
-                          <span className="truncate flex-1">📄 {ch.title}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {showInput && (
-                    <div className="flex items-center gap-1 px-2 py-1" style={{ paddingLeft: `${8 + 16}px` }}>
-                      <span className="w-5 shrink-0" />
-                      <input
-                        type="text"
-                        value={newChildName}
-                        onChange={e => setNewChildName(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === "Enter") {
-                            if (addingMode === "chapter") handleAddChapter(node.id);
-                            else handleAddChild(node.id);
-                          }
-                          if (e.key === "Escape") { setAddingChildUnder(null); setNewChildName(""); setAddingMode(null); }
-                        }}
-                        placeholder={addingMode === "chapter" ? "输入章节名称..." : "输入名称..."}
-                        className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
-                        autoFocus
-                      />
-                    </div>
-                  )}
-                </>
+                <div className="flex items-center gap-1 py-1 px-2" style={{ paddingLeft: 8 }}>
+                  <input
+                    autoFocus value={editDraft}
+                    placeholder={treeEdit.kind === "addChild" ? `「${node.name}」下新建…` : "重命名分类"}
+                    onChange={e => setEditDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") commitTreeEdit();
+                      if (e.key === "Escape") setTreeEdit(null);
+                    }}
+                    className="flex-1 min-w-0 border border-primary rounded px-2 py-1 text-sm"
+                  />
+                  <button onClick={commitTreeEdit} className="text-xs text-primary shrink-0">确定</button>
+                  <button onClick={() => setTreeEdit(null)} className="text-xs text-text-secondary shrink-0">取消</button>
+                </div>
               );
             }}
-            renderActions={(sid) => (
-              <div className="mt-2 space-y-1">
-                <button
-                  onClick={() => { setAddingRoot(true); setNewRootName(""); }}
-                  className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary/70 hover:text-primary hover:bg-primary/5 rounded-md transition-colors"
-                >
-                  <Plus size={12} /> 添加课程
-                </button>
-                {sid ? (
-                  <>
-                    <button
-                      onClick={startAddChapter}
-                      className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-primary/30 rounded-md hover:bg-primary/5 hover:border-primary/50 transition-colors"
-                    >
-                      <Plus size={12} /> 添加章节
-                    </button>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => {
-                          const node = flatCategories.find(c => c.id === sid);
-                          setEditingId(sid);
-                          setEditingName(node?.name || "");
-                        }}
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-text-secondary hover:text-primary hover:bg-bg-layout rounded-md transition-colors"
-                      >
-                        <Pencil size={12} /> 重命名
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCategory(sid)}
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-text-secondary/60 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                      >
-                        <Trash2 size={12} /> 删除
-                      </button>
-                    </div>
-                  </>
+            renderNodeActions={(node) => (
+              <>
+                <button title="新建子分类" onClick={() => startAddChild(node)}
+                  className="p-0.5 text-text-secondary hover:text-primary"><Plus size={12} /></button>
+                <button title="重命名" onClick={() => startRename(node)}
+                  className="p-0.5 text-text-secondary hover:text-primary"><Pencil size={12} /></button>
+                <button title="删除分类" onClick={() => handleDeleteCategory(node.id)}
+                  className="p-0.5 text-text-secondary hover:text-danger"><Trash2 size={12} /></button>
+              </>
+            )}
+            renderTreeFooter={() => (
+              <div className="p-1.5 border-t border-border mt-1">
+                {addingRoot ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      autoFocus value={newRootName} placeholder="顶级分类名称，回车确定"
+                      onChange={e => setNewRootName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") commitAddRoot();
+                        if (e.key === "Escape") { setAddingRoot(false); setNewRootName(""); }
+                      }}
+                      className="flex-1 min-w-0 border border-primary rounded px-2 py-1 text-sm"
+                    />
+                    <button onClick={commitAddRoot} className="text-xs text-primary shrink-0">确定</button>
+                  </div>
                 ) : (
-                  <p className="text-xs text-text-secondary/70 px-2 py-1.5 text-center leading-snug">
-                    在左侧分类树点选一个分类<br/>后可重命名或删除
-                  </p>
+                  <button onClick={() => setAddingRoot(true)}
+                    className="w-full text-xs text-text-secondary hover:text-primary flex items-center justify-center gap-1 py-1 rounded hover:bg-bg-layout">
+                    <Plus size={12} /> 新增顶级分类
+                  </button>
                 )}
               </div>
             )}
           />
-        </div>
+        </aside>
 
-        {/* 右侧课程列表 */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-medium text-text-secondary">
-              {selectedId ? getCategoryPath(selectedId, flatCategories) : "全部课程"}
-              <span className="text-text-secondary/50 ml-2 font-normal">{courses.length} 门</span>
-            </span>
-            <button
-              onClick={openCreate}
-              className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light transition-colors"
-            >
-              <Plus size={14} className="inline mr-1" />新增课程
-            </button>
-          </div>
-
-          {/* 重命名输入框 */}
-          {editingId && (
-            <div className="flex items-center gap-2 bg-bg-layout rounded-lg p-3 mb-3">
-              <input
-                type="text" value={editingName}
-                onChange={e => setEditingName(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleRename()}
-                className="flex-1 border border-border rounded-md px-3 py-1.5 text-sm"
-                autoFocus
-              />
-              <button onClick={handleRename} className="px-3 py-1.5 text-xs bg-primary text-white rounded-md border border-primary">保存</button>
-              <button onClick={() => setEditingId(null)} className="px-3 py-1.5 text-xs border border-border rounded-md">取消</button>
-            </div>
-          )}
-
-          {courses.length === 0 ? (
-            <div className="bg-bg-base rounded-lg p-12 border border-border text-center">
-              <div className="text-text-secondary/40 mb-3 flex justify-center">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        {/* 右：扁平课程表 */}
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          <DataPanel
+            title={
+              <span>
+                课程列表
+                <span className="text-text-secondary font-normal text-xs ml-2">
+                  {selectedId
+                    ? `分类：${flatCategories.find(c => c.id === selectedId)?.name || selectedId}（含子分类）`
+                    : "全部分类"}
+                  {` · 共 ${courses.length} 门`}
+                </span>
+              </span>
+            }
+            extra={
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+                <input
+                  value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="搜索课程标题"
+                  className="w-52 border border-border rounded-md pl-7 pr-2 py-1.5 text-sm"
+                />
               </div>
-              <p className="text-sm text-text-secondary mb-1">暂无课程</p>
-              <p className="text-xs text-text-secondary/50">点击「新增课程」开始添加</p>
+            }
+            bodyPadding={0}
+            style={{ flex: 1, minHeight: 0 }}
+          >
+            <div className="h-full overflow-y-auto k-scroll">
+              <DataTable
+                columns={columns}
+                rows={courses}
+                rowKey={(c) => c.id}
+                loading={loading}
+                compact
+                empty={selectedId ? "该分类（含子分类）下暂无课程" : "暂无课程，点击右上角「新建课程」创建"}
+                exportName="课程列表"
+              />
             </div>
-          ) : (
-            <div className="space-y-6">
-              {(() => {
-                const parentMap = new Map(flatCategories.map(c => [c.id, c.parent_id]));
-                const nameMap = new Map(flatCategories.map(c => [c.id, c.name]));
-                const getRootName = (id: string): string => {
-                  let current = id;
-                  let parent = parentMap.get(current);
-                  while (parent) {
-                    current = parent;
-                    parent = parentMap.get(current);
-                  }
-                  return nameMap.get(current) || "未分类";
-                };
-                const grouped: Record<string, typeof courses> = {};
-                const uncategorized: typeof courses = [];
-                for (const c of courses) {
-                  if (c.category_id && nameMap.has(c.category_id)) {
-                    const rootName = getRootName(c.category_id);
-                    if (!grouped[rootName]) grouped[rootName] = [];
-                    grouped[rootName].push(c);
-                  } else {
-                    uncategorized.push(c);
-                  }
-                }
-                const groupNames = Object.keys(grouped);
-                return (
-                  <>
-                    {groupNames.map(catName => (
-                      <div key={catName} className="bg-bg-base rounded-lg border border-border p-4">
-                        <h3 className="text-sm font-bold text-primary/80 mb-3">
-                          {catName}
-                        </h3>
-                        <div className="grid grid-cols-3 gap-3">
-                          {grouped[catName].map(c => (
-                            <CourseCardItem key={c.id} c={c} openEdit={openEdit} openAssign={openAssign} handleDeleteCourse={handleDeleteCourse} />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    {uncategorized.length > 0 && (
-                      <div className="bg-bg-base rounded-lg border border-border p-4">
-                        <h3 className="text-base font-bold text-text-secondary mb-3 border-b border-border pb-2">
-                          未分类
-                        </h3>
-                        <div className="grid grid-cols-3 gap-3">
-                          {uncategorized.map(c => (
-                            <CourseCardItem key={c.id} c={c} openEdit={openEdit} openAssign={openAssign} handleDeleteCourse={handleDeleteCourse} />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          )}
+          </DataPanel>
         </div>
       </div>
 
-      {/* 编辑弹窗 */}
-      {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowEditModal(false)}>
-          <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h3 className="font-bold text-sm">{editingCourse ? "编辑课程" : "新增课程"}</h3>
-              <button onClick={() => setShowEditModal(false)} className="text-text-secondary hover:text-text-base">
-                <X size={18} />
-              </button>
-            </div>
+      {/* 分配弹窗（即时保存） */}
+      <AssignmentModal
+        course={assigningCourse}
+        onClose={() => setAssigningCourse(null)}
+      />
 
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm text-text-secondary mb-1">课程标题</label>
-                <input
-                  type="text" value={editTitle}
-                  onChange={e => setEditTitle(e.target.value)}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
-                  placeholder="输入课程标题"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-text-secondary mb-1">现场签到</label>
-                <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    checked={editRequireAttendance}
-                    onChange={(e) => setEditRequireAttendance(e.target.checked)}
-                    className="appearance-none w-9 h-5 rounded-full bg-border checked:bg-primary transition-colors relative
-                               before:content-[''] before:absolute before:top-0.5 before:left-0.5 before:w-4 before:h-4
-                               before:rounded-full before:bg-white before:transition-transform
-                               checked:before:translate-x-4"
-                  />
-                  <span className="text-sm">启用现场签到</span>
-                </label>
-                {editRequireAttendance ? (
-                  <p className="text-xs text-text-secondary/70 mt-1.5">
-                    开启后学员可通过扫码/输码在现场签到；请在下方配置签到场次（签到不影响考试解锁）。
-                  </p>
-                ) : (
-                  <p className="text-xs text-text-secondary/70 mt-1.5">
-                    关闭时课程为纯线上学习：学员看视频 → 考试，无签到环节。
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm text-text-secondary mb-1">课程分类</label>
-                {editingCourse || selectedId ? (
-                  <input
-                    type="text"
-                    value={editingCourse ? getCategoryPath(editingCourse.category_id, flatCategories) : getCategoryPath(selectedId, flatCategories)}
-                    disabled
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm bg-bg-layout text-text-secondary"
-                  />
-                ) : (
-                  <div ref={categoryDropdownRef} className="relative">
-                    <div
-                      onClick={() => { setShowCategoryDropdown(!showCategoryDropdown); setCategorySearch(""); }}
-                      className="w-full border border-border rounded-md px-3 py-2 text-sm cursor-pointer hover:border-primary/40 flex items-center justify-between"
-                    >
-                      <span className={editCategoryId ? "text-text-base" : "text-text-secondary"}>
-                        {editCategoryId ? getCategoryPath(editCategoryId, flatCategories) : "请选择课程"}
-                      </span>
-                      <ChevronDown size={14} className={`text-text-secondary transition-transform ${showCategoryDropdown ? "rotate-180" : ""}`} />
-                    </div>
-                    {showCategoryDropdown && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-bg-base border border-border rounded-md shadow-lg z-10 p-2 space-y-2">
-                        <input
-                          type="text" placeholder="搜索课程..."
-                          value={categorySearch} onChange={e => setCategorySearch(e.target.value)}
-                          className="w-full border border-border rounded-md px-3 py-1.5 text-sm" autoFocus
-                        />
-                        <div className="flex gap-2">
-                          <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
-                            <div
-                              onClick={() => { setEditCategoryId(""); setShowCategoryDropdown(false); }}
-                              className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout ${editCategoryId === "" ? "bg-primary/10 text-primary font-medium" : ""}`}
-                            >未分类</div>
-                            {tree
-                              .filter(n => !n.parent_id && (!categorySearch || n.name.toLowerCase().includes(categorySearch.toLowerCase())))
-                              .map(root => (
-                                <div key={root.id}
-                                  onClick={() => { setEditCategoryId(root.id); if (root.children.length === 0) setShowCategoryDropdown(false); }}
-                                  className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout flex items-center justify-between ${editCategoryId === root.id ? "bg-primary/10 text-primary font-medium" : ""}`}
-                                >
-                                  <span className="truncate">{root.name}</span>
-                                  {root.children.length > 0 && <ChevronRight size={12} className="text-text-secondary shrink-0 ml-1" />}
-                                </div>
-                              ))}
-                          </div>
-                          {editCategoryId && (() => {
-                            const selectedRoot = tree.find(n => n.id === editCategoryId);
-                            if (!selectedRoot || selectedRoot.children.length === 0) return null;
-                            const filteredChildren = categorySearch
-                              ? selectedRoot.children.filter(c => c.name.toLowerCase().includes(categorySearch.toLowerCase()))
-                              : selectedRoot.children;
-                            return (
-                              <div className="flex-1 border border-border rounded-md max-h-40 overflow-y-auto">
-                                {filteredChildren.map(child => (
-                                  <div key={child.id}
-                                    onClick={() => { setEditCategoryId(child.id); setShowCategoryDropdown(false); }}
-                                    className={`px-3 py-1.5 text-sm cursor-pointer hover:bg-bg-layout truncate ${editCategoryId === child.id ? "bg-primary/10 text-primary font-medium" : ""}`}
-                                  >{child.name}</div>
-                                ))}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm text-text-secondary mb-1">课程简介</label>
-                <textarea value={editDescription} onChange={e => setEditDescription(e.target.value)}
-                  rows={3} placeholder="输入课程简介"
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm resize-none"
-                />
-              </div>
-
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className="block text-sm text-text-secondary mb-1">开始日期</label>
-                  <input type="date" value={editStartDate} onChange={e => setEditStartDate(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm" />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-sm text-text-secondary mb-1">结束日期</label>
-                  <input type="date" value={editEndDate} onChange={e => setEditEndDate(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm" />
-                </div>
-              </div>
-
-              {/* 分配学员 */}
-              <div>
-                <label className="block text-sm text-text-secondary mb-2">
-                  分配学员
-                  {(editSelectedUsers.size > 0 || editSelectedDepts.size > 0) && (
-                    <span className="text-primary ml-1">（已选 {editSelectedDepts.size + editSelectedUsers.size} 项）</span>
-                  )}
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="border border-border rounded-md p-2">
-                    <input type="text" placeholder="搜索部门..." value={editDeptSearch}
-                      onChange={e => setEditDeptSearch(e.target.value)}
-                      className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5" />
-                    <div className="max-h-28 overflow-y-auto space-y-0.5">
-                      {(() => {
-                        const filterTree = (nodes: DeptItem[], term: string): DeptItem[] => {
-                          if (!term) return nodes;
-                          const lower = term.toLowerCase();
-                          const result: DeptItem[] = [];
-                          for (const node of nodes) {
-                            const filteredChildren = node.children ? filterTree(node.children, term) : [];
-                            if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
-                              result.push({ ...node, children: filteredChildren });
-                            }
-                          }
-                          return result;
-                        };
-                        const filteredTree = filterTree(editAssignDepts, editDeptSearch);
-                        const renderNode = (nodes: DeptItem[], depth: number): React.ReactNode[] =>
-                          nodes.map(node => {
-                            const hasChildren = (node.children || []).length > 0;
-                            const isExpanded = editExpandedDeptIds.has(node.id);
-                            const isActive = editActiveDeptId === node.id;
-                            return (
-                              <div key={node.id}>
-                                <div className={`flex items-center gap-1.5 py-0.5 px-1 rounded text-xs ${isActive ? "bg-primary/10" : "hover:bg-bg-layout"}`}
-                                  style={{ paddingLeft: `${4 + depth * 14}px` }}>
-                                  {hasChildren ? (
-                                    <button onClick={(e) => { e.stopPropagation(); toggleEditDeptExpand(node.id); }} className="text-text-secondary shrink-0">
-                                      {isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                                    </button>
-                                  ) : <span className="w-2.5 shrink-0" />}
-                                  <input type="checkbox" checked={editSelectedDepts.has(node.id)} onChange={() => {
-                                    const next = new Set(editSelectedDepts);
-                                    const isChecking = !next.has(node.id);
-                                    if (isChecking) {
-                                      next.add(node.id);
-                                      // 自动展开该部门成员列表，并全选所有成员
-                                      setEditActiveDeptId(node.id);
-                                      const names = collectDescendantNames(node);
-                                      const userIds = editAssignUsers.filter(u => names.some(name => matchDept(u.department, name))).map(u => u.id);
-                                      setEditSelectedUsers(prev => new Set([...prev, ...userIds]));
-                                    } else {
-                                      next.delete(node.id);
-                                      // 取消勾选时移除该部门所有成员
-                                      const names = collectDescendantNames(node);
-                                      const userIds = new Set(editAssignUsers.filter(u => names.some(name => matchDept(u.department, name))).map(u => u.id));
-                                      setEditSelectedUsers(prev => {
-                                        const updated = new Set(prev);
-                                        userIds.forEach(id => updated.delete(id));
-                                        return updated;
-                                      });
-                                    }
-                                    setEditSelectedDepts(next);
-                                  }} className="shrink-0" />
-                                  <span className="truncate flex-1 cursor-pointer" onClick={() => setEditActiveDeptId(isActive ? null : node.id)}>
-                                    {node.name}
-                                  </span>
-                                </div>
-                                {isExpanded && hasChildren && renderNode(node.children!, depth + 1)}
-                              </div>
-                            );
-                          });
-                        return renderNode(filteredTree, 0);
-                      })()}
-                    </div>
-                  </div>
-                  <div className="border border-border rounded-md p-2">
-                    <input type="text" placeholder="搜索姓名..." value={editUserSearch}
-                      onChange={e => setEditUserSearch(e.target.value)}
-                      className="w-full border border-border rounded-md px-2 py-1 text-xs mb-1.5" />
-                    <div className="max-h-28 overflow-y-auto space-y-0.5">
-                      {(() => {
-                        const activeDept = editActiveDeptId ? findDeptNode(editAssignDepts, editActiveDeptId) : null;
-                        const activeDeptNames = activeDept ? collectDescendantNames(activeDept) : [];
-                        const filtered = editAssignUsers.filter(u => {
-                          if (activeDeptNames.length > 0 && !activeDeptNames.some(name => matchDept(u.department, name))) return false;
-                          if (editUserSearch && !u.name.includes(editUserSearch) && !(u.department && u.department.includes(editUserSearch))) return false;
-                          return true;
-                        });
-                        if (!activeDept) return <p className="text-xs text-text-secondary py-4 text-center">点击左侧部门名称查看学员</p>;
-                        if (filtered.length === 0) return <p className="text-xs text-text-secondary py-2 text-center">该部门暂无用户</p>;
-                        return (
-                          <div>
-                            <label className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-bg-layout rounded text-xs cursor-pointer border-b border-border mb-0.5">
-                              <input type="checkbox"
-                                checked={filtered.every(u => editSelectedUsers.has(u.id))}
-                                onChange={() => {
-                                  const allIds = new Set(filtered.map(u => u.id));
-                                  const allSelected = filtered.every(u => editSelectedUsers.has(u.id));
-                                  const next = new Set(editSelectedUsers);
-                                  allSelected ? allIds.forEach(id => next.delete(id)) : allIds.forEach(id => next.add(id));
-                                  setEditSelectedUsers(next);
-                                }}
-                              />
-                              <span className="text-text-secondary">全选</span>
-                            </label>
-                            {filtered.map(u => (
-                              <label key={u.id} className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-bg-layout rounded text-xs cursor-pointer">
-                                <input type="checkbox" checked={editSelectedUsers.has(u.id)} onChange={() => {
-                                  const next = new Set(editSelectedUsers);
-                                  next.has(u.id) ? next.delete(u.id) : next.add(u.id);
-                                  setEditSelectedUsers(next);
-                                }} />
-                                <span className="truncate">{u.name}</span>
-                                {u.department && <span className="text-text-secondary truncate">({u.department})</span>}
-                              </label>
-                            ))}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-                {(editSelectedDepts.size > 0 || editSelectedUsers.size > 0) && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {[...editSelectedDepts].map(id => {
-                      const d = findDeptNode(editAssignDepts, id);
-                      return d ? <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">{d.name}（部门）</span> : null;
-                    })}
-                    {editAssignUsers.filter(u => editSelectedUsers.has(u.id) && !editSelectedDepts.has(
-                      findDeptByName(editAssignDepts, u.department)?.id || ""
-                    )).map(u => (
-                      <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">{u.name}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 分配章节（关联课程分类树） */}
-              <div>
-                <label className="block text-sm text-text-secondary mb-1.5">
-                  分配章节
-                  {editSelectedChapterIds.size > 0 && (
-                    <span className="text-primary ml-1">（已选 {editSelectedChapterIds.size} 个）</span>
-                  )}
-                </label>
-                {/* 新建章节：名称 + 所属分类 */}
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    placeholder="输入新章节名称…"
-                    value={newChapterName}
-                    onChange={e => setNewChapterName(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") handleCreateChapter(); }}
-                    className="flex-1 border border-border rounded-md px-3 py-1.5 text-sm"
-                  />
-                  <select
-                    value={newChapterCategoryId}
-                    onChange={e => setNewChapterCategoryId(e.target.value)}
-                    className="border border-border rounded-md px-2 py-1.5 text-sm bg-white shrink-0"
-                  >
-                    <option value="">未分类</option>
-                    {flatCategories.map(c => (
-                      <option key={c.id} value={c.id}>{getCategoryPath(c.id, flatCategories)}</option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={handleCreateChapter}
-                    disabled={!newChapterName.trim() || creatingChapter}
-                    className="px-3 py-1.5 text-sm bg-primary text-white rounded-md hover:bg-primary-light disabled:opacity-50 shrink-0"
-                  >
-                    {creatingChapter ? "创建中…" : "新建章节"}
-                  </button>
-                </div>
-                {/* 左：课程分类树（章节嵌到对应分类节点下） */}
-                <div className="border border-border rounded-md p-2 flex flex-col">
-                  <div className="text-xs text-text-secondary mb-1.5">
-                    课程分类（点击节点下的章节可勾选分配到本课程）
-                  </div>
-                  <CourseTree
-                    tree={tree}
-                    flatCategories={flatCategories}
-                    selectedId={chapterActiveCatId}
-                    onSelect={setChapterActiveCatId}
-                    rootLabel="全部分类"
-                    treeContainerClass="max-h-56 border-0 p-0"
-                    showHeader={true}
-                    showSearch={true}
-                    placeholder="搜索分类..."
-                    expandedIds={chapterExpandedIds}
-                    onToggleExpanded={setChapterExpandedIds}
-                    renderNodeFooter={(node) => {
-                      const list = chaptersByCategoryId[node.id] || [];
-                      if (list.length === 0) return null;
-                      return (
-                        <div className="ml-7 mb-1 space-y-0.5">
-                          {list.map(ch => (
-                            <label
-                              key={ch.id}
-                              className="flex items-center gap-1.5 py-0.5 px-1 hover:bg-bg-layout rounded text-xs cursor-pointer"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={editSelectedChapterIds.has(ch.id)}
-                                onChange={() => {
-                                  const next = new Set(editSelectedChapterIds);
-                                  if (next.has(ch.id)) next.delete(ch.id);
-                                  else next.add(ch.id);
-                                  setEditSelectedChapterIds(next);
-                                }}
-                                className="shrink-0"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <span className="truncate flex-1 text-text-base">{ch.title}</span>
-                              {ch.course_ids.length > 0 && (
-                                <span className="text-text-secondary shrink-0">({ch.course_ids.length} 课)</span>
-                              )}
-                            </label>
-                          ))}
-                        </div>
-                      );
-                    }}
-                  />
-                </div>
-                {/* 已选汇总 */}
-                {editSelectedChapterIds.size > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {[...editSelectedChapterIds].map(cid => {
-                      const ch = allChapters.find(c => c.id === cid);
-                      if (!ch) return null;
-                      return (
-                        <span key={cid} className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-600 rounded text-xs">
-                          {ch.category_id ? getCategoryPath(ch.category_id, flatCategories) + " / " : ""}{ch.title}
-                          <button
-                            onClick={() => setEditSelectedChapterIds(prev => { const n = new Set(prev); n.delete(cid); return n; })}
-                            className="hover:text-red-500 ml-0.5"
-                          >×</button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* 已有视频（统一线上课程始终可上传；编辑态有视频才显示） */}
-              {editingCourse && editVideos.length > 0 && (
-                <div>
-                  <label className="block text-sm text-text-secondary mb-2">已有视频 ({editVideos.length})</label>
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {editVideos.map((v, i) => (
-                        <div key={v.id} className="py-1.5 px-3 bg-bg-layout rounded-md">
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <span className="text-sm truncate flex-1 min-w-0">
-                              <span className="text-text-secondary mr-1.5">{i + 1}.</span>
-                              {v.title}
-                            </span>
-                            <button onClick={() => handleDeleteVideo(v.id)} className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50 shrink-0">删除</button>
-                          </div>
-                          <video src={`/api/learning-platform/videos/stream/${v.obs_key}?token=${localStorage.getItem("lp_token") || ""}`}
-                            controls className="w-full rounded-md max-h-56 bg-black" preload="metadata" />
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              {/* 启用现场签到：内嵌签到场次设置 */}
-              {editRequireAttendance && (
-                <div>
-                  <label className="block text-sm text-text-secondary mb-2">签到场次设置</label>
-                  <SessionInlineEditor sessions={editSessions} onChange={setEditSessions} />
-                </div>
-              )}
-
-              {/* 拖拽上传区（统一线上课程始终可用） */}
-              {true && (
-              <div>
-                <label className="block text-sm text-text-secondary mb-2">
-                  上传视频{pendingFiles.length > 0 ? ` (${pendingFiles.length} 个待上传)` : ""}
-                </label>
-                <div
-                  className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-                    dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/40 hover:bg-bg-layout"
-                  }`}
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                  onDragLeave={() => setDragOver(false)}
-                  onDrop={handleDrop}
-                >
-                  <Upload size={28} className="mx-auto text-text-secondary mb-2" />
-                  <p className="text-sm text-text-secondary">点击选择文件或拖拽视频文件到此处</p>
-                  <p className="text-xs text-text-secondary/60 mt-0.5">支持 MP4 / MOV / AVI / MKV</p>
-                  <input ref={fileInputRef} type="file" accept="video/mp4,video/mov,video/avi,video/mkv,video/webm"
-                    multiple className="hidden"
-                    onChange={e => { if (e.target.files) handleFiles(e.target.files); }} />
-                </div>
-              </div>
-              )}
-
-              {/* 待上传文件列表 */}
-              {pendingFiles.length > 0 && (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {pendingFiles.map((pf, i) => (
-                    <div key={i} className="py-1.5 px-3 bg-bg-layout rounded-md">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-sm text-text-secondary truncate flex-1 min-w-0" title={pf.file.name}>{pf.file.name}</span>
-                        <span className="text-xs text-text-secondary/60 shrink-0">{(pf.file.size / 1024 / 1024).toFixed(1)} MB</span>
-                        {!pf.uploading && (
-                          <>
-                            <input type="text" value={pf.title} onChange={e => updatePendingTitle(i, e.target.value)}
-                              placeholder="视频标题" className="w-32 border border-border rounded-md px-2 py-1 text-xs shrink-0" />
-                            <button onClick={() => removePendingFile(i)}
-                              className="text-red-400 hover:text-red-600 shrink-0 p-0.5 border border-red-200 rounded hover:bg-red-50">
-                              <X size={14} />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      {!pf.uploading && <video src={getBlobUrl(pf.file)} controls className="w-full rounded-md max-h-56 bg-black" />}
-                      {pf.uploading && (
-                        <div className="mt-1.5">
-                          <div className="flex items-center justify-between text-xs text-text-secondary mb-0.5">
-                            <span>上传中...</span>
-                            <span>{pf.progress}%</span>
-                          </div>
-                          <div className="w-full h-1.5 bg-border rounded-full overflow-hidden">
-                            <div className="h-full bg-primary rounded-full transition-all duration-200" style={{ width: `${pf.progress}%` }} />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3 px-5 py-4 border-t border-border">
-              <button onClick={() => handleSaveCourse("draft")} disabled={saving}
-                className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">保存草稿</button>
-              <button onClick={() => handleSaveCourse("published")} disabled={saving}
-                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light border border-primary">发布</button>
-              <button onClick={() => setShowEditModal(false)}
-                className="px-4 py-2 rounded-md text-sm text-text-secondary hover:text-text-base ml-auto border border-border">取消</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 分配弹窗 */}
-      {showAssignModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowAssignModal(false)}>
-          <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h3 className="font-bold text-sm">分配课程: {assigningTitle}</h3>
-              <button onClick={() => setShowAssignModal(false)} className="text-text-secondary hover:text-text-base"><X size={18} /></button>
-            </div>
-            <div className="p-5">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-bg-base rounded-lg border border-border p-3">
-                  <h4 className="font-bold text-sm mb-2">选择部门</h4>
-                  <input type="text" placeholder="搜索部门..." value={deptSearch} onChange={e => setDeptSearch(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2" />
-                  <div className="max-h-52 overflow-y-auto space-y-0.5 mb-2">
-                    {(() => {
-                      const filterTree = (nodes: DeptItem[], term: string): DeptItem[] => {
-                        if (!term) return nodes;
-                        const lower = term.toLowerCase();
-                        const result: DeptItem[] = [];
-                        for (const node of nodes) {
-                          const filteredChildren = node.children ? filterTree(node.children, term) : [];
-                          if (node.name.toLowerCase().includes(lower) || filteredChildren.length > 0) {
-                            result.push({ ...node, children: filteredChildren });
-                          }
-                        }
-                        return result;
-                      };
-                      const filteredTree = filterTree(allDepts, deptSearch);
-                      const renderNode = (nodes: DeptItem[], depth: number): React.ReactNode[] =>
-                        nodes.map(node => {
-                          const hasChildren = (node.children || []).length > 0;
-                          const isExpanded = expandedDeptIds.has(node.id);
-                          const isActive = activeDeptId === node.id;
-                          return (
-                            <div key={node.id}>
-                              <div className={`flex items-center gap-2 py-1 px-2 rounded text-sm ${isActive ? "bg-primary/10" : "hover:bg-bg-layout"}`}
-                                style={{ paddingLeft: `${8 + depth * 16}px` }}>
-                                {hasChildren ? (
-                                  <button onClick={(e) => { e.stopPropagation(); toggleDeptExpand(node.id); }} className="text-text-secondary shrink-0">
-                                    {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                                  </button>
-                                ) : <span className="w-3 shrink-0" />}
-                                <input type="checkbox" checked={selectedDepts.has(node.id)} onChange={() => {
-                                  const next = new Set(selectedDepts);
-                                  const isChecking = !next.has(node.id);
-                                  if (isChecking) {
-                                    next.add(node.id);
-                                    // 自动展开该部门成员列表，并全选所有成员
-                                    setActiveDeptId(node.id);
-                                    const names = collectDescendantNames(node);
-                                    const userIds = allUsers.filter(u => names.some(name => matchDept(u.department, name))).map(u => u.id);
-                                    setSelectedUsers(prev => new Set([...prev, ...userIds]));
-                                  } else {
-                                    next.delete(node.id);
-                                    // 取消勾选时移除该部门所有成员
-                                    const names = collectDescendantNames(node);
-                                    const userIds = new Set(allUsers.filter(u => names.some(name => matchDept(u.department, name))).map(u => u.id));
-                                    setSelectedUsers(prev => {
-                                      const updated = new Set(prev);
-                                      userIds.forEach(id => updated.delete(id));
-                                      return updated;
-                                    });
-                                  }
-                                  setSelectedDepts(next);
-                                }} className="shrink-0" />
-                                <span className="flex-1 cursor-pointer truncate" onClick={() => setActiveDeptId(isActive ? null : node.id)}>{node.name}</span>
-                              </div>
-                              {isExpanded && hasChildren && renderNode(node.children!, depth + 1)}
-                            </div>
-                          );
-                        });
-                      return renderNode(filteredTree, 0);
-                    })()}
-                  </div>
-                </div>
-                <div className="bg-bg-base rounded-lg border border-border p-3">
-                  <h4 className="font-bold text-sm mb-2">
-                    选择学员
-                    {activeDeptId && <span className="text-text-secondary font-normal ml-1">({findDeptNode(allDepts, activeDeptId)?.name || ""})</span>}
-                  </h4>
-                  <input type="text" placeholder="搜索姓名..." value={userSearch} onChange={e => setUserSearch(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-1.5 text-sm mb-2" />
-                  <div className="max-h-52 overflow-y-auto space-y-1 mb-2">
-                    {(() => {
-                      const activeDept = activeDeptId ? findDeptNode(allDepts, activeDeptId) : null;
-                      const activeDeptNames = activeDept ? collectDescendantNames(activeDept) : [];
-                      const filtered = allUsers.filter(u => {
-                        if (activeDeptNames.length > 0 && !activeDeptNames.some(name => matchDept(u.department, name))) return false;
-                        if (userSearch && !u.name.includes(userSearch) && !(u.department && u.department.includes(userSearch))) return false;
-                        return true;
-                      });
-                      if (!activeDept) return <p className="text-sm text-text-secondary py-4 text-center">点击左侧部门名称查看学员</p>;
-                      if (filtered.length === 0) return <p className="text-sm text-text-secondary py-2 text-center">该部门暂无用户</p>;
-                      return (
-                        <div>
-                          <label className="flex items-center gap-2 py-1 px-2 hover:bg-bg-layout rounded text-sm cursor-pointer border-b border-border mb-1">
-                            <input type="checkbox"
-                              checked={filtered.every(u => selectedUsers.has(u.id))}
-                              onChange={() => {
-                                const allIds = new Set(filtered.map(u => u.id));
-                                const allSelected = filtered.every(u => selectedUsers.has(u.id));
-                                if (allSelected) {
-                                  const next = new Set(selectedUsers);
-                                  allIds.forEach(id => next.delete(id));
-                                  setSelectedUsers(next);
-                                } else {
-                                  setSelectedUsers(new Set([...selectedUsers, ...allIds]));
-                                }
-                              }} />
-                            <span className="text-text-secondary text-xs">全选</span>
-                          </label>
-                          {filtered.map(u => (
-                            <label key={u.id} className="flex items-center gap-2 py-1 px-2 hover:bg-bg-layout rounded text-sm cursor-pointer">
-                              <input type="checkbox" checked={selectedUsers.has(u.id)} onChange={() => {
-                                const next = new Set(selectedUsers);
-                                next.has(u.id) ? next.delete(u.id) : next.add(u.id);
-                                setSelectedUsers(next);
-                              }} />
-                              <span>{u.name}</span>
-                              {u.department && <span className="text-text-secondary text-xs">({u.department})</span>}
-                            </label>
-                          ))}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-
-              {(selectedDepts.size > 0 || selectedUsers.size > 0) && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {[...selectedDepts].map(id => {
-                    const d = findDeptNode(allDepts, id);
-                    return d ? <span key={id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">{d.name}（部门）</span> : null;
-                  })}
-                  {allUsers.filter(u => selectedUsers.has(u.id) && !selectedDepts.has(
-                    findDeptByName(allDepts, u.department)?.id || ""
-                  )).map(u => (
-                    <span key={u.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-bg-layout rounded text-xs">{u.name}</span>
-                  ))}
-                </div>
-              )}
-
-              <button onClick={handleAssign} disabled={selectedUsers.size === 0 && selectedDepts.size === 0}
-                className="mt-3 bg-primary text-white px-4 py-2 rounded-md text-sm disabled:opacity-50 border border-primary">
-                分配选中 ({selectedDepts.size + selectedUsers.size})
-              </button>
-
-              <div className="mt-4">
-                <h4 className="font-bold text-sm mb-2">已分配</h4>
-                {assignedUsers.length === 0 && assignedDepts.length === 0 ? (
-                  <p className="text-sm text-text-secondary">暂无分配</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {assignedDepts.map(d => (
-                      <span key={d.id} className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded text-sm">
-                        {d.name}（部门）
-                        <button onClick={() => handleRemoveAssignment("dept", d.id)} className="text-red-400 hover:text-red-600 border border-red-200 rounded px-1 hover:bg-red-50">x</button>
-                      </span>
-                    ))}
-                    {assignedUsers.map(u => (
-                      <span key={u.id} className="inline-flex items-center gap-1 px-2 py-1 bg-bg-layout rounded text-sm">
-                        {u.name}
-                        <button onClick={() => handleRemoveAssignment("user", u.id)} className="text-red-400 hover:text-red-600 border border-red-200 rounded px-1 hover:bg-red-50">x</button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 线下课程签到管理弹窗 */}
-      {attendanceCourse && (
-        <AttendanceSessionModal
-          courseId={attendanceCourse.id}
-          courseTitle={attendanceCourse.title}
-          onClose={() => {
-            setAttendanceCourse(null);
-            fetchData();
-          }}
-        />
-      )}
-
-      {/* 删除影响确认弹窗 */}
+      {/* 删分类影响明细 */}
       {deleteImpact && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => { setDeleteImpact(null); setDeletingCategoryId(null); }}>
-          <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h3 className="font-bold text-sm">
-                确认删除分类
-              </h3>
-              <button onClick={() => { setDeleteImpact(null); setDeletingCategoryId(null); }} className="text-text-secondary hover:text-text-base">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <div>
-                <p className="text-sm">
-                  将删除分类 <span className="font-bold text-primary">「{deleteImpact.name}」</span>
-                  {deleteImpact.child_count > 0 && (
-                    <span> 及其 <span className="font-bold">{deleteImpact.child_count}</span> 个子分类</span>
-                  )}
-                </p>
-              </div>
-
-              {(deleteImpact.courses > 0 || deleteImpact.papers > 0 || deleteImpact.questions > 0) && (
-                <div className="bg-bg-layout rounded-lg p-3 space-y-1.5">
-                  <p className="text-xs text-text-secondary">影响内容：</p>
-                  {deleteImpact.questions > 0 && (
-                    <p className="text-sm text-red-600">
-                      {deleteImpact.questions} 道试题将被<span className="font-bold">永久删除</span>
-                    </p>
-                  )}
-                  {deleteImpact.courses > 0 && (
-                    <p className="text-sm text-text-secondary">
-                      {deleteImpact.courses} 门课程将归为「未分类」
-                    </p>
-                  )}
-                  {deleteImpact.papers > 0 && (
-                    <p className="text-sm text-text-secondary">
-                      {deleteImpact.papers} 张试卷将归为「未分类」
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {deleteImpact.details.length > 1 && (
-                <div className="max-h-52 overflow-y-auto border border-border rounded-md">
-                  <table className="w-full text-xs">
-                    <thead className="bg-bg-layout border-b border-border sticky top-0">
-                      <tr>
-                        <th className="text-left px-3 py-1.5 text-text-secondary font-medium">分类</th>
-                        <th className="text-center px-2 py-1.5 text-text-secondary font-medium">课程</th>
-                        <th className="text-center px-2 py-1.5 text-text-secondary font-medium">试卷</th>
-                        <th className="text-center px-2 py-1.5 text-text-secondary font-medium">试题</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {deleteImpact.details.map((d, i) => (
-                        <tr key={i} className="border-b border-border last:border-0">
-                          <td className="px-3 py-1" style={{ paddingLeft: `${12 + d.depth * 14}px` }}>
-                            {d.name}
-                          </td>
-                          <td className="text-center px-2 py-1">{d.courses || "-"}</td>
-                          <td className="text-center px-2 py-1">{d.papers || "-"}</td>
-                          <td className="text-center px-2 py-1">{d.questions || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3 justify-end px-5 py-4 border-t border-border bg-bg-layout/50">
-              <button
-                onClick={() => { setDeleteImpact(null); setDeletingCategoryId(null); }}
-                className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-base"
-              >
-                取消
-              </button>
-              <button
-                onClick={confirmDeleteCategory}
-                className="px-4 py-2 rounded-md text-sm bg-red-500 text-white hover:bg-red-600"
-              >
-                确认删除
-              </button>
-            </div>
-          </div>
-        </div>
+        <CategoryDeleteImpactModal
+          impact={deleteImpact}
+          busy={impactBusy}
+          onCancel={() => { setDeleteImpact(null); setDeletingCategoryId(null); }}
+          onConfirm={confirmDeleteCategory}
+        />
       )}
     </div>
   );
-
-  }
+}

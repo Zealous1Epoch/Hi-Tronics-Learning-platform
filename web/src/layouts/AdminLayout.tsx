@@ -227,16 +227,21 @@ export default function AdminLayout() {
                       <Link
                         key={item.path}
                         to={item.path}
-                        title={collapsed ? item.label : undefined}
                         className={`k-nav-item ${active ? "k-nav-item-active" : ""}`}
-                        style={{
-                          justifyContent: collapsed ? "center" : "flex-start",
-                          padding: collapsed ? "8px 0" : undefined,
-                        }}
+                        style={collapsed
+                          // 收起态：图标在上、导航文字在下（60px 轨道容纳 4 字 10px 标签）
+                          ? { flexDirection: "column", justifyContent: "center", gap: 3, padding: "7px 0 6px" }
+                          : { justifyContent: "flex-start" }}
                       >
                         {/* 选中竖条由 .k-nav-item-active 的 border-left 承担（对齐招聘 kami，勿再叠加内联 span） */}
                         <Icon size={16} strokeWidth={1.6} />
-                        {!collapsed && <span>{item.label}</span>}
+                        <span
+                          style={collapsed
+                            ? { fontSize: 10, lineHeight: 1.2, whiteSpace: "nowrap" }
+                            : undefined}
+                        >
+                          {item.label}
+                        </span>
                       </Link>
                     );
                   })}

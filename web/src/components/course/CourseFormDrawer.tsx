@@ -2,6 +2,9 @@
  *
  * 所有信息同页展示、不换面板：一个滚动面板内按分区排列，校验失败自动滚动定位。
  * 两种模式共用一套界面与上传动线（用户要求：编辑与新建界面一致）：
+ * - 新建流程独有「一键创建考试」开关（分区4，仅新建模式）：勾选后抽屉变分步模式，
+ *   顶部出现「课程 → 出题 → 试卷 → 考试」步骤进度条，课程保存后紧接着
+ *   POST /exams/quick-create 一次完成「试卷入库（published）+ 建考试绑本课」。
  * - 新建：不传 editCourseId。首次选文件静默创建课程草稿拿 ID（与编辑页
  *   ensureDraftForUpload 同套路），发布时才写入正式标题与信息。
  * - 编辑：传 editCourseId。挂载即装载课程详情/分配——既有视频与课件
@@ -17,6 +20,10 @@ import { X, Upload, Film, FileText, Image as ImageIcon, Trash2, RotateCw } from 
 import DeptUserPicker from "./DeptUserPicker";
 import CategorySelect from "./CategorySelect";
 import MaterialViewer, { type MaterialFile } from "./MaterialViewer";
+import QuestionPickerPanel, { type PickedQuestion, TYPE_LABELS, DIFF_LABELS } from "../exam/QuestionPickerPanel";
+import RandomRulesPanel, { type RandomRule } from "../exam/RandomRulesPanel";
+import AIGenerateModal from "../question/AIGenerateModal";
+import ImportQuestionsModal from "../question/ImportQuestionsModal";
 import DateField from "../ui/DateField";
 import StatusTag from "../ui/StatusTag";
 import { useToast } from "../ui/Toast";
@@ -162,6 +169,29 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
   /** 上次落库口径（编辑模式装载），保存时先清旧再写新 */
   const existingAssignments = useRef<{ user_ids: string[]; department_ids: string[] }>({ user_ids: [], department_ids: [] });
 
+  // 分区4：一键创建考试（仅新建流程）。勾选后抽屉进入分步模式，按出题→试卷→考试推进，
+  // 末步一次提交：课程先落库（submit quiet 模式），再 quick-create 建考试+试卷入库
+  const [withExam, setWithExam] = useState(false);
+  const [examStep, setExamStep] = useState(0); // 0 课程 1 出题 2 试卷 3 考试（仅 withExam 时 >0）
+  const [examTab, setExamTab] = useState<"bank_fixed" | "bank_random">("bank_fixed");
+  const [qCat, setQCat] = useState<string | null>(null);
+  const [picked, setPicked] = useState<PickedQuestion[]>([]);
+  const [splitTarget, setSplitTarget] = useState(100);
+  const [randBanks, setRandBanks] = useState<string[]>([]);
+  const [randRules, setRandRules] = useState<RandomRule[]>([]);
+  const [pickerRefreshKey, setPickerRefreshKey] = useState(0);
+  const [showAI, setShowAI] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const aiProbed = useRef(false);
+  const [paperName, setPaperName] = useState("");
+  const [examTitle, setExamTitle] = useState("");
+  const [exDuration, setExDuration] = useState(60);
+  const [exMaxAttempts, setExMaxAttempts] = useState("");
+  const [exStart, setExStart] = useState("");
+  const [exEnd, setExEnd] = useState("");
+  const [exPass, setExPass] = useState("");
+
   const [saving, setSaving] = useState(false);
   const publishedRef = useRef(false);
 
@@ -199,6 +229,36 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
   }, []);
 
   const touch = () => { dirtyRef.current = true; };
+
+  // ── 一键建考：派生与步骤推进 ──
+  // AI 出题可用性：首次开启时探测一次（与试题管理/建考向导同一门控口径）
+  useEffect(() => {
+    if (!withExam || aiProbed.current) return;
+    aiProbed.current = true;
+    api<{ enabled: boolean }>("/ai/status").then(s => setAiEnabled(s.enabled)).catch(() => setAiEnabled(false));
+  }, [withExam]);
+
+  const allScoresSet = picked.length > 0 && picked.every(q => q.score > 0);
+  const examTotal = examTab === "bank_fixed"
+    ? (allScoresSet ? picked.reduce((s, q) => s + q.score, 0) : splitTarget)
+    : randRules.reduce((s, r) => s + r.count * (r.score || 0), 0);
+  const contentReady = examTab === "bank_fixed"
+    ? picked.length > 0
+    : randRules.length > 0 && randRules.every(r => r.score > 0);
+  const passDefault = Math.max(1, Math.round(examTotal * 0.6));
+  const passScoreInput = exPass.trim() === "" ? passDefault : (parseInt(exPass) || 0);
+
+  const toggleExamFlow = (on: boolean) => {
+    setWithExam(on);
+    setExamStep(on ? 1 : 0);
+  };
+
+  /** 步间跳转：进入试卷/考试步时按课程标题预填默认名 */
+  const gotoExamStep = (i: number) => {
+    if (i === 2 && !paperName.trim()) setPaperName(`${title.trim() || "新课程"}测试卷`);
+    if (i === 3 && !examTitle.trim()) setExamTitle(`${title.trim() || "新课程"}考试`);
+    setExamStep(i);
+  };
 
   // 编辑模式：挂载装载全量（详情/分配/用户表——部门分配展开需要）
   useEffect(() => {
@@ -379,18 +439,29 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
       });
       if (!ok) return;
     }
+    if (withExam && examStep > 0 && (picked.length > 0 || randRules.length > 0)) {
+      const ok = await confirm({
+        title: "关闭抽屉",
+        message: "考试尚未创建，已选的出题/试卷配置将丢弃（课程草稿与已传文件不受影响）。仍要关闭？",
+        confirmText: "放弃考试并关闭",
+        cancelText: "继续配置",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     if (!isEdit && !publishedRef.current && uploaded.length > 0) {
       toast.info("已上传文件保存在课程草稿中，可在课程列表继续编辑");
     }
     finish();
   };
 
-  /** 统一保存编排（新建发布 / 编辑保存、发布共用，口径唯一） */
-  const submit = async (targetStatus: "draft" | "published") => {
-    if (saving) return;
-    if (!title.trim()) { gotoSection("info"); toast.error("请填写课程标题"); return; }
-    if (startDate && endDate && endDate < startDate) { gotoSection("info"); toast.error("结束日期不能早于开始日期"); return; }
-    if (busyRef.current) { gotoSection("content"); toast.info("还有文件正在上传，请等待完成后再保存"); return; }
+  /** 统一保存编排（新建发布 / 编辑保存、发布 / 一键建考组合流共用，口径唯一）
+   * quiet=true：保存成功只返回课程 ID，不 toast/不关闭/不回调 onSaved（供 finishWithExam 续挂建考） */
+  const submit = async (targetStatus: "draft" | "published", opts: { quiet?: boolean } = {}): Promise<string | null> => {
+    if (saving) return null;
+    if (!title.trim()) { gotoSection("info"); toast.error("请填写课程标题"); return null; }
+    if (startDate && endDate && endDate < startDate) { gotoSection("info"); toast.error("结束日期不能早于开始日期"); return null; }
+    if (busyRef.current) { gotoSection("content"); toast.info("还有文件正在上传，请等待完成后再保存"); return null; }
     setSaving(true);
     try {
       // 不携带 require_attendance：签到与课程类型解绑，由列表「签到」按钮独立管理
@@ -428,6 +499,8 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
       }
       setStatus(targetStatus);
       dirtyRef.current = false;
+      // quiet：课程已落库，交由调用方（一键建考组合流）继续建考试，此处不 toast/不关闭
+      if (opts.quiet) return id;
       onSaved();
       if (targetStatus === "published") {
         publishedRef.current = true;
@@ -437,10 +510,64 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
         toast.success(isEdit ? "已保存" : "草稿已保存，可在课程列表继续编辑");
         if (!isEdit) finish();
       }
+      return id;
     } catch (e: any) {
       toast.error(`保存失败：${e.message || e}`);
+      return null;
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** 一键建考末步提交：课程先落库（quiet），再 POST /exams/quick-create 建试卷（published 入库）+考试。
+   * 课程成功而考试失败时不白关——toast 指明课程已保存，考试可去考试管理重试 */
+  const finishWithExam = async (targetStatus: "draft" | "published") => {
+    if (saving) return;
+    if (!contentReady) { setExamStep(1); toast.error("请先在「出题」步选题或配置随机抽题规则"); return; }
+    if (!paperName.trim()) { setExamStep(2); toast.error("请填写试卷名称"); return; }
+    if (!examTitle.trim()) { toast.error("请填写考试名称"); return; }
+    if (exStart && exEnd && exStart >= exEnd) { toast.error("开放时间必须早于截止时间"); return; }
+    const id = await submit(targetStatus, { quiet: true });
+    if (!id) return;
+    const content = examTab === "bank_fixed"
+      ? {
+          source: "bank", paper_type: "fixed",
+          questions: picked.map(q => ({ question_id: q.question_id, score: allScoresSet ? q.score : 0 })),
+          category_id: qCat,
+        }
+      : {
+          source: "bank", paper_type: "random",
+          random_rules: randRules,
+          source_banks: randBanks.length ? randBanks : null,
+        };
+    try {
+      const res = await api<{ replaced_exam_title: string | null }>("/exams/quick-create", {
+        method: "POST",
+        body: JSON.stringify({
+          title: examTitle.trim(),
+          course_id: id,
+          content,
+          duration: exDuration,
+          publish: targetStatus === "published",
+          save_paper_as: paperName.trim(),
+          // 未逐题设分值 → 传平摊目标；及格分被手改 → 传值（与一键建考向导同口径）
+          ...(examTab === "bank_fixed" && !allScoresSet ? { total_score: splitTarget } : {}),
+          ...(exPass.trim() !== "" ? { pass_score: passScoreInput } : {}),
+          ...(exMaxAttempts.trim() ? { max_attempts: parseInt(exMaxAttempts) } : {}),
+          ...(exStart ? { start_time: exStart } : {}),
+          ...(exEnd ? { end_time: exEnd } : {}),
+        }),
+      });
+      if (res.replaced_exam_title) toast.info(`原绑定考试《${res.replaced_exam_title}》已自动置为已结束`);
+      toast.success(targetStatus === "published"
+        ? "课程已发布，试卷已存入试卷管理，考试已创建并开放"
+        : "课程与考试草稿已保存，试卷已存入试卷管理");
+      if (targetStatus === "published") publishedRef.current = true;
+      onSaved();
+      finish();
+    } catch (e: any) {
+      toast.error(`课程已保存，但考试创建失败：${e?.message || e}。可稍后到「考试管理 → 新增考试」重试`);
+      onSaved();
     }
   };
 
@@ -458,7 +585,7 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
       <div
         className="absolute top-0 right-0 h-full flex flex-col border-l border-border"
         style={{
-          width: "min(680px, 96vw)",
+          width: withExam ? "min(940px, 96vw)" : "min(680px, 96vw)",
           background: "var(--color-bg-card)",
           boxShadow: "-12px 0 32px rgba(0,0,0,0.12)",
           transform: shifted ? "translateX(0)" : "translateX(100%)",
@@ -479,12 +606,124 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
           </button>
         </div>
 
+        {/* 步骤进度条（仅一键建考分步模式）：连接线随步骤填充，已到达步可点击回退 */}
+        {withExam && (
+          <div className="shrink-0 px-5 py-2.5 border-b border-border flex items-center">
+            {["课程", "出题", "试卷", "考试"].map((label, i) => (
+              <div key={label} className={`flex items-center min-w-0 ${i > 0 ? "flex-1" : ""}`}>
+                {i > 0 && <div className={`flex-1 h-[3px] mx-2 rounded-full transition-colors ${i <= examStep ? "bg-primary" : "bg-border"}`} />}
+                <div onClick={() => i <= examStep && setExamStep(i)}
+                  className={`flex items-center gap-1.5 text-sm whitespace-nowrap ${i === examStep ? "text-primary font-bold" : i < examStep ? "text-primary" : "text-text-secondary"} ${i < examStep ? "cursor-pointer" : ""}`}>
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${i <= examStep ? "bg-primary text-white" : "bg-border text-text-secondary"}`}>
+                    {i < examStep ? "✓" : i + 1}
+                  </span>
+                  <span>{label}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* 单页表单：所有分区同屏展示，整页滚动 */}
         <div className="flex-1 min-h-0 overflow-y-auto k-scroll px-5 py-4">
           {!dataReady ? (
             <p className="text-sm text-text-secondary py-10 text-center">加载课程…</p>
           ) : loadError ? (
             <p className="text-sm text-red-500 py-10 text-center">加载失败：{loadError}</p>
+          ) : examStep === 1 ? (
+            /* 一键建考·步1 出题：题库选题 / 随机规则 二选一，支持就地 AI/导入补题 */
+            <div>
+              <div className="flex items-center gap-1 mb-4 border-b border-border">
+                {([["bank_fixed", "从题库选题"], ["bank_random", "随机抽题规则"]] as const).map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setExamTab(k)}
+                    className={`px-4 py-2 text-sm border-b-2 -mb-px transition-colors ${examTab === k ? "border-primary text-primary font-medium" : "border-transparent text-text-secondary hover:text-text-base"}`}>{l}</button>
+                ))}
+                <div className="ml-auto mb-1 flex items-center gap-2">
+                  <button type="button" onClick={() => aiEnabled && setShowAI(true)} disabled={!aiEnabled}
+                    title={aiEnabled ? "按主题关键词 AI 生成题目草稿，人工审核后入库" : "AI 功能未启用：服务端未配置 LLM_API_KEY"}
+                    className="k-btn k-btn-default k-btn-sm">AI 出题</button>
+                  <button type="button" onClick={() => setShowImport(true)} className="k-btn k-btn-default k-btn-sm">Excel 导入</button>
+                </div>
+              </div>
+              {examTab === "bank_fixed" ? (
+                <QuestionPickerPanel refreshKey={pickerRefreshKey}
+                  onChange={(cat, items) => { setQCat(cat); setPicked(items); }} />
+              ) : (
+                <RandomRulesPanel onChange={(banks, rules) => { setRandBanks(banks); setRandRules(rules); }} />
+              )}
+              {examTab === "bank_fixed" && picked.length > 0 && !allScoresSet && (
+                <div className="mt-3 flex items-center gap-2 text-xs text-text-secondary">
+                  <span>{picked.filter(q => q.score <= 0).length} 题未设分值，将按目标总分自动平摊：</span>
+                  <input type="number" min={picked.length} value={splitTarget || ""}
+                    onChange={e => setSplitTarget(parseInt(e.target.value) || 0)}
+                    className="k-ctl w-16 text-center" />
+                  <span>分（不少于题数 {picked.length}）</span>
+                </div>
+              )}
+            </div>
+          ) : examStep === 2 ? (
+            /* 一键建考·步2 试卷：组卷结果摘要 + 试卷命名（提交后以已发布状态入库） */
+            <div className="max-w-xl space-y-4">
+              <div className="k-card p-4">
+                <h4 className="text-sm font-medium mb-2">组卷结果（合计 {examTotal} 分）</h4>
+                {examTab === "bank_fixed" ? (
+                  <p className="text-sm text-text-secondary">
+                    固定 {picked.length} 题{!allScoresSet && "（未设分值项将按总分自动平摊）"}
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {randRules.map((r, i) => (
+                      <p key={i} className="text-sm text-text-secondary">
+                        {i + 1}. {TYPE_LABELS[r.type] || r.type} · {DIFF_LABELS[r.difficulty] || r.difficulty} · 抽 {r.count} 题 × {r.score} 分 = {r.count * r.score} 分
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="k-label">试卷名称 *</label>
+                <input type="text" value={paperName} onChange={e => setPaperName(e.target.value)}
+                  className="k-input" placeholder={`${title.trim() || "新课程"}测试卷`} />
+                <p className="text-xs text-text-secondary mt-1">提交后自动以「已发布」状态存入试卷管理，之后可在考试管理「新增考试」直接复用这份试卷</p>
+              </div>
+            </div>
+          ) : examStep === 3 ? (
+            /* 一键建考·步3 考试：考试属性配置，末步一次提交课程+试卷+考试 */
+            <div className="max-w-xl space-y-4">
+              <div>
+                <label className="k-label">考试名称 *</label>
+                <input type="text" value={examTitle} onChange={e => setExamTitle(e.target.value)}
+                  className="k-input" placeholder={`${title.trim() || "新课程"}考试`} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="k-label">考试时长（分钟）</label>
+                  <input type="number" min={1} value={exDuration || ""} onChange={e => setExDuration(parseInt(e.target.value) || 0)} className="k-input" />
+                </div>
+                <div>
+                  <label className="k-label">最大考试次数</label>
+                  <input type="number" min={1} value={exMaxAttempts} onChange={e => setExMaxAttempts(e.target.value)} placeholder="不限" className="k-input" />
+                </div>
+                <div>
+                  <label className="k-label">开放时间（留空=立即开放）</label>
+                  <input type="datetime-local" value={exStart} onChange={e => setExStart(e.target.value)} className="k-input min-w-0" />
+                </div>
+                <div>
+                  <label className="k-label">截止时间（留空=不限）</label>
+                  <input type="datetime-local" value={exEnd} onChange={e => setExEnd(e.target.value)} className="k-input min-w-0" />
+                </div>
+                <div>
+                  <label className="k-label">及格分</label>
+                  <input type="number" min={1} max={examTotal || undefined} value={exPass} onChange={e => setExPass(e.target.value)}
+                    placeholder={`默认 ${passDefault}`} className="k-input" />
+                </div>
+                <div className="border border-border rounded-md px-3 py-2 bg-bg-layout/50">
+                  <p className="text-xs text-text-secondary">总分 / 试卷</p>
+                  <p className="font-bold truncate">{examTotal} 分 · {paperName || "-"}</p>
+                </div>
+              </div>
+              <p className="text-xs text-text-secondary">考生 = 本课程已分配的学员（回「课程」步的分配区增减）。点「发布课程并开放考试」一次完成课程发布 + 试卷入库 + 考试发布。</p>
+            </div>
           ) : (
             <div className="space-y-7">
               {/* 1 课程内容：拖拽上传 + 队列 + 已上传（点击行即在下方预览） */}
@@ -671,6 +910,23 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                   />
                 )}
               </section>
+
+              {/* 4 课程考试（仅新建流程）：勾选后进入「出题→试卷→考试」分步模式，课程与考试一次创建 */}
+              {!isEdit && (
+                <section ref={el => { secRefs.current.exam = el; }}>
+                  <SectionHead n={4} title="课程考试（可选）" />
+                  <label className="flex items-start gap-2 text-sm cursor-pointer k-card p-3">
+                    <input type="checkbox" className="mt-0.5 shrink-0" checked={withExam}
+                      onChange={e => toggleExamFlow(e.target.checked)} />
+                    <span>
+                      <span className="font-medium">同时一键创建考试</span>
+                      <span className="block text-xs text-text-secondary mt-0.5">
+                        勾选后按「出题 → 试卷 → 考试」分步继续：所选题目自动组卷并存入试卷管理，同时创建考试并绑定本课；不勾选则只创建课程
+                      </span>
+                    </span>
+                  </label>
+                </section>
+              )}
             </div>
           )}
         </div>
@@ -688,6 +944,37 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                 </button>
               )}
             </>
+          ) : withExam ? (
+            /* 一键建考分步底栏：步0 只留「下一步」（想纯建课就回步4取消勾选）；末步 草稿/发布 双出口 */
+            <>
+              {examStep > 0 && (
+                <button type="button" className="k-btn k-btn-default mr-auto" disabled={saving} onClick={() => setExamStep(examStep - 1)}>
+                  上一步
+                </button>
+              )}
+              {examStep >= 1 && (
+                <span className="text-xs text-text-secondary">当前合计 <b className="text-primary">{examTotal}</b> 分</span>
+              )}
+              {examStep === 0 && (
+                <button type="button" className="k-btn k-btn-primary" onClick={() => gotoExamStep(1)}>下一步：出题 →</button>
+              )}
+              {examStep === 1 && (
+                <button type="button" className="k-btn k-btn-primary" disabled={!contentReady} onClick={() => gotoExamStep(2)}>下一步：试卷 →</button>
+              )}
+              {examStep === 2 && (
+                <button type="button" className="k-btn k-btn-primary" disabled={!paperName.trim()} onClick={() => gotoExamStep(3)}>下一步：考试 →</button>
+              )}
+              {examStep === 3 && (
+                <>
+                  <button type="button" className="k-btn k-btn-default" disabled={saving} onClick={() => void finishWithExam("draft")}>
+                    {saving ? "提交中…" : "存为草稿"}
+                  </button>
+                  <button type="button" className="k-btn k-btn-primary" disabled={saving} onClick={() => void finishWithExam("published")}>
+                    {saving ? "提交中…" : "发布课程并开放考试"}
+                  </button>
+                </>
+              )}
+            </>
           ) : (
             <>
               <button type="button" className="k-btn k-btn-default" disabled={saving} onClick={() => void submit("draft")}>
@@ -699,6 +986,16 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
             </>
           )}
         </div>
+
+        {/* 就地补题子弹窗：挂在面板内（面板已 stopPropagation），点子弹窗遮罩只关子弹窗不误关抽屉 */}
+        {showAI && (
+          <AIGenerateModal onClose={() => setShowAI(false)} onDone={() => setPickerRefreshKey(k => k + 1)}
+            defaultCategoryId={qCat} categories={catFlat} />
+        )}
+        {showImport && (
+          <ImportQuestionsModal categoryId={qCat} onClose={() => setShowImport(false)}
+            onDone={() => setPickerRefreshKey(k => k + 1)} />
+        )}
       </div>
     </div>
   );

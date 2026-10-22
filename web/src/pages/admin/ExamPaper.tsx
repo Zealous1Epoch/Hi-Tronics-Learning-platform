@@ -72,8 +72,8 @@ export default function ExamPaper() {
     }
   };
 
-  if (loading) return <p className="text-text-secondary">加载中...</p>;
-  if (!exam) return <p className="text-text-secondary">考试不存在</p>;
+  if (loading) return <p className="k-empty">加载中...</p>;
+  if (!exam) return <p className="k-empty">考试不存在</p>;
 
   const fixedQuestions = (paper?.questions || []).map((q) => ({
     ...q,
@@ -84,7 +84,7 @@ export default function ExamPaper() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-xl font-bold text-primary">组卷: {exam.title}</h2>
+          <h2 className="k-title text-[22px] text-primary">组卷: {exam.title}</h2>
           <p className="text-sm text-text-secondary mt-1">
             组卷方式: {exam.paper_type === "fixed" ? "固定组卷" : "随机组卷"} | 目标总分: {exam.total_score}分 | 时长: {exam.duration}分钟
           </p>
@@ -99,30 +99,30 @@ export default function ExamPaper() {
         <div className="flex gap-2">
           {exam.paper_id && (
             <button onClick={() => navigate(`/admin/papers/${exam.paper_id}`)}
-              className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">
+              className="k-btn k-btn-default">
               去编辑试卷
             </button>
           )}
           {exam.paper_type === "random" && (
             <button onClick={handlePreview} disabled={previewing}
-              className="px-4 py-2 border border-primary text-primary rounded-md text-sm hover:bg-primary/5 disabled:opacity-50">
+              className="k-btn k-btn-primary disabled:opacity-50">
               {previewing ? "抽题中..." : "抽题预览"}
             </button>
           )}
           <button onClick={() => navigate("/admin/exams")}
-            className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">
+            className="k-btn k-btn-default">
             返回
           </button>
         </div>
       </div>
 
       {exam.paper_type === "fixed" ? (
-        <div className="bg-bg-base rounded-lg border border-border p-4">
-          <h3 className="font-bold text-sm mb-3">
+        <div className="k-card p-4">
+          <h3 className="k-card-title mb-3!">
             题目列表（共 {fixedQuestions.length} 题，合计 {fixedQuestions.reduce((s, q) => s + q.score, 0)} 分）
           </h3>
           {fixedQuestions.length === 0 ? (
-            <p className="text-sm text-text-secondary">暂无题目</p>
+            <p className="k-empty">暂无题目</p>
           ) : (
             <div className="space-y-1">
               {fixedQuestions.map((q, i) => (
@@ -138,12 +138,12 @@ export default function ExamPaper() {
           )}
         </div>
       ) : (
-        <div className="bg-bg-base rounded-lg border border-border p-4">
-          <h3 className="font-bold text-sm mb-3">
+        <div className="k-card p-4">
+          <h3 className="k-card-title mb-3!">
             随机组卷规则（合计 {paper?.random_rules?.reduce((sum, r) => sum + r.count * r.score, 0) || 0} 分）
           </h3>
           {(!paper?.random_rules || paper.random_rules.length === 0) ? (
-            <p className="text-sm text-text-secondary">暂无规则</p>
+            <p className="k-empty">暂无规则</p>
           ) : (
             <div className="space-y-2">
               {paper.random_rules.map((r, i) => (
@@ -163,17 +163,17 @@ export default function ExamPaper() {
 
       {/* 服务端抽题预览弹窗（与学员端开考同一抽题逻辑） */}
       {showPreview && preview && (
-        <div className="fixed inset-0 bg-black/30 flex items-start justify-center pt-20 z-50" onClick={() => setShowPreview(false)}>
-          <div className="bg-bg-base rounded-lg shadow-xl p-6 w-full max-w-lg max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="k-overlay" onClick={() => setShowPreview(false)}>
+          <div className="k-modal w-full max-w-lg max-h-[85vh] overflow-y-auto k-scroll" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold">抽题预览（{preview.questions.length} 题 / {preview.total_score} 分）</h3>
+              <h3 className="k-modal-title mb-0!">抽题预览（{preview.questions.length} 题 / {preview.total_score} 分）</h3>
               <div className="flex items-center gap-3">
-                <button onClick={handlePreview} disabled={previewing} className="text-sm text-primary hover:underline disabled:opacity-50">换一批</button>
-                <button onClick={() => setShowPreview(false)} className="text-text-secondary hover:text-text-base text-lg">&times;</button>
+                <button onClick={handlePreview} disabled={previewing} className="k-link disabled:opacity-50">换一批</button>
+                <button onClick={() => setShowPreview(false)} className="text-text-secondary hover:text-text-base text-lg leading-none">&times;</button>
               </div>
             </div>
             {preview.shortages.length > 0 && (
-              <div className="mb-3 px-3 py-2 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-xs space-y-0.5">
+              <div className="mb-3 px-3 py-2 rounded-md bg-warning/10 text-warning border border-warning/20 text-xs space-y-0.5">
                 {preview.shortages.map((s, i) => <p key={i}>⚠ {s}</p>)}
               </div>
             )}
@@ -190,11 +190,11 @@ export default function ExamPaper() {
                 </div>
               ))}
               {preview.questions.length === 0 && (
-                <p className="text-sm text-text-secondary text-center py-6">{preview.shortages.length ? "题库存量不足，未能抽出完整试卷，请按上方提示调整规则" : "未抽到题目"}</p>
+                <p className="k-empty">{preview.shortages.length ? "题库存量不足，未能抽出完整试卷，请按上方提示调整规则" : "未抽到题目"}</p>
               )}
             </div>
-            <div className="flex justify-end mt-4">
-              <button onClick={() => setShowPreview(false)} className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">关闭</button>
+            <div className="k-modal-actions">
+              <button onClick={() => setShowPreview(false)} className="k-btn k-btn-default">关闭</button>
             </div>
           </div>
         </div>

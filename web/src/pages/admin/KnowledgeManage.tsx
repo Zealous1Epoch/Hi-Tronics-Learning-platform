@@ -37,7 +37,7 @@ function RichEditor({
   }, [content, editor]);
 
   return (
-    <div className="border border-border rounded-md overflow-hidden bg-white">
+    <div className="k-card overflow-hidden">
       {/* 工具栏 */}
       <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-border bg-bg-layout flex-wrap">
         {editor && (
@@ -387,23 +387,23 @@ export default function KnowledgeManage() {
     []
   );
 
-  if (loading) return <p className="text-text-secondary">加载中...</p>;
+  if (loading) return <p className="k-empty">加载中...</p>;
 
   return (
     <div className="h-[calc(100vh-140px)] flex flex-col">
       {/* 顶部工具栏 */}
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xl font-bold text-primary">知识管理</h2>
+        <h2 className="k-title text-[22px] text-primary">知识管理</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={handleAddRoot}
-            className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light transition-colors flex items-center gap-1.5"
+            className="k-btn k-btn-primary"
           >
             <Plus size={14} /> 新建根节点
           </button>
           <button
             onClick={handleSaveLayout}
-            className="px-4 py-2 border border-border rounded-md text-sm text-text-secondary hover:text-text-base hover:bg-bg-layout transition-colors"
+            className="k-btn k-btn-default"
           >
             保存布局
           </button>
@@ -414,11 +414,11 @@ export default function KnowledgeManage() {
       <div className="flex-1 rounded-lg border border-border overflow-hidden bg-bg-layout">
         {tree.length === 0 ? (
           <div className="flex items-center justify-center h-full text-text-secondary">
-            <div className="text-center">
+            <div className="k-empty">
               <p className="text-sm mb-2">暂无知识节点</p>
               <button
                 onClick={handleAddRoot}
-                className="px-4 py-2 bg-primary text-white rounded-md text-sm"
+                className="k-btn k-btn-primary"
               >
                 创建第一个知识节点
               </button>
@@ -472,7 +472,7 @@ export default function KnowledgeManage() {
           <div className="border-t border-border">
             <button
               onClick={() => handleDeleteNode(ctxMenu.node.id)}
-              className="w-full text-left px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+              className="w-full text-left px-3 py-1.5 text-sm text-danger hover:bg-danger/5 transition-colors"
             >
               删除节点
             </button>
@@ -489,15 +489,15 @@ export default function KnowledgeManage() {
       {/* 编辑弹窗 */}
       {showEditModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          className="k-overlay"
           onClick={() => setShowEditModal(false)}
         >
           <div
-            className="bg-bg-base rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+            className="k-modal max-w-3xl k-scroll max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h3 className="font-bold text-sm">
+              <h3 className="k-modal-title">
                 {editMode === "create" ? "新建知识节点" : "编辑知识节点"}
                 {editParentId && (
                   <span className="text-text-secondary font-normal ml-2">
@@ -516,26 +516,26 @@ export default function KnowledgeManage() {
             <div className="p-5 space-y-4">
               {/* 标题 */}
               <div>
-                <label className="block text-sm text-text-secondary mb-1">节点标题</label>
+                <label className="k-label">节点标题</label>
                 <input
                   type="text"
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                   placeholder="输入知识节点标题"
                 />
               </div>
 
               {/* 富文本正文 */}
               <div>
-                <label className="block text-sm text-text-secondary mb-1">正文内容</label>
+                <label className="k-label">正文内容</label>
                 <RichEditor content={editContent} onChange={setEditContent} />
               </div>
 
               {/* 课件文件（仅编辑模式可上传） */}
               {editMode === "edit" && editNodeId && (
                 <div>
-                  <label className="block text-sm text-text-secondary mb-2">
+                  <label className="k-label">
                     课件文件 ({editFiles.length})
                   </label>
 
@@ -556,7 +556,7 @@ export default function KnowledgeManage() {
                           }}
                           className="flex items-center gap-2 px-3 py-2 bg-bg-layout rounded-md text-sm group cursor-pointer hover:bg-primary/5 transition-colors"
                         >
-                          <span className="px-1.5 py-0.5 bg-primary/10 text-primary rounded text-[11px] font-medium shrink-0 w-10 text-center">
+                          <span className="k-tag k-tag-primary shrink-0 w-10 justify-center">
                             {getFileIcon(f.file_type)}
                           </span>
                           <span className="truncate flex-1">{f.original_name}</span>
@@ -576,14 +576,14 @@ export default function KnowledgeManage() {
                               });
                               setPreviewApiPath(`/knowledge-files/${f.id}/preview`);
                             }}
-                            className="text-text-secondary hover:text-primary shrink-0 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="k-link shrink-0 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                             title="预览"
                           >
                             <Eye size={14} />
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDeleteFile(f.id); }}
-                            className="text-red-400 hover:text-red-600 shrink-0 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="k-link k-link-danger shrink-0 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                             title="删除"
                           >
                             <Trash2 size={14} />
@@ -626,24 +626,24 @@ export default function KnowledgeManage() {
               )}
             </div>
 
-            <div className="flex gap-3 px-5 py-4 border-t border-border">
+            <div className="k-modal-actions border-t border-border px-5 py-4">
               <button
                 onClick={() => handleSave(false)}
                 disabled={saving}
-                className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout"
+                className="k-btn k-btn-default"
               >
                 {editMode === "create" ? "保存草稿" : "保存"}
               </button>
               <button
                 onClick={() => handleSave(true)}
                 disabled={saving}
-                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light border border-primary"
+                className="k-btn k-btn-primary"
               >
                 保存并发布
               </button>
               <button
                 onClick={() => setShowEditModal(false)}
-                className="px-4 py-2 rounded-md text-sm text-text-secondary hover:text-text-base ml-auto border border-border"
+                className="k-btn k-btn-default"
               >
                 取消
               </button>

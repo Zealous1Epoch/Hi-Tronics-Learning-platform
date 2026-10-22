@@ -11,7 +11,7 @@ import {
   COMPANY_KEY,
   UNASSIGNED_KEY,
 } from "../../lib/orgTree";
-import { Plus, RefreshCw, Settings2, UserPlus } from "lucide-react";
+import { Plus, RefreshCw, Search, Settings2, UserPlus } from "lucide-react";
 
 const PAGE_SIZE = 50;
 
@@ -290,21 +290,17 @@ export default function DepartmentUserManage() {
   // ── 渲染辅助 ──
   const renderBadges = (row: OrgMemberRow) => {
     const acc = row.account;
-    if (!acc) return <span className="text-xs text-text-secondary">未开通</span>;
+    if (!acc) return <span className="k-tag">未开通</span>;
     return (
       <span className="inline-flex items-center gap-1.5 flex-wrap">
-        <span className={`inline-block px-2 py-0.5 rounded text-xs ${
-          acc.role === "admin" ? "bg-primary/10 text-primary" : "bg-border text-text-secondary"
-        }`}>
+        <span className={`k-tag ${acc.role === "admin" ? "k-tag-primary" : ""}`}>
           {acc.role === "admin" ? "管理员" : "学员"}
         </span>
-        <span className={`inline-block px-2 py-0.5 rounded text-xs ${
-          acc.status === "active" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-        }`}>
+        <span className={`k-tag ${acc.status === "active" ? "k-tag-success" : "k-tag-danger"}`}>
           {acc.status === "active" ? "正常" : "已禁用"}
         </span>
         {row.account_count > 1 && (
-          <span className="inline-block px-1.5 py-0.5 rounded text-xs bg-amber-50 text-amber-700" title="该工号存在多个账号，操作作用于最近创建的启用账号">
+          <span className="k-tag k-tag-warning" title="该工号存在多个账号，操作作用于最近创建的启用账号">
             ×{row.account_count} 账号
           </span>
         )}
@@ -318,7 +314,7 @@ export default function DepartmentUserManage() {
       return (
         <button
           onClick={() => openCreate(row)}
-          className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5"
+          className="k-link"
         >
           开通账号
         </button>
@@ -328,27 +324,25 @@ export default function DepartmentUserManage() {
       <>
         <button
           onClick={() => handleRoleChange(acc.user_id, acc.role === "admin" ? "student" : "admin")}
-          className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1"
+          className="k-link mr-3"
         >
           {acc.role === "admin" ? "降为学员" : "提升管理员"}
         </button>
         <button
           onClick={() => handleStatusChange(acc.user_id, acc.status === "active" ? "disabled" : "active")}
-          className={`text-xs border rounded px-1.5 py-0.5 hover:bg-red-50 mr-1 ${
-            acc.status === "active" ? "text-red-500 border-red-200" : "text-emerald-600 border-emerald-200"
-          }`}
+          className={`mr-3 ${acc.status === "active" ? "k-link k-link-danger" : "k-link"}`}
         >
           {acc.status === "active" ? "禁用" : "启用"}
         </button>
         <button
           onClick={() => openEdit(row)}
-          className="text-xs text-primary border border-primary rounded px-1.5 py-0.5 hover:bg-primary/5 mr-1"
+          className="k-link mr-3"
         >
           编辑
         </button>
         <button
           onClick={() => handleDelete(row)}
-          className="text-xs text-red-500 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50"
+          className="k-link k-link-danger"
         >
           删除
         </button>
@@ -362,12 +356,12 @@ export default function DepartmentUserManage() {
     <div className="flex flex-col h-[calc(100vh-96px)]">
       {/* 标题行：操作按钮统一放在页面右上角 */}
       <div className="flex items-center justify-between gap-3 pb-3 mb-4 border-b border-border shrink-0">
-        <h2 className="text-xl font-bold text-primary">用户管理</h2>
+        <h2 className="k-title text-[22px] text-primary">用户管理</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="px-3 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout disabled:opacity-50"
+            className="k-btn k-btn-default k-btn-sm disabled:opacity-50"
           >
             <RefreshCw size={12} className={`inline mr-1 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "同步中..." : "同步全员"}
@@ -380,20 +374,20 @@ export default function DepartmentUserManage() {
                 ? "为名册中所有未开通账号的员工创建无密码学生账号（仅可经 OA/企业微信登录），可重复执行"
                 : "请先同步全员名册"
             }
-            className="px-3 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout disabled:opacity-50"
+            className="k-btn k-btn-default k-btn-sm disabled:opacity-50"
           >
             <UserPlus size={12} className="inline mr-1" />
             {provisioning ? "开通中..." : "为全员开通账号"}
           </button>
           <button
             onClick={() => openCreate()}
-            className="px-3 py-1.5 text-xs bg-primary text-white rounded-md border border-primary"
+            className="k-btn k-btn-primary k-btn-sm"
           >
             <Plus size={14} className="inline mr-1" />新增用户
           </button>
           <button
             onClick={() => { setShowImport(true); setImportResult(null); setImportFile(null); setImportError(null); }}
-            className="px-3 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout"
+            className="k-btn k-btn-default k-btn-sm"
           >
             批量导入
           </button>
@@ -408,7 +402,7 @@ export default function DepartmentUserManage() {
           </div>
           <button
             onClick={() => setShowDeptModal(true)}
-            className="mt-2 shrink-0 w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs border border-border rounded-md text-text-secondary hover:bg-bg-layout"
+            className="mt-2 shrink-0 w-full k-btn k-btn-default k-btn-sm"
           >
             <Settings2 size={12} /> 平台部门管理
           </button>
@@ -429,17 +423,17 @@ export default function DepartmentUserManage() {
                 </button>
               </span>
             ))}
-            <span className="ml-2 text-xs text-text-secondary">
+            <span className="ml-2 text-xs text-text-meta">
               共 {activeNode?.total ?? 0} 人 · 直属 {activeNode?.direct ?? 0} 人 · 下级部门 {activeNode?.children.length ?? 0} 个
             </span>
           </div>
 
           {/* 工具条：仅保留筛选与搜索（操作按钮已移至页面右上角标题行） */}
-          <div className="flex items-center gap-2 mb-3 flex-wrap shrink-0">
+          <div className="k-filter-bar mb-3 shrink-0">
             <select
               value={scope}
               onChange={e => setScope(e.target.value as "subtree" | "direct")}
-              className="border border-border rounded-md px-2 py-1.5 text-xs"
+              className="k-ctl w-32"
               disabled={accFilter === "unlinked"}
             >
               <option value="subtree">含下级部门</option>
@@ -448,7 +442,7 @@ export default function DepartmentUserManage() {
             <select
               value={accFilter}
               onChange={e => setAccFilter(e.target.value as AccFilter)}
-              className="border border-border rounded-md px-2 py-1.5 text-xs"
+              className="k-ctl w-40"
             >
               <option value="all">全部人员</option>
               <option value="has">有平台账号</option>
@@ -457,18 +451,20 @@ export default function DepartmentUserManage() {
                 不在名册的账号{org?.meta ? `（${org.meta.unlinked_account_count}）` : ""}
               </option>
             </select>
-            <input
-              type="text"
-              placeholder="搜索姓名/工号/职位/部门..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 text-sm w-56"
-            />
+            <div className="k-search">
+              <Search size={14} />
+              <input
+                type="text"
+                placeholder="搜索姓名/工号/职位/部门..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
           </div>
 
           {syncMsg && (
             <div className={`mb-3 shrink-0 rounded-md border px-3 py-2 text-xs flex items-center justify-between ${
-              syncMsg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-700"
+              syncMsg.ok ? "border-success/40 bg-success/10 text-success" : "border-danger/40 bg-danger/10 text-danger"
             }`}>
               <span>{syncMsg.text}</span>
               <button onClick={() => setSyncMsg(null)} className="ml-3 opacity-60 hover:opacity-100">&times;</button>
@@ -476,31 +472,32 @@ export default function DepartmentUserManage() {
           )}
 
           {/* 表格卡片：flex-1 撑满剩余高度，内部滚动；表头 sticky 吸顶 */}
-          <div className="flex-1 min-h-0 overflow-y-auto bg-bg-base rounded-lg border border-border">
-            <table className="w-full text-sm table-fixed">
-              <thead className="sticky top-0 z-10 bg-bg-layout border-b border-border">
+          <div className="flex-1 min-h-0 k-table-wrap">
+            <div className="h-full k-scroll overflow-y-auto">
+            <table className="k-table k-table-sticky table-fixed">
+              <thead>
                 <tr>
-                  <th className="text-center px-4 py-3 font-medium text-text-secondary w-24">姓名</th>
-                  <th className="text-center px-3 py-3 font-medium text-text-secondary w-20">工号</th>
-                  <th className="text-center px-3 py-3 font-medium text-text-secondary w-32">职位</th>
-                  <th className="text-center px-3 py-3 font-medium text-text-secondary">部门</th>
-                  <th className="text-center px-3 py-3 font-medium text-text-secondary w-44">平台账号</th>
-                  <th className="text-center px-3 py-3 font-medium text-text-secondary w-64">操作</th>
+                  <th className="text-center w-24">姓名</th>
+                  <th className="text-center w-20">工号</th>
+                  <th className="text-center w-32">职位</th>
+                  <th className="text-center">部门</th>
+                  <th className="text-center w-44">平台账号</th>
+                  <th className="text-center w-64">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={6} className="text-center py-8 text-text-secondary">加载中...</td></tr>
+                  <tr><td colSpan={6} className="k-empty">加载中...</td></tr>
                 ) : loadError ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8">
-                      <p className="text-red-500 text-sm mb-2">名册加载失败：{loadError}</p>
-                      <button onClick={fetchOrg} className="text-xs text-primary border border-primary rounded px-2 py-1">重试</button>
+                    <td colSpan={6} className="k-empty">
+                      <p className="text-danger text-sm mb-2">名册加载失败：{loadError}</p>
+                      <button onClick={fetchOrg} className="k-btn k-btn-default k-btn-sm">重试</button>
                     </td>
                   </tr>
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-text-secondary">
+                    <td colSpan={6} className="k-empty">
                       {!org?.meta ? (
                         <span>
                           尚未同步全员名册，点击右上角「<button onClick={handleSync} className="text-primary underline mx-0.5" disabled={syncing}>同步全员</button>」从招聘系统拉取全公司人员
@@ -516,38 +513,39 @@ export default function DepartmentUserManage() {
                   pageRows.map(row => (
                     <tr
                       key={row.unlinked ? `u-${row.user_id}` : `m-${row.emp_id}`}
-                      className={`border-b border-border last:border-0 hover:bg-bg-layout/50 ${!row.account ? "opacity-80" : ""}`}
+                      className={!row.account ? "opacity-80" : ""}
                     >
-                      <td className="px-4 py-3 font-medium text-center truncate" title={row.name}>{row.name}</td>
-                      <td className="px-3 py-3 text-text-secondary text-center">{row.emp_id || row.employee_id || "-"}</td>
-                      <td className="px-3 py-3 text-center truncate" title={row.position || ""}>{row.position || "-"}</td>
-                      <td className="px-3 py-3 text-text-secondary text-center truncate" title={row.dept_path || row.department || ""}>
+                      <td className="k-strong text-center truncate" title={row.name}>{row.name}</td>
+                      <td className="k-muted text-center">{row.emp_id || row.employee_id || "-"}</td>
+                      <td className="text-center truncate" title={row.position || ""}>{row.position || "-"}</td>
+                      <td className="k-muted text-center truncate" title={row.dept_path || row.department || ""}>
                         {row.dept_path || row.department || (row.unlinked ? "（不在名册）" : "-")}
                       </td>
-                      <td className="px-3 py-3 text-center">{renderBadges(row)}</td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">{renderRowActions(row)}</td>
+                      <td className="text-center">{renderBadges(row)}</td>
+                      <td className="text-center whitespace-nowrap">{renderRowActions(row)}</td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* 前端分页 */}
           {!loading && rows.length > 0 && (
-            <div className="flex items-center justify-end gap-3 mt-3 shrink-0 text-xs text-text-secondary">
+            <div className="flex items-center justify-end gap-3 mt-3 shrink-0 text-xs text-text-meta">
               <span>共 {rows.length} 条 · 第 {page}/{totalPages} 页</span>
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="px-2 py-1 border border-border rounded disabled:opacity-40 hover:bg-bg-layout"
+                className="k-btn k-btn-default k-btn-sm disabled:opacity-40"
               >
                 上一页
               </button>
               <button
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                className="px-2 py-1 border border-border rounded disabled:opacity-40 hover:bg-bg-layout"
+                className="k-btn k-btn-default k-btn-sm disabled:opacity-40"
               >
                 下一页
               </button>
@@ -561,10 +559,10 @@ export default function DepartmentUserManage() {
 
       {/* 批量导入弹窗 */}
       {showImport && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowImport(false)}>
-          <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+        <div className="k-overlay" onClick={() => setShowImport(false)}>
+          <div className="k-modal max-w-lg k-scroll max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <h3 className="font-bold text-base">批量导入用户</h3>
+              <h3 className="k-modal-title">批量导入用户</h3>
               <button onClick={() => setShowImport(false)} className="text-text-secondary hover:text-text-base text-xl leading-none">&times;</button>
             </div>
             <div className="p-6 space-y-6">
@@ -596,7 +594,7 @@ export default function DepartmentUserManage() {
                         })
                         .catch(err => alert(err.message));
                     }}
-                    className="inline-flex items-center gap-1.5 text-xs text-primary border border-primary/30 rounded-md px-3 py-1.5 hover:bg-primary/5 transition-colors"
+                    className="k-btn k-btn-default k-btn-sm"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     下载导入模板
@@ -619,9 +617,9 @@ export default function DepartmentUserManage() {
                     />
                     {importFile ? (
                       <div className="flex items-center gap-2 justify-center">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-600"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-success"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                         <span className="text-sm font-medium text-text-base">{importFile.name}</span>
-                        <button onClick={(e) => { e.stopPropagation(); setImportFile(null); }} className="text-xs text-red-500 hover:underline ml-1">移除</button>
+                        <button onClick={(e) => { e.stopPropagation(); setImportFile(null); }} className="k-link k-link-danger ml-1">移除</button>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-1">
@@ -635,46 +633,46 @@ export default function DepartmentUserManage() {
               </div>
 
               {importError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                <div className="rounded-lg border border-danger/40 bg-danger/10 p-4 text-sm text-danger">
                   {importError}
                 </div>
               )}
 
               {importResult && (
                 <div className={`rounded-lg border p-4 text-sm ${
-                  importResult.errors.length > 0 ? "border-yellow-200 bg-yellow-50" : "border-emerald-200 bg-emerald-50"
+                  importResult.errors.length > 0 ? "border-warning/40 bg-warning/10" : "border-success/40 bg-success/10"
                 }`}>
                   <div className="flex items-center gap-2 mb-2">
-                    <span className={`font-medium ${importResult.errors.length > 0 ? "text-yellow-800" : "text-emerald-800"}`}>
+                    <span className={`font-medium ${importResult.errors.length > 0 ? "text-warning" : "text-success"}`}>
                       导入完成
                     </span>
                   </div>
                   <div className="flex gap-4 text-xs">
-                    <span className="text-text-secondary">成功 <span className="text-emerald-600 font-bold">{importResult.success_count}</span> 条</span>
+                    <span className="text-text-secondary">成功 <span className="text-success font-bold">{importResult.success_count}</span> 条</span>
                     <span className="text-text-secondary">跳过 <span className="text-text-secondary font-bold">{importResult.skip_count}</span> 条</span>
                     <span className="text-text-secondary">共 <span className="font-bold">{importResult.total}</span> 条</span>
                   </div>
                   {importResult.errors.length > 0 && (
                     <div className="mt-2 max-h-28 overflow-y-auto space-y-0.5">
                       {importResult.errors.map((err, i) => (
-                        <p key={i} className="text-red-500 text-xs">{err}</p>
+                        <p key={i} className="text-danger text-xs">{err}</p>
                       ))}
                     </div>
                   )}
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border bg-bg-layout/50">
+            <div className="k-modal-actions px-6 py-4 border-t border-border bg-bg-layout/50">
               <button
                 onClick={() => setShowImport(false)}
-                className="px-4 py-2 rounded-md text-sm border border-border text-text-secondary hover:text-text-base hover:bg-bg-base transition-colors"
+                className="k-btn k-btn-default"
               >
                 取消
               </button>
               <button
                 onClick={handleImport}
                 disabled={!importFile || importing}
-                className="px-5 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+                className="k-btn k-btn-primary disabled:opacity-50"
               >
                 {importing ? (
                   <>
@@ -692,84 +690,84 @@ export default function DepartmentUserManage() {
 
       {/* 新增用户弹窗 */}
       {showCreateUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowCreateUser(false)}>
-          <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="k-overlay" onClick={() => setShowCreateUser(false)}>
+          <div className="k-modal max-w-md k-scroll max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h3 className="font-bold text-sm">新增用户</h3>
+              <h3 className="k-modal-title">新增用户</h3>
               <button onClick={() => setShowCreateUser(false)} className="text-text-secondary hover:text-text-base">
                 <span className="text-lg">&times;</span>
               </button>
             </div>
             <div className="p-5 space-y-3">
               <div>
-                <label className="block text-sm text-text-secondary mb-1">姓名 *</label>
+                <label className="k-label">姓名 *</label>
                 <input
                   type="text" value={newUser.name}
                   onChange={e => setNewUser(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                   placeholder="输入姓名"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">用户名 *</label>
+                <label className="k-label">用户名 *</label>
                 <input
                   type="text" value={newUser.username}
                   onChange={e => setNewUser(prev => ({ ...prev, username: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                   placeholder="输入用户名"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">密码 *</label>
+                <label className="k-label">密码 *</label>
                 <input
                   type="password" value={newUser.password}
                   onChange={e => setNewUser(prev => ({ ...prev, password: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                   placeholder="至少 6 位"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">工号</label>
+                <label className="k-label">工号</label>
                 <input
                   type="text" value={newUser.employee_id}
                   onChange={e => setNewUser(prev => ({ ...prev, employee_id: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                   placeholder="输入工号（与全员名册对应，可自动关联账号状态）"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">部门路径</label>
+                <label className="k-label">部门路径</label>
                 <input
                   type="text" value={newUser.department}
                   onChange={e => setNewUser(prev => ({ ...prev, department: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                   placeholder="如：生产部-某某车间-某某班组（- 分隔，自动建部门树）"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">角色</label>
+                <label className="k-label">角色</label>
                 <select
                   value={newUser.role}
                   onChange={e => setNewUser(prev => ({ ...prev, role: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-select"
                 >
                   <option value="student">学员</option>
                   <option value="admin">管理员</option>
                 </select>
               </div>
-              {createError && <p className="text-xs text-red-500">{createError}</p>}
+              {createError && <p className="text-xs text-danger">{createError}</p>}
             </div>
-            <div className="flex gap-3 px-5 py-4 border-t border-border">
+            <div className="k-modal-actions border-t border-border px-5 py-4">
               <button
                 onClick={handleCreateUser}
                 disabled={creatingUser}
-                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light border border-primary disabled:opacity-50"
+                className="k-btn k-btn-primary disabled:opacity-50"
               >
                 {creatingUser ? "创建中..." : "创建"}
               </button>
               <button
                 onClick={() => setShowCreateUser(false)}
-                className="px-4 py-2 rounded-md text-sm border border-border text-text-secondary hover:text-text-base"
+                className="k-btn k-btn-default"
               >
                 取消
               </button>
@@ -780,79 +778,79 @@ export default function DepartmentUserManage() {
 
       {/* 编辑用户弹窗 */}
       {showEditUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => { setShowEditUser(false); setEditingUserId(null); }}>
-          <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="k-overlay" onClick={() => { setShowEditUser(false); setEditingUserId(null); }}>
+          <div className="k-modal max-w-md k-scroll max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h3 className="font-bold text-sm">编辑用户</h3>
+              <h3 className="k-modal-title">编辑用户</h3>
               <button onClick={() => { setShowEditUser(false); setEditingUserId(null); }} className="text-text-secondary hover:text-text-base">
                 <span className="text-lg">&times;</span>
               </button>
             </div>
             <div className="p-5 space-y-3">
               <div>
-                <label className="block text-sm text-text-secondary mb-1">姓名 *</label>
+                <label className="k-label">姓名 *</label>
                 <input
                   type="text" value={editForm.name}
                   onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">用户名 *</label>
+                <label className="k-label">用户名 *</label>
                 <input
                   type="text" value={editForm.username}
                   onChange={e => setEditForm(prev => ({ ...prev, username: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">新密码（留空不修改）</label>
+                <label className="k-label">新密码（留空不修改）</label>
                 <input
                   type="password" value={editForm.password}
                   onChange={e => setEditForm(prev => ({ ...prev, password: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                   placeholder="留空则不修改密码"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">工号</label>
+                <label className="k-label">工号</label>
                 <input
                   type="text" value={editForm.employee_id}
                   onChange={e => setEditForm(prev => ({ ...prev, employee_id: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">部门</label>
+                <label className="k-label">部门</label>
                 <input
                   type="text" value={editForm.department}
                   onChange={e => setEditForm(prev => ({ ...prev, department: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">角色</label>
+                <label className="k-label">角色</label>
                 <select
                   value={editForm.role}
                   onChange={e => setEditForm(prev => ({ ...prev, role: e.target.value }))}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-select"
                 >
                   <option value="student">学员</option>
                   <option value="admin">管理员</option>
                 </select>
               </div>
-              {editError && <p className="text-xs text-red-500">{editError}</p>}
+              {editError && <p className="text-xs text-danger">{editError}</p>}
             </div>
-            <div className="flex gap-3 px-5 py-4 border-t border-border">
+            <div className="k-modal-actions border-t border-border px-5 py-4">
               <button
                 onClick={handleEditUser}
-                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light border border-primary"
+                className="k-btn k-btn-primary"
               >
                 保存
               </button>
               <button
                 onClick={() => { setShowEditUser(false); setEditingUserId(null); }}
-                className="px-4 py-2 rounded-md text-sm border border-border text-text-secondary hover:text-text-base"
+                className="k-btn k-btn-default"
               >
                 取消
               </button>

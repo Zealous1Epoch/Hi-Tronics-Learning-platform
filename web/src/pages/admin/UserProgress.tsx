@@ -189,12 +189,12 @@ export default function UserProgress() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4">学员进度</h2>
+      <h2 className="k-title text-[22px] text-primary mb-4">学员进度</h2>
 
       {error && (
-        <div className="mb-3 bg-red-50 border border-red-200 text-red-700 rounded-md px-4 py-2 text-sm flex items-center justify-between">
+        <div className="mb-3 bg-danger/10 border border-danger/40 text-danger rounded-md px-4 py-2 text-sm flex items-center justify-between">
           <span>{error}</span>
-          <button onClick={() => { setError(""); fetchData(); }} className="text-primary hover:underline text-xs">重试</button>
+          <button onClick={() => { setError(""); fetchData(); }} className="k-link ml-2">重试</button>
         </div>
       )}
 
@@ -212,27 +212,27 @@ export default function UserProgress() {
         {/* 右侧 */}
         <div className="flex-1 min-w-0">
           {/* 顶部筛选栏 */}
-          <div className="flex items-center gap-3 mb-4">
+          <div className="k-filter-bar mb-4">
             <select
               value={courseFilter}
               onChange={(e) => setCourseFilter(e.target.value)}
-              className="border border-border rounded-md px-3 py-1.5 text-sm"
+              className="k-ctl w-40"
             >
               <option value="">全部课程</option>
               {courses.map((c) => (
                 <option key={c.id} value={c.id}>{c.title}</option>
               ))}
             </select>
-            <div className="relative flex-1 max-w-xs">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+            <div className="k-search">
+              <Search size={14} />
               <input
                 type="text"
                 placeholder="搜索学员..."
                 value={studentSearch}
                 onChange={(e) => setStudentSearch(e.target.value)}
-                className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
               />
             </div>
+            <span className="k-spacer" />
             <button
               onClick={() => {
                 const token = localStorage.getItem("lp_token");
@@ -253,7 +253,7 @@ export default function UserProgress() {
                   })
                   .catch(err => alert(err.message));
               }}
-              className="px-3 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout shrink-0"
+              className="k-btn k-btn-default k-btn-sm"
             >
               导出
             </button>
@@ -261,9 +261,9 @@ export default function UserProgress() {
 
           {/* 学员进度列表 */}
           {loading ? (
-            <p className="text-text-secondary">加载中...</p>
+            <p className="k-empty">加载中...</p>
           ) : filteredData.length === 0 ? (
-            <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
+            <div className="k-card k-empty">
               暂无学习记录
             </div>
           ) : (
@@ -277,13 +277,13 @@ export default function UserProgress() {
                 ).length;
 
                 return (
-                  <div key={user.user_id} className="bg-bg-base rounded-lg border border-border">
+                  <div key={user.user_id} className="k-card">
                     {/* 用户头部 */}
                     <div className="flex items-center gap-3 px-4 py-3">
                       <span className="font-bold text-sm">{user.user_name}</span>
                       <span className="text-xs text-text-secondary">{user.username.replace(/^wx_/i, '')}</span>
                       {user.department && (
-                        <span className="text-xs text-text-secondary bg-bg-layout px-1.5 py-0.5 rounded border border-border">
+                        <span className="k-tag k-tag-soft">
                           {user.department}
                         </span>
                       )}
@@ -305,7 +305,7 @@ export default function UserProgress() {
                             return next;
                           });
                         }}
-                        className="text-xs text-primary border border-primary rounded px-2 py-0.5 hover:bg-primary/5 shrink-0"
+                        className="k-btn k-btn-default k-btn-sm shrink-0"
                       >
                         {isUserExpanded ? "收起课程" : "查看课程"}
                       </button>
@@ -350,7 +350,7 @@ export default function UserProgress() {
                                   {c.has_exam ? (
                                     <div className="flex w-24 bg-bg-layout rounded-full h-1.5 overflow-hidden">
                                       <div className="bg-primary transition-all" style={{ width: `${cVideoPct}%` }} />
-                                      {cExamPct > 0 && <div className="bg-[#4CAF50] transition-all" style={{ width: `${cExamPct}%` }} />}
+                                      {cExamPct > 0 && <div className="bg-success transition-all" style={{ width: `${cExamPct}%` }} />}
                                     </div>
                                   ) : (
                                     <div className="w-24 bg-bg-layout rounded-full h-1.5">
@@ -364,14 +364,14 @@ export default function UserProgress() {
                                 </span>
                                 <button
                                   onClick={() => loadDetail(user.user_id, c.course_id)}
-                                  className="text-xs text-primary hover:underline shrink-0"
+                                  className="k-link shrink-0"
                                 >
                                   {isDetailOpen ? "收起" : "展开详情"}
                                 </button>
                               </div>
 
                               {isDetailOpen && (
-                                <div className="bg-bg-layout/30 rounded-md px-4 py-3 mb-2 border border-border/50">
+                                <div className="k-card px-4 py-3 mb-2">
                                   {loadingDetail ? (
                                     <p className="text-xs text-text-secondary">加载中...</p>
                                   ) : detailData ? (
@@ -404,7 +404,7 @@ export default function UserProgress() {
                                               <div key={i} className="flex items-center gap-3 text-xs">
                                                 <span className="text-text-secondary shrink-0">第{ex.attempt_number}次</span>
                                                 <span className="font-medium shrink-0">{ex.score}分</span>
-                                                <span className={`shrink-0 ${ex.passed ? "text-primary" : "text-red-500"}`}>
+                                                <span className={`shrink-0 ${ex.passed ? "text-primary" : "text-danger"}`}>
                                                   {ex.passed ? "通过" : "未通过"}
                                                 </span>
                                                 <span className="text-text-secondary truncate">

@@ -74,9 +74,7 @@ export default function OrgDeptTree({ tree, selectedKey, onSelect }: OrgDeptTree
     return (
       <div key={node.key}>
         <div
-          className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer hover:bg-bg-layout rounded text-sm ${
-            isSelected ? "bg-primary/10 text-primary font-medium" : ""
-          } ${node.kind === "unassigned" ? "text-text-secondary italic" : ""}`}
+          className={`k-tree-item ${isSelected ? "is-active" : ""} ${node.kind === "unassigned" ? "italic" : ""}`}
           style={{ paddingLeft: `${6 + depth * 14}px` }}
           onClick={() => onSelect(node.key)}
         >
@@ -95,11 +93,7 @@ export default function OrgDeptTree({ tree, selectedKey, onSelect }: OrgDeptTree
           )}
           {isCompany && <Building2 size={14} className="shrink-0" />}
           <span className="truncate">{node.label}</span>
-          <span
-            className={`ml-auto shrink-0 min-w-[2rem] text-right text-xs tabular-nums ${
-              isSelected ? "text-primary" : "text-text-secondary"
-            }`}
-          >
+          <span className="k-tree-count shrink-0 min-w-[2rem] text-right tabular-nums">
             {node.total}
           </span>
         </div>
@@ -110,19 +104,18 @@ export default function OrgDeptTree({ tree, selectedKey, onSelect }: OrgDeptTree
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      <div className="relative mb-2 shrink-0">
-        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+      <div className="k-search mb-2 shrink-0">
+        <Search size={14} />
         <input
           type="text"
           placeholder="搜索部门..."
           value={searchText}
           onChange={e => setSearchText(e.target.value)}
-          className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
         />
       </div>
-      <div className="bg-bg-base rounded-lg border border-border flex-1 min-h-0 overflow-y-auto py-1">
+      <div className="k-card flex-1 min-h-0 overflow-y-auto py-1">
         {filteredTree.children.length === 0 && searchText.trim() ? (
-          <p className="p-4 text-sm text-text-secondary text-center">无匹配部门</p>
+          <p className="k-empty">无匹配部门</p>
         ) : (
           renderNode(filteredTree, 0)
         )}

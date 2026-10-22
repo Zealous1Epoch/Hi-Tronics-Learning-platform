@@ -207,11 +207,7 @@ export default function CourseTree({
       <div key={node.id}>
         {override ?? (
         <div
-          className={`group flex items-center gap-1 py-1.5 px-2 cursor-pointer rounded text-sm transition-colors ${
-            isSelected
-              ? "bg-primary/10 text-primary font-medium"
-              : "hover:bg-bg-layout"
-          } ${isDragOver && enableDrag ? "border-t-2 border-primary" : ""}`}
+          className={`k-tree-item group ${isSelected ? "is-active" : ""} ${isDragOver && enableDrag ? "border-t-2 border-primary" : ""}`}
           style={{ paddingLeft: `${8 + depth * 16}px` }}
           onClick={() => {
             onSelect(node.id);
@@ -270,9 +266,7 @@ export default function CourseTree({
       {showHeader && (
         <div
           onClick={() => onSelect(null)}
-          className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
-            selectedId === null ? "bg-primary/10 text-primary" : "text-text-secondary hover:bg-bg-layout"
-          }`}
+          className={`k-tree-item mb-2 ${selectedId === null ? "is-active" : ""}`}
         >
           {rootLabel}
         </div>
@@ -280,24 +274,23 @@ export default function CourseTree({
 
       {/* 搜索框 */}
       {showSearch && (
-        <div className="relative mb-2">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+        <div className="k-search mb-2">
+          <Search size={14} />
           <input
             type="text"
             placeholder={placeholder}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
           />
         </div>
       )}
 
       {/* 树容器 */}
-      <div className={`bg-bg-base rounded-lg border border-border overflow-y-auto shrink-0 ${treeContainerClass}`}>
+      <div className={`k-card overflow-y-auto shrink-0 ${treeContainerClass}`}>
         {loading ? (
-          <p className="p-4 text-sm text-text-secondary">加载中...</p>
+          <p className="k-empty">加载中...</p>
         ) : filtered.length === 0 && !renderTreeFooter ? (
-          <div className="p-4 text-center text-sm text-text-secondary">{emptyText}</div>
+          <div className="k-empty">{emptyText}</div>
         ) : (
           <div className="py-1">
             {filtered.map((node) => renderNode(node, 0))}
@@ -310,7 +303,7 @@ export default function CourseTree({
       {clearFilterText && selectedId !== null && (
         <button
           onClick={() => onSelect(null)}
-          className="mt-2 w-full text-xs text-text-secondary hover:text-primary"
+          className="k-link mt-2 w-full"
         >
           {clearFilterText}
         </button>

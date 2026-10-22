@@ -211,15 +211,13 @@ export default function DepartmentTree({
                     setRenamingName("");
                   }
                 }}
-                className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
+                className="k-input flex-1"
                 autoFocus
               />
             </div>
           ) : (
             <div
-              className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer hover:bg-bg-layout rounded text-sm ${
-                isSelected ? "bg-primary/10 text-primary font-medium" : ""
-              }`}
+              className={`k-tree-item ${isSelected ? "is-active" : ""}`}
               style={{ paddingLeft: `${8 + depth * 16}px` }}
               onClick={() => {
                 handleSelect(node.id);
@@ -270,7 +268,7 @@ export default function DepartmentTree({
                   }
                 }}
                 placeholder="输入名称..."
-                className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
+                className="k-input flex-1"
                 autoFocus
               />
             </div>
@@ -285,36 +283,28 @@ export default function DepartmentTree({
       {/* 全部 / 全部学员 头部 */}
       <div
         onClick={() => onSelect(null)}
-        className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
-          selectedId === null
-            ? "bg-primary/10 text-primary"
-            : "text-text-secondary hover:bg-bg-layout"
-        }`}
+        className={`k-tree-item mb-2 ${selectedId === null ? "is-active" : ""}`}
       >
         {allLabel}
       </div>
 
       {/* 搜索框 */}
-      <div className="relative mb-2">
-        <Search
-          size={14}
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary"
-        />
+      <div className="k-search mb-2">
+        <Search size={14} />
         <input
           type="text"
           placeholder="搜索部门..."
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
         />
       </div>
 
       {/* 树容器 */}
-      <div className="bg-bg-base rounded-lg border border-border max-h-[calc(100vh-240px)] overflow-y-auto">
+      <div className="k-card max-h-[calc(100vh-240px)] overflow-y-auto">
         {loadingTree ? (
-          <p className="p-4 text-sm text-text-secondary">加载中...</p>
+          <p className="k-empty">加载中...</p>
         ) : filteredTree.length === 0 && !(editable && addingRoot) ? (
-          <div className="p-4 text-center text-sm text-text-secondary">
+          <div className="k-empty">
             {searchText
               ? "无匹配结果"
               : editable
@@ -348,7 +338,7 @@ export default function DepartmentTree({
                     }
                   }}
                   placeholder="输入名称..."
-                  className="flex-1 border border-border rounded-md px-2 py-1 text-sm"
+                  className="k-input flex-1"
                   autoFocus
                 />
               </div>
@@ -365,7 +355,7 @@ export default function DepartmentTree({
               setAddingRoot(true);
               setNewRootName("");
             }}
-            className="mt-2 w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-primary border border-dashed border-primary/30 rounded-md hover:bg-primary/5"
+            className="mt-2 w-full k-btn k-btn-default k-btn-sm"
           >
             <Plus size={12} /> 添加部门
           </button>
@@ -373,7 +363,7 @@ export default function DepartmentTree({
             <div className="mt-1.5 space-y-1.5">
               <button
                 onClick={startAddChild}
-                className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-light border border-primary"
+                className="w-full k-btn k-btn-primary k-btn-sm"
               >
                 <Plus size={12} /> 添加车间
               </button>
@@ -384,13 +374,13 @@ export default function DepartmentTree({
                     setRenamingId(selectedId);
                     setRenamingName(node?.name || "");
                   }}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-border rounded-md hover:bg-bg-layout"
+                  className="flex-1 k-btn k-btn-default k-btn-sm"
                 >
                   <Pencil size={12} /> 改名
                 </button>
                 <button
                   onClick={() => handleDelete(selectedId)}
-                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs border border-red-200 text-red-500 rounded-md hover:bg-red-50"
+                  className="flex-1 k-btn k-btn-danger k-btn-sm"
                 >
                   <Trash2 size={12} /> 删除
                 </button>
@@ -404,7 +394,7 @@ export default function DepartmentTree({
       {!editable && selectedId && (
         <button
           onClick={() => onSelect(null)}
-          className="mt-2 w-full text-xs text-text-secondary hover:text-primary"
+          className="k-link mt-2 w-full"
         >
           清除筛选
         </button>

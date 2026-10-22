@@ -67,10 +67,10 @@ export default function ImportQuestionsModal({ onClose, onDone, categoryId }: Pr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+    <div className="k-overlay" onClick={onClose}>
+      <div className="k-modal max-w-lg p-0! k-scroll max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h3 className="font-bold text-base">批量导入试题</h3>
+          <h3 className="k-modal-title mb-0!">批量导入试题</h3>
           <button onClick={onClose} className="text-text-secondary hover:text-text-base text-xl leading-none">&times;</button>
         </div>
         <div className="p-6 space-y-6">
@@ -82,7 +82,7 @@ export default function ImportQuestionsModal({ onClose, onDone, categoryId }: Pr
               <p className="text-xs text-text-secondary mb-2">按模板格式填写试题信息</p>
               <button
                 onClick={handleDownloadTemplate}
-                className="inline-flex items-center gap-1.5 text-xs text-primary border border-primary/30 rounded-md px-3 py-1.5 hover:bg-primary/5 transition-colors"
+                className="k-btn k-btn-default k-btn-sm"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 下载导入模板
@@ -113,7 +113,7 @@ export default function ImportQuestionsModal({ onClose, onDone, categoryId }: Pr
                   <div className="flex items-center gap-2 justify-center">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-600"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                     <span className="text-sm font-medium text-text-base">{importFile.name}</span>
-                    <button onClick={(e) => { e.stopPropagation(); setImportFile(null); }} className="text-xs text-red-500 hover:underline ml-1">移除</button>
+                    <button onClick={(e) => { e.stopPropagation(); setImportFile(null); }} className="k-link k-link-danger hover:underline ml-1">移除</button>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-1">
@@ -159,14 +159,14 @@ export default function ImportQuestionsModal({ onClose, onDone, categoryId }: Pr
         <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border bg-bg-layout/50">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-md text-sm border border-border text-text-secondary hover:text-text-base hover:bg-bg-base transition-colors"
+            className="k-btn k-btn-default"
           >
             取消
           </button>
           <button
             onClick={handleImport}
             disabled={!importFile || importing}
-            className="px-5 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+            className="k-btn k-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {importing ? (
               <>

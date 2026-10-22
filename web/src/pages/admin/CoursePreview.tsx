@@ -86,8 +86,8 @@ export default function CoursePreview() {
     }
   }, [activeVideoIdx]);
 
-  if (loading) return <p className="text-text-secondary">加载中...</p>;
-  if (!course) return <p className="text-text-secondary">课程不存在</p>;
+  if (loading) return <p className="k-empty">加载中...</p>;
+  if (!course) return <p className="k-empty">课程不存在</p>;
 
   const materials = course.materials || [];
   // 课件与视频同为课程内容：未手动点开课件时，无视频课程默认打开第一个课件
@@ -114,7 +114,7 @@ export default function CoursePreview() {
         <div className="flex items-center gap-2">
           <span className="shrink-0 w-4 flex items-center justify-center">
             {isActive ? (
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
             ) : (
               <span className="text-text-secondary/50 text-xs">{idx + 1}</span>
             )}
@@ -136,18 +136,18 @@ export default function CoursePreview() {
       <div className="flex items-center gap-3 mb-4">
         <button
           onClick={() => navigate("/admin/courses")}
-          className="flex items-center gap-1 text-sm text-text-secondary hover:text-primary transition-colors"
+          className="k-btn k-btn-ghost"
         >
           <ArrowLeft size={16} /> 返回课程管理
         </button>
-        <h2 className="text-xl font-bold text-primary">{course.title}</h2>
+        <h2 className="k-title text-[22px] text-primary">{course.title}</h2>
       </div>
 
       <div className="flex gap-4">
         {/* 播放器 */}
         <div className="flex-1 min-w-0">
           {/* 课件模式：卡片撑到视口底部，阅读器吃满高度（视频模式保持自适应） */}
-          <div className={`bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden ${activeMaterial ? "h-[calc(100vh-160px)]" : ""}`}>
+          <div className={`k-card overflow-hidden ${activeMaterial ? "h-[calc(100vh-160px)]" : ""}`}>
             {activeMaterial ? (
               <MaterialViewer key={activeMaterial.id} material={activeMaterial} />
             ) : activeVideo && playUrl ? (
@@ -162,13 +162,13 @@ export default function CoursePreview() {
                 加载视频中...
               </div>
             ) : (
-              <div className="p-12 text-center text-text-secondary">
+              <div className="k-empty">
                 {allVideos.length === 0 && materials.length === 0 ? "暂无内容" : "暂无视频"}
               </div>
             )}
             {activeVideo && (
               <div className="px-4 py-2.5 border-t border-border flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                <span className="w-2 h-2 rounded-full bg-success flex-shrink-0" />
                 <span className="text-sm font-medium truncate flex-1">{activeVideo.title}</span>
                 {activeVideo.duration && (
                   <span className="text-xs text-text-secondary shrink-0">
@@ -187,7 +187,7 @@ export default function CoursePreview() {
                 href={`/learning-platform/admin/exams/${course.exam_id}/paper`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block px-6 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
+                className="k-btn k-btn-primary"
               >
                 查看试卷
               </a>
@@ -197,7 +197,7 @@ export default function CoursePreview() {
 
         {/* 章节列表 */}
         <div className="w-64 flex-shrink-0">
-          <div className="bg-bg-base rounded-lg border border-border" ref={chapterListRef}>
+          <div className="k-card" ref={chapterListRef}>
             <div className="px-4 py-3 text-sm font-bold text-primary/80">章节列表</div>
             <div className="overflow-y-auto max-h-[calc(100vh-360px)]">
               {(course.chapters || []).length === 0 && (course.videos || []).length === 0 && materials.length === 0 ? (

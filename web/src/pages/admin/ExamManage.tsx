@@ -26,8 +26,8 @@ interface CopyPaperData {
 
 const STATUS_LABELS: Record<string, string> = { draft: "草稿", published: "已发布", ended: "已结束" };
 const STATUS_COLORS: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-600", published: "bg-emerald-50 text-emerald-700",
-  ended: "bg-red-100 text-red-700",
+  draft: "k-tag", published: "k-tag k-tag-success",
+  ended: "k-tag k-tag-danger",
 };
 
 export default function ExamManage() {
@@ -214,11 +214,11 @@ export default function ExamManage() {
     }
   };
 
-  if (loading) return <p className="text-text-secondary">加载中...</p>;
+  if (loading) return <p className="k-empty">加载中...</p>;
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4">考试管理</h2>
+      <h2 className="k-title text-[22px] text-primary mb-4">考试管理</h2>
 
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧分类树 */}
@@ -243,52 +243,52 @@ export default function ExamManage() {
             <span className="text-sm text-text-secondary">
               {selectedCategoryId ? getCategoryPath(selectedCategoryId, flatCategories) : "全部考试"}
             </span>
-            <button onClick={openCreate} className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light">
+            <button onClick={openCreate} className="k-btn k-btn-primary">
               新增考试
             </button>
           </div>
 
           {filteredExams.length === 0 ? (
-            <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
+            <div className="k-card k-empty">
               暂无考试
             </div>
           ) : (
-            <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-sm table-fixed">
-                <thead className="border-b border-border/40">
+            <div className="k-table-wrap overflow-hidden">
+              <table className="k-table table-fixed">
+                <thead>
                   <tr>
-                    <th className="text-center px-4 py-2.5 font-normal text-text-secondary/70 text-xs">考试名称</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">组卷</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-28">时长/分数</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">状态</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-16">参考</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-64">操作</th>
+                    <th className="text-center">考试名称</th>
+                    <th className="text-center w-20">组卷</th>
+                    <th className="text-center w-28">时长/分数</th>
+                    <th className="text-center w-20">状态</th>
+                    <th className="text-center w-16">参考</th>
+                    <th className="text-center w-64">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredExams.map((e) => (
-                    <tr key={e.id} className="border-b border-border/40 last:border-0 hover:bg-bg-layout/50">
-                      <td className="px-4 py-3 font-medium truncate text-center">{e.title}</td>
-                      <td className="px-3 py-3 text-text-secondary whitespace-nowrap text-center">{e.paper_type === "fixed" ? "固定" : "随机"}</td>
-                      <td className="px-3 py-3 text-text-secondary whitespace-nowrap text-center">{e.duration}分钟 / {e.total_score}分</td>
-                      <td className="px-3 py-3 whitespace-nowrap text-center">
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_COLORS[e.status]}`}>{STATUS_LABELS[e.status]}</span>
+                    <tr key={e.id}>
+                      <td className="k-strong truncate text-center">{e.title}</td>
+                      <td className="k-muted whitespace-nowrap text-center">{e.paper_type === "fixed" ? "固定" : "随机"}</td>
+                      <td className="k-muted whitespace-nowrap text-center">{e.duration}分钟 / {e.total_score}分</td>
+                      <td className="whitespace-nowrap text-center">
+                        <span className={STATUS_COLORS[e.status]}>{STATUS_LABELS[e.status]}</span>
                       </td>
-                      <td className="px-3 py-3 text-center text-text-secondary whitespace-nowrap text-xs">
+                      <td className="text-center k-muted whitespace-nowrap">
                         {e.submitted_user_count ?? 0}/{e.assigned_count ?? 0}
                       </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">
+                      <td className="text-center whitespace-nowrap">
                         {e.status === "draft" && (
-                          <button onClick={() => handlePublish(e.id)} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">发布</button>
+                          <button onClick={() => handlePublish(e.id)} className="k-link mr-3">发布</button>
                         )}
-                        <Link to={`/admin/exams/${e.id}/results`} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">成绩</Link>
-                        <Link to={`/admin/exams/${e.id}/paper`} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">查看组卷</Link>
-                        <button onClick={() => openEdit(e)} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">编辑</button>
+                        <Link to={`/admin/exams/${e.id}/results`} className="k-link mr-3">成绩</Link>
+                        <Link to={`/admin/exams/${e.id}/paper`} className="k-link mr-3">查看组卷</Link>
+                        <button onClick={() => openEdit(e)} className="k-link mr-3">编辑</button>
                         <button onClick={() => handleCopy(e)} disabled={copying === e.id}
-                          className="text-xs text-text-secondary hover:text-primary transition-colors mr-3 disabled:opacity-40">
+                          className="k-link mr-3 disabled:opacity-40">
                           {copying === e.id ? "读取中..." : "复制"}
                         </button>
-                        <button onClick={() => handleDelete(e.id)} className="text-xs text-text-secondary/60 hover:text-red-500 transition-colors">删除</button>
+                        <button onClick={() => handleDelete(e.id)} className="k-link k-link-danger">删除</button>
                       </td>
                     </tr>
                   ))}
@@ -310,37 +310,37 @@ export default function ExamManage() {
 
       {/* 编辑考试弹窗 */}
       {showModal && editingId && (
-        <div className="fixed inset-0 bg-black/30 flex items-start justify-center pt-20 z-50" onClick={() => setShowModal(false)}>
-          <div className="bg-bg-base rounded-lg shadow-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-bold text-lg mb-4">编辑考试</h3>
+        <div className="k-overlay" onClick={() => setShowModal(false)}>
+          <div className="k-modal w-full max-w-md max-h-[85vh] overflow-y-auto k-scroll" onClick={(e) => e.stopPropagation()}>
+            <h3 className="k-modal-title">编辑考试</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-text-secondary mb-1">考试名称</label>
+                <label className="k-label">考试名称</label>
                 <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                  className="k-input" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-text-secondary mb-1">时长(分钟)</label>
+                  <label className="k-label">时长(分钟)</label>
                   <input type="number" value={editDuration || ""} onChange={(e) => setEditDuration(parseInt(e.target.value) || 0)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                    className="k-input" />
                 </div>
                 <div>
-                  <label className="block text-xs text-text-secondary mb-1">及格分</label>
+                  <label className="k-label">及格分</label>
                   <input type="number" value={editPassScore || ""} onChange={(e) => setEditPassScore(parseInt(e.target.value) || 0)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                    className="k-input" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-text-secondary mb-1">最大重考次数</label>
+                  <label className="k-label">最大重考次数</label>
                   <input type="number" value={editMaxAttempts} onChange={(e) => setEditMaxAttempts(e.target.value)}
-                    placeholder="不限" className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                    placeholder="不限" className="k-input" />
                 </div>
                 <div>
-                  <label className="block text-xs text-text-secondary mb-1">状态</label>
+                  <label className="k-label">状态</label>
                   <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm">
+                    className="k-select">
                     <option value="draft">草稿</option>
                     <option value="published">已发布</option>
                     <option value="ended">已结束</option>
@@ -349,21 +349,21 @@ export default function ExamManage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-text-secondary mb-1">开放时间（留空=立即开放）</label>
+                  <label className="k-label">开放时间（留空=立即开放）</label>
                   <input type="datetime-local" value={editStartTime} onChange={(e) => setEditStartTime(e.target.value)}
-                    className="w-full min-w-0 border border-border rounded-md px-3 py-2 text-sm" />
+                    className="k-input min-w-0" />
                 </div>
                 <div>
-                  <label className="block text-xs text-text-secondary mb-1">截止时间（留空=不限）</label>
+                  <label className="k-label">截止时间（留空=不限）</label>
                   <input type="datetime-local" value={editEndTime} onChange={(e) => setEditEndTime(e.target.value)}
-                    className="w-full min-w-0 border border-border rounded-md px-3 py-2 text-sm" />
+                    className="k-input min-w-0" />
                 </div>
               </div>
             </div>
-            <div className="flex gap-3 justify-end mt-6">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">取消</button>
+            <div className="k-modal-actions">
+              <button onClick={() => setShowModal(false)} className="k-btn k-btn-default">取消</button>
               <button onClick={handleEditSave} disabled={saving}
-                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light disabled:opacity-50">
+                className="k-btn k-btn-primary disabled:opacity-50">
                 {saving ? "保存中..." : "保存"}
               </button>
             </div>

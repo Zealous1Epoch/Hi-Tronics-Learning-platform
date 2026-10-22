@@ -72,11 +72,11 @@ export default function PaperManage() {
     return random;
   };
 
-  if (loading) return <p className="text-text-secondary">加载中...</p>;
+  if (loading) return <p className="k-empty">加载中...</p>;
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4">试卷管理</h2>
+      <h2 className="k-title text-[22px] text-primary mb-4">试卷管理</h2>
 
       <div className="flex gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧分类树 */}
@@ -102,52 +102,50 @@ export default function PaperManage() {
             </span>
             <button
               onClick={openCreate}
-              className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
+              className="k-btn k-btn-primary"
             >
               <Plus size={14} className="inline mr-1" />新增试卷
             </button>
           </div>
 
           {filteredPapers.length === 0 ? (
-            <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
+            <div className="k-card k-empty">
               暂无试卷
             </div>
           ) : (
-            <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
-              <table className="w-full text-sm table-fixed">
-                <thead className="border-b border-border/40">
+            <div className="k-table-wrap overflow-hidden">
+              <table className="k-table table-fixed">
+                <thead>
                   <tr>
-                    <th className="text-center px-4 py-2.5 font-normal text-text-secondary/70 text-xs">试卷名称</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-16">类型</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-40">类别</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">题目数</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">总分</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">状态</th>
-                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-32">操作</th>
+                    <th className="text-center">试卷名称</th>
+                    <th className="text-center w-16">类型</th>
+                    <th className="text-center w-40">类别</th>
+                    <th className="text-center w-20">题目数</th>
+                    <th className="text-center w-20">总分</th>
+                    <th className="text-center w-20">状态</th>
+                    <th className="text-center w-32">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredPapers.map(p => (
-                    <tr key={p.id} className="border-b border-border/40 last:border-0 hover:bg-bg-layout/50">
-                      <td className="px-4 py-3 truncate font-medium text-center">{p.title}</td>
-                      <td className="px-3 py-3 text-center text-text-secondary whitespace-nowrap">
+                    <tr key={p.id}>
+                      <td className="k-strong truncate text-center">{p.title}</td>
+                      <td className="text-center whitespace-nowrap k-muted">
                         {p.paper_type === "fixed" ? "固定" : "随机"}
                       </td>
-                      <td className="px-3 py-3 text-center text-text-secondary whitespace-nowrap truncate">
+                      <td className="text-center whitespace-nowrap truncate k-muted">
                         {getCategoryPath(p.category_id, flatCategories)}
                       </td>
-                      <td className="px-3 py-3 text-center text-text-secondary whitespace-nowrap">{getQuestionCount(p)}</td>
-                      <td className="px-3 py-3 text-center text-text-secondary whitespace-nowrap">{p.total_score}</td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          p.status === "published" ? "bg-emerald-50 text-emerald-700" : "bg-bg-layout text-text-secondary"
-                        }`}>
+                      <td className="text-center whitespace-nowrap k-muted">{getQuestionCount(p)}</td>
+                      <td className="text-center whitespace-nowrap k-muted">{p.total_score}</td>
+                      <td className="text-center whitespace-nowrap">
+                        <span className={p.status === "published" ? "k-tag k-tag-success" : "k-tag"}>
                           {p.status === "published" ? "已发布" : "草稿"}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-center whitespace-nowrap">
-                        <Link to={`/admin/papers/${p.id}`} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">编辑</Link>
-                        <button onClick={() => handleDeletePaper(p.id)} className="text-xs text-text-secondary/60 hover:text-red-500 transition-colors">删除</button>
+                      <td className="text-center whitespace-nowrap">
+                        <Link to={`/admin/papers/${p.id}`} className="k-link mr-3">编辑</Link>
+                        <button onClick={() => handleDeletePaper(p.id)} className="k-link k-link-danger">删除</button>
                       </td>
                     </tr>
                   ))}

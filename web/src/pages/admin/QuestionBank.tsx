@@ -65,7 +65,7 @@ export default function QuestionBank() {
     // 溢出只发生在试题列表内部滚动条，整页不再跟随滚动
     <div className="flex flex-col h-[calc(100vh-96px)]">
           {/* KPI 面板：题库统计 + 操作入口，通栏横贯页面左右 */}
-          <div className="bg-bg-layout/50 rounded-lg p-4 mb-4 shrink-0">
+          <div className="k-card p-4 mb-4 shrink-0">
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <div className="flex items-baseline gap-2 min-w-0">
                 {/* 页面标题并入 KPI 头部，省去独立标题行的留白 */}
@@ -80,34 +80,30 @@ export default function QuestionBank() {
                 )}
               </div>
               <div className="flex gap-2 shrink-0">
-                <button onClick={() => qmRef.current?.handleExport()} className="px-3 py-1.5 border border-border rounded-md text-xs hover:bg-bg-layout">导出</button>
-                <button onClick={() => qmRef.current?.openImport()} className="px-3 py-1.5 border border-border rounded-md text-xs hover:bg-bg-layout">批量导入</button>
+                <button onClick={() => qmRef.current?.handleExport()} className="k-btn k-btn-default k-btn-sm">导出</button>
+                <button onClick={() => qmRef.current?.openImport()} className="k-btn k-btn-default k-btn-sm">批量导入</button>
                 <button
                   onClick={() => aiEnabled && qmRef.current?.openAI()}
                   disabled={!aiEnabled}
                   title={aiEnabled ? "按主题关键词 AI 生成题目草稿，人工审核后入库" : "AI 功能未启用：服务端未配置 LLM_API_KEY"}
-                  className={`px-3 py-1.5 border border-border rounded-md text-xs ${aiEnabled ? "hover:bg-bg-layout" : "opacity-50 cursor-not-allowed"}`}
+                  className="k-btn k-btn-default k-btn-sm"
                 >AI 出题</button>
-                <button onClick={() => qmRef.current?.openCreate()} className="px-3.5 py-1.5 bg-primary text-white rounded-md text-xs hover:bg-primary-light">新增试题</button>
+                <button onClick={() => qmRef.current?.openCreate()} className="k-btn k-btn-primary k-btn-sm">新增试题</button>
               </div>
             </div>
             <div className="grid grid-cols-6 gap-2">
               <button onClick={() => setKpiType("")}
                 title="清除题型筛选"
-                className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded border text-xs transition-colors cursor-pointer ${
-                  kpiType === "" ? "border-primary bg-primary/5" : "border-transparent bg-bg-base/80 hover:bg-bg-base"
-                }`}>
-                <span className="text-text-secondary">总题数</span>
-                <span className="font-bold text-base text-text-base">{stats?.total_count ?? "-"}</span>
+                className={`k-stat-card ${kpiType === "" ? "is-active" : ""}`}>
+                <span className="k-stat-label">总题数</span>
+                <span className="k-stat-value">{stats?.total_count ?? "-"}</span>
               </button>
               {TYPES.map((type) => (
                 <button key={type} onClick={() => toggleType(type)}
                   title={kpiType === type ? "取消筛选" : `只看${TYPE_LABELS[type]}`}
-                  className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded border text-xs transition-colors cursor-pointer ${
-                    kpiType === type ? "border-primary bg-primary/5" : "border-transparent bg-bg-base/80 hover:bg-bg-base"
-                  }`}>
-                  <span className="text-text-secondary">{TYPE_LABELS[type]}</span>
-                  <span className="font-bold text-base text-text-base">{stats ? stats[type] : "-"}</span>
+                  className={`k-stat-card ${kpiType === type ? "is-active" : ""}`}>
+                  <span className="k-stat-label">{TYPE_LABELS[type]}</span>
+                  <span className="k-stat-value">{stats ? stats[type] : "-"}</span>
                 </button>
               ))}
             </div>
@@ -130,7 +126,7 @@ export default function QuestionBank() {
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
           {/* 试题列表 */}
           {stats && !stats.is_leaf && selectedId !== null ? (
-            <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
+            <div className="k-card k-empty">
               该题库为容器节点（题数统计已含子题库），请选择子题库管理试题
             </div>
           ) : (

@@ -10,6 +10,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Search } from "lucide-react";
 import { api, type OrgMemberRow, type OrgMembersResponse } from "../../lib/api";
 import { notify } from "../../components/ui/Toast";
 import QuestionPickerPanel, { type PickedQuestion } from "../../components/exam/QuestionPickerPanel";
@@ -233,12 +234,12 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-start justify-center pt-12 z-50" onClick={onClose}>
-      <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-5xl min-h-[62vh] max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+    <div className="k-overlay" onClick={onClose}>
+      <div className="k-modal p-0! w-full max-w-5xl min-h-[62vh] max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* 头部 + 步骤条 */}
         <div className="px-6 pt-4 pb-3 border-b border-border">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-lg">
+            <h3 className="k-modal-title mb-0!">
               {copyFrom ? <>复制考试 <span className="ml-2 text-sm font-normal text-text-secondary">基于「{copyFrom.title}」另建一场，题目与规则已预填</span></> : "一键创建考试"}
             </h3>
             <button onClick={onClose} className="text-text-secondary hover:text-text-base text-xl leading-none">&times;</button>
@@ -259,36 +260,36 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
         </div>
 
         {/* 内容区 */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto k-scroll px-6 py-4">
           {/* ① 基本信息 */}
           {step === 0 && (
             <div className="max-w-lg space-y-4">
               <div>
-                <label className="block text-sm text-text-secondary mb-1">考试名称 <span className="text-red-500">*</span></label>
+                <label className="k-label">考试名称 <span className="text-danger">*</span></label>
                 <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
                   placeholder="如：10月安全生产考试" autoFocus
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                  className="k-input" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">考试时长（分钟）</label>
+                  <label className="k-label">考试时长（分钟）</label>
                   <input type="number" min={1} value={duration || ""} onChange={(e) => setDuration(parseInt(e.target.value) || 0)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                    className="k-input" />
                 </div>
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">最大考试次数</label>
+                  <label className="k-label">最大考试次数</label>
                   <input type="number" min={1} value={maxAttempts} onChange={(e) => setMaxAttempts(e.target.value)}
-                    placeholder="不限" className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                    placeholder="不限" className="k-input" />
                 </div>
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">开放时间（留空=立即开放）</label>
+                  <label className="k-label">开放时间（留空=立即开放）</label>
                   <input type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                    className="k-input min-w-0" />
                 </div>
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">截止时间（留空=不限）</label>
+                  <label className="k-label">截止时间（留空=不限）</label>
                   <input type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)}
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                    className="k-input min-w-0" />
                 </div>
               </div>
               <p className="text-xs text-text-secondary">
@@ -312,15 +313,15 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
                     onClick={() => aiEnabled && setShowAI(true)}
                     disabled={!aiEnabled}
                     title={aiEnabled ? "按主题关键词 AI 生成题目草稿，人工审核后入库" : "AI 功能未启用：服务端未配置 LLM_API_KEY"}
-                    className={`px-2.5 py-1 text-xs border border-border rounded-md ${aiEnabled ? "hover:bg-bg-layout" : "opacity-50 cursor-not-allowed"}`}
+                    className="k-btn k-btn-default k-btn-sm"
                   >
                     AI 出题
                   </button>
                   <button onClick={() => setShowImport(true)}
-                    className="px-2.5 py-1 text-xs border border-border rounded-md hover:bg-bg-layout">
+                    className="k-btn k-btn-default k-btn-sm">
                     Excel 导入
                   </button>
-                  <Link to="/admin/question-bank" className="text-xs text-text-secondary hover:text-primary">
+                  <Link to="/admin/question-bank" className="k-link">
                     单题新增 →
                   </Link>
                 </div>
@@ -342,10 +343,12 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
               )}
               {tab === "paper" && (
                 <div>
-                  <input type="text" placeholder="搜索试卷..." value={paperSearch} onChange={(e) => setPaperSearch(e.target.value)}
-                    className="w-64 border border-border rounded-md px-3 py-1.5 text-sm mb-3" />
+                  <div className="k-search w-64 mb-3">
+                    <Search size={14} />
+                    <input type="text" placeholder="搜索试卷..." value={paperSearch} onChange={(e) => setPaperSearch(e.target.value)} />
+                  </div>
                   {filteredPapers.length === 0 ? (
-                    <p className="text-sm text-text-secondary py-8 text-center">
+                    <p className="k-empty">
                       {papers.length === 0 ? "暂无已发布试卷，可先用左侧前两个方式从题库组卷" : "无匹配试卷"}
                     </p>
                   ) : (
@@ -373,7 +376,7 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
                   <span>{picked.filter((q) => q.score <= 0).length} 题未设分值，将按目标总分自动平摊：</span>
                   <input type="number" min={picked.length} value={splitTarget || ""}
                     onChange={(e) => setSplitTarget(parseInt(e.target.value) || 0)}
-                    className="w-16 border border-border rounded-md px-2 py-1 text-center" />
+                    className="k-ctl w-16 text-center" />
                   <span>分（不少于题数 {picked.length}）</span>
                 </div>
               )}
@@ -385,15 +388,15 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
             <div className="max-w-2xl space-y-4">
               <div className="max-w-lg space-y-4">
                 <div>
-                  <label className="block text-sm text-text-secondary mb-1">关联课程 <span className="text-red-500">*</span></label>
+                  <label className="k-label">关联课程 <span className="text-danger">*</span></label>
                   {courses.length === 0 ? (
-                    <p className="text-sm text-red-500">
+                    <p className="text-sm text-danger">
                       还没有课程。请先在 <Link to="/admin/courses" className="underline">课程管理</Link> 创建课程。
                     </p>
                   ) : (
                     <>
                       <select value={courseId} onChange={(e) => setCourseId(e.target.value)}
-                        className="w-full border border-border rounded-md px-3 py-2 text-sm">
+                        className="k-select">
                         <option value="">选择课程</option>
                         {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
                       </select>
@@ -404,7 +407,7 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
                     </>
                   )}
                   {boundExam && (
-                    <p className="text-xs text-amber-600 mt-1.5">
+                    <p className="text-xs text-warning mt-1.5">
                       ⚠ 该课程当前绑定考试《{boundExam.title}》，创建新考试后它将自动置为「已结束」。
                     </p>
                   )}
@@ -416,11 +419,11 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
                     <p className="font-bold">{total} 分</p>
                   </div>
                   <div>
-                    <label className="block text-xs text-text-secondary mb-1">及格分</label>
+                    <label className="k-label">及格分</label>
                     <input type="number" min={1} max={total || undefined} value={passInput}
                       onChange={(e) => setPassInput(e.target.value)}
                       placeholder={`默认 ${passDefault}`}
-                      className="w-full border border-border rounded-md px-2 py-1.5 text-sm" />
+                      className="k-input" />
                   </div>
                   <div className="border border-border rounded-md px-3 py-2 bg-bg-layout/50">
                     <p className="text-xs text-text-secondary">内容来源</p>
@@ -441,13 +444,13 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
                 </label>
                 {saveTemplate && (
                   <input type="text" value={templateName} onChange={(e) => setTemplateName(e.target.value)}
-                    placeholder={`试卷名（默认用考试名）`} className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                    placeholder={`试卷名（默认用考试名）`} className="k-input" />
                 )}
               </div>
 
               {/* 建考直接选人：选中人员随建考同时分配到课程（可见课程课件） */}
               {courseId && (
-                <div className="border border-border rounded-md p-3">
+                <div className="k-card p-3">
                   <p className="text-sm font-medium mb-1">顺手分配学员（可选）</p>
                   <p className="text-xs text-text-secondary mb-2">
                     选中人员将同时被分配到课程《{selectedCourse?.title}》，可学习该课程课件
@@ -456,7 +459,7 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
                     <div className="flex flex-wrap items-center gap-1.5 mb-2">
                       <span className="text-xs text-text-secondary shrink-0 py-0.5">已分配 {assignedUsers.length} 人：</span>
                       {assignedUsers.slice(0, 8).map((u) => (
-                        <span key={u.id} className="px-2 py-0.5 bg-bg-layout rounded text-xs">{u.name}</span>
+                        <span key={u.id} className="k-tag">{u.name}</span>
                       ))}
                       {assignedUsers.length > 8 && (
                         <span className="text-xs text-text-secondary/70 py-0.5">…等 {assignedUsers.length} 人</span>
@@ -480,7 +483,7 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
           <div>
             {step > 0 && (
               <button onClick={() => setStep(step - 1)} disabled={saving || showAI || showImport}
-                className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout disabled:opacity-50">
+                className="k-btn k-btn-default disabled:opacity-50">
                 上一步
               </button>
             )}
@@ -491,17 +494,17 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
             </span>
             {step < 2 ? (
               <button onClick={() => { if (step === 1) suggestCourse(); setStep(step + 1); }} disabled={!canNext || showAI || showImport}
-                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light disabled:opacity-50">
+                className="k-btn k-btn-primary disabled:opacity-50">
                 下一步
               </button>
             ) : (
               <>
                 <button onClick={() => handleCreate(false)} disabled={saving || !canNext || showAI || showImport}
-                  className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout disabled:opacity-50">
+                  className="k-btn k-btn-default disabled:opacity-50">
                   {saving ? "提交中..." : "存草稿"}
                 </button>
                 <button onClick={() => handleCreate(true)} disabled={saving || !canNext || showAI || showImport}
-                  className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light disabled:opacity-50">
+                  className="k-btn k-btn-primary disabled:opacity-50">
                   {saving ? "提交中..." : "创建并发布"}
                 </button>
               </>

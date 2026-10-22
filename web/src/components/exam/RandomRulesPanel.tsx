@@ -150,13 +150,13 @@ export default function RandomRulesPanel({ onChange, initialBanks, initialRules 
       {/* 左：题库范围 */}
       <div className="w-44 shrink-0">
         <p className="text-xs text-text-secondary mb-1.5">抽题范围（不选 = 全题库）</p>
-        <div className="border border-border rounded-lg max-h-[40vh] overflow-y-auto py-1">
+        <div className="k-card k-scroll max-h-[40vh] overflow-y-auto py-1">
           {tree.length === 0 ? (
             <p className="text-xs text-text-secondary text-center py-6">题库为空，请先导入试题</p>
           ) : renderTree(tree)}
         </div>
         {banks.size > 0 && (
-          <button onClick={() => setBanks(new Set())} className="text-xs text-text-secondary hover:text-primary mt-1.5">
+          <button onClick={() => setBanks(new Set())} className="k-link mt-1.5">
             清除范围（{banks.size}）
           </button>
         )}
@@ -166,7 +166,7 @@ export default function RandomRulesPanel({ onChange, initialBanks, initialRules 
       <div className="flex-1 min-w-0">
         <div className="space-y-2">
           {ALL_TYPES.map((type) => (
-            <div key={type} className="border border-border rounded-lg px-3 py-2">
+            <div key={type} className="k-card px-3 py-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium w-16 shrink-0">{TYPE_LABELS[type]}</span>
                 <div className="flex-1 flex items-center gap-4">
@@ -178,14 +178,14 @@ export default function RandomRulesPanel({ onChange, initialBanks, initialRules 
                         type="number" min={0}
                         value={rules[type][d].count || ""} placeholder="0"
                         onChange={(e) => setField(type, d, "count", parseInt(e.target.value) || 0)}
-                        className="w-12 border border-border rounded px-1 py-0.5 text-center"
+                        className="k-ctl w-12 text-center"
                       />
                       <span className="text-text-secondary">题×</span>
                       <input
                         type="number" min={0}
                         value={rules[type][d].score || ""} placeholder="0"
                         onChange={(e) => setField(type, d, "score", parseInt(e.target.value) || 0)}
-                        className="w-12 border border-border rounded px-1 py-0.5 text-center"
+                        className="k-ctl w-12 text-center"
                       />
                       <span className="text-text-secondary">分</span>
                     </div>
@@ -198,28 +198,28 @@ export default function RandomRulesPanel({ onChange, initialBanks, initialRules 
         <div className="flex items-center justify-between mt-3">
           <span className="text-sm font-bold text-primary">合计 {total} 分（{validRules.reduce((s, r) => s + r.count, 0)} 题）</span>
           <button onClick={handlePreview} disabled={validRules.length === 0 || previewing}
-            className="text-sm px-3 py-1.5 border border-primary text-primary rounded-md hover:bg-primary/5 disabled:opacity-40">
+            className="k-btn k-btn-primary disabled:opacity-40">
             {previewing ? "抽题中..." : "服务端预览抽题"}
           </button>
         </div>
         {validRules.some((r) => r.score <= 0) && (
-          <p className="text-xs text-amber-600 mt-1">存在未设每题分值的规则，创建前请补充分值</p>
+          <p className="text-xs text-warning mt-1">存在未设每题分值的规则，创建前请补充分值</p>
         )}
       </div>
 
       {/* 预览弹窗 */}
       {preview && (
-        <div className="fixed inset-0 bg-black/30 flex items-start justify-center pt-20 z-[60]" onClick={() => setPreview(null)}>
-          <div className="bg-bg-base rounded-lg shadow-xl p-5 w-full max-w-lg max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="k-overlay" onClick={() => setPreview(null)}>
+          <div className="k-modal w-full max-w-lg max-h-[85vh] overflow-y-auto k-scroll" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
-              <h4 className="font-bold">抽题预览（{preview.questions.length} 题 / {preview.total_score} 分）</h4>
+              <h4 className="k-modal-title mb-0!">抽题预览（{preview.questions.length} 题 / {preview.total_score} 分）</h4>
               <div className="flex items-center gap-3">
-                <button onClick={handlePreview} className="text-sm text-primary hover:underline">换一批</button>
-                <button onClick={() => setPreview(null)} className="text-text-secondary hover:text-text-base text-lg">&times;</button>
+                <button onClick={handlePreview} className="k-link">换一批</button>
+                <button onClick={() => setPreview(null)} className="text-text-secondary hover:text-text-base text-lg leading-none">&times;</button>
               </div>
             </div>
             {preview.shortages.length > 0 && (
-              <div className="mb-3 px-3 py-2 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-xs space-y-0.5">
+              <div className="mb-3 px-3 py-2 rounded-md bg-warning/10 text-warning border border-warning/20 text-xs space-y-0.5">
                 {preview.shortages.map((s, i) => <p key={i}>⚠ {s}</p>)}
               </div>
             )}

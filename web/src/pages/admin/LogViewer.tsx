@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Search } from "lucide-react";
 import { api } from "../../lib/api";
 
 interface LogItem {
@@ -39,9 +40,9 @@ const LEVEL_LABELS: Record<string, string> = {
 };
 
 const LEVEL_COLORS: Record<string, string> = {
-  info: "bg-blue-50 text-blue-700 border-blue-200",
-  warning: "bg-yellow-50 text-yellow-700 border-yellow-200",
-  error: "bg-red-50 text-red-700 border-red-200",
+  info: "k-tag",
+  warning: "k-tag k-tag-warning",
+  error: "k-tag k-tag-danger",
 };
 
 
@@ -100,14 +101,14 @@ export default function LogViewer() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-primary mb-4">系统日志</h2>
+      <h2 className="k-title text-[22px] text-primary mb-4">系统日志</h2>
 
       {/* 筛选栏 */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="k-filter-bar mb-4">
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="border border-border rounded-md px-3 py-1.5 text-sm"
+          className="k-ctl"
         >
           <option value="">全部分类</option>
           {CATEGORY_ORDER.filter((c) => categories.find((cat) => cat.category === c)).map((c) => (
@@ -119,24 +120,27 @@ export default function LogViewer() {
         <select
           value={levelFilter}
           onChange={(e) => setLevelFilter(e.target.value)}
-          className="border border-border rounded-md px-3 py-1.5 text-sm"
+          className="k-ctl"
         >
           <option value="">全部级别</option>
           {Object.entries(LEVEL_LABELS).map(([k, v]) => (
             <option key={k} value={k}>{v}</option>
           ))}
         </select>
-        <input
-          type="text"
-          placeholder="搜索操作人/描述/资源..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border border-border rounded-md px-3 py-1.5 text-sm flex-1 max-w-xs"
-        />
+        <div className="k-search">
+          <Search size={14} />
+          <input
+            type="text"
+            placeholder="搜索操作人/描述/资源..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <span className="k-spacer" />
         <button
           onClick={fetchLogs}
           disabled={loading}
-          className="px-3 py-1.5 text-sm border border-border rounded-md hover:bg-bg-layout"
+          className="k-btn k-btn-default k-btn-sm"
         >
           刷新
         </button>
@@ -144,44 +148,44 @@ export default function LogViewer() {
 
       {/* 日志列表 */}
       {loading ? (
-        <p className="text-text-secondary text-sm">加载中...</p>
+        <p className="k-empty">加载中...</p>
       ) : logs.length === 0 ? (
-        <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
+        <div className="k-card k-empty">
           暂无操作日志
         </div>
       ) : (
-        <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
-          <table className="w-full text-sm table-fixed">
-            <thead className="bg-bg-layout border-b border-border">
+        <div className="k-table-wrap overflow-hidden">
+          <table className="k-table table-fixed">
+            <thead>
               <tr>
-                <th className="text-center px-3 py-3 font-medium text-text-secondary w-40">时间</th>
-                <th className="text-center px-3 py-3 font-medium text-text-secondary w-32">操作人</th>
-                <th className="text-center px-3 py-3 font-medium text-text-secondary w-24">分类</th>
-                <th className="text-center px-2 py-3 font-medium text-text-secondary w-16">级别</th>
-                <th className="text-left px-3 py-3 font-medium text-text-secondary">操作描述</th>
+                <th className="text-center w-40">时间</th>
+                <th className="text-center w-32">操作人</th>
+                <th className="text-center w-24">分类</th>
+                <th className="text-center w-16">级别</th>
+                <th>操作描述</th>
               </tr>
             </thead>
             <tbody>
               {logs.map((log) => (
-                <tr key={log.id} className="border-b border-border last:border-0 hover:bg-bg-layout/50">
-                  <td className="px-3 py-2.5 text-text-secondary text-xs text-center">
+                <tr key={log.id}>
+                  <td className="text-center k-muted">
                     {new Date(log.created_at).toLocaleString("zh-CN", {
                       month: "2-digit", day: "2-digit",
                       hour: "2-digit", minute: "2-digit", second: "2-digit",
                     })}
                   </td>
-                  <td className="px-3 py-2.5 font-medium text-center whitespace-nowrap">{log.operator}</td>
-                  <td className="px-3 py-2.5 text-center">
-                    <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded">
+                  <td className="k-strong text-center whitespace-nowrap">{log.operator}</td>
+                  <td className="text-center">
+                    <span className="k-tag k-tag-primary">
                       {CATEGORY_LABELS[log.category] || log.category}
                     </span>
                   </td>
-                  <td className="px-2 py-2.5 text-center">
-                    <span className={`text-xs px-1.5 py-0.5 rounded border ${LEVEL_COLORS[log.level] || LEVEL_COLORS.info}`}>
+                  <td className="text-center">
+                    <span className={LEVEL_COLORS[log.level] || LEVEL_COLORS.info}>
                       {LEVEL_LABELS[log.level] || log.level}
                     </span>
                   </td>
-                  <td className="px-3 py-2.5 text-text-secondary truncate">{log.description}</td>
+                  <td className="truncate k-muted">{log.description}</td>
                 </tr>
               ))}
             </tbody>
@@ -191,13 +195,13 @@ export default function LogViewer() {
 
       {/* 分页 */}
       {total > 0 && (
-        <div className="flex items-center justify-between mt-3 text-sm text-text-secondary">
+        <div className="flex items-center justify-between mt-3 text-sm text-text-meta">
           <span>共 {total} 条</span>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
-              className="px-3 py-1 border border-border rounded-md hover:bg-bg-layout disabled:opacity-40 disabled:cursor-not-allowed"
+              className="k-btn k-btn-default k-btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
               上一页
             </button>
@@ -205,7 +209,7 @@ export default function LogViewer() {
             <button
               onClick={() => setPage((p) => p + 1)}
               disabled={page >= totalPages}
-              className="px-3 py-1 border border-border rounded-md hover:bg-bg-layout disabled:opacity-40 disabled:cursor-not-allowed"
+              className="k-btn k-btn-default k-btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
               下一页
             </button>

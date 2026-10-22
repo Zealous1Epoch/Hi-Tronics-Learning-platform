@@ -374,16 +374,16 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-start justify-center pt-16 z-50" onClick={onClose}>
-      <div className="bg-bg-base rounded-lg shadow-xl w-full max-w-6xl min-h-[60vh] max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="k-overlay" onClick={onClose}>
+      <div className="k-modal max-w-6xl min-h-[60vh] max-h-[92vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* 头部 */}
-        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-          <h3 className="font-bold text-lg">新增试卷</h3>
+        <div className="py-4 border-b border-border flex items-center justify-between">
+          <h3 className="k-title text-lg text-primary">新增试卷</h3>
           <button onClick={onClose} className="text-text-secondary hover:text-text-base text-lg">&times;</button>
         </div>
 
         {/* 步骤条 */}
-        <div className="px-6 py-4 border-b border-border">
+        <div className="py-4 border-b border-border">
           <div className="flex items-center">
             {STEPS.map((label, i) => {
               const isActive = i === step;
@@ -409,33 +409,33 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
         </div>
 
         {/* 内容区 */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto k-scroll py-4">
           {/* 步骤 1: 基础信息 */}
           {step === 0 && (
             <div className="max-w-md space-y-4">
               <div>
-                <label className="block text-sm text-text-secondary mb-1">试卷名称</label>
+                <label className="k-label">试卷名称</label>
                 <input
                   type="text" value={title}
                   onChange={e => setTitle(e.target.value)}
                   placeholder="输入试卷名称"
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                  className="k-input"
                   autoFocus
                 />
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">试卷内容</label>
+                <label className="k-label">试卷内容</label>
                 {defaultCategoryId ? (
                   <input
                     type="text" value={getCategoryPath(defaultCategoryId)}
                     readOnly
-                    className="w-full border border-border rounded-md px-3 py-2 text-sm bg-bg-layout text-text-secondary"
+                    className="k-input"
                   />
                 ) : (
                   <div ref={categoryDropdownRef} className="relative">
                     <div
                       onClick={() => { setShowCategoryDropdown(!showCategoryDropdown); setCategorySearch(""); }}
-                      className="w-full border border-border rounded-md px-3 py-2 text-sm cursor-pointer hover:border-primary/40 flex items-center justify-between"
+                      className="k-select flex items-center justify-between cursor-pointer"
                     >
                       <span className={editCategoryId ? "text-text-base" : "text-text-secondary"}>
                         {editCategoryId ? getCategoryPath(editCategoryId) : "请选择试卷内容"}
@@ -443,17 +443,17 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                       <ChevronDown size={14} className={`text-text-secondary transition-transform ${showCategoryDropdown ? "rotate-180" : ""}`} />
                     </div>
                     {showCategoryDropdown && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-bg-base border border-border rounded-md shadow-lg z-10 p-2 space-y-2">
+                      <div className="k-card absolute top-full left-0 right-0 mt-1 z-10 p-2 space-y-2">
                         <input
                           type="text"
                           placeholder="搜索题库..."
                           value={categorySearch}
                           onChange={e => setCategorySearch(e.target.value)}
-                          className="w-full border border-border rounded-md px-3 py-1.5 text-sm"
+                          className="k-input"
                           autoFocus
                         />
                         <div className="flex gap-2">
-                          <div className="flex-1 border border-border rounded-md max-h-[40vh] overflow-y-auto">
+                          <div className="k-card flex-1 max-h-[40vh] overflow-y-auto">
                             {tree
                               .filter(n => !n.parent_id && (!categorySearch || n.name.toLowerCase().includes(categorySearch.toLowerCase())))
                               .map(root => (
@@ -481,7 +481,7 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                               ? selectedRoot.children.filter(c => c.name.toLowerCase().includes(categorySearch.toLowerCase()))
                               : selectedRoot.children;
                             return (
-                              <div className="flex-1 border border-border rounded-md max-h-[40vh] overflow-y-auto">
+                              <div className="k-card flex-1 max-h-[40vh] overflow-y-auto">
                                 {filteredChildren.map(child => (
                                   <div
                                     key={child.id}
@@ -503,7 +503,7 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                 )}
               </div>
               <div>
-                <label className="block text-sm text-text-secondary mb-1">试卷类型</label>
+                <label className="k-label">试卷类型</label>
                 <div className="flex gap-4">
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
                     <input type="radio" name="paperType" checked={paperType === "fixed"} onChange={() => { setPaperType("fixed"); setRules(prev => ({...prev})); setSelectedBankIds(new Set()); }} />
@@ -526,15 +526,14 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
             <div className="flex gap-4 h-full">
               {/* 左侧题库树 */}
               <div className="w-48 shrink-0">
-                <div className="relative mb-2">
-                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+                <div className="k-search mb-2">
+                  <Search size={14} />
                   <input
                     type="text" placeholder="搜索题库..."
                     value={searchText} onChange={e => setSearchText(e.target.value)}
-                    className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
                   />
                 </div>
-                <div className="bg-bg-base rounded-lg border border-border max-h-[50vh] overflow-y-auto">
+                <div className="k-card max-h-[50vh] overflow-y-auto">
                   <div className="py-1">{renderTree(filteredTree)}</div>
                 </div>
               </div>
@@ -542,29 +541,29 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
               {/* 右侧题目列表 */}
               <div className="flex-1 min-w-0">
                 {!selectedBankId ? (
-                  <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
+                  <div className="k-card k-empty">
                     请在左侧选择题库
                   </div>
                 ) : (
-                  <div className="max-h-[50vh] overflow-y-auto border border-border rounded-lg">
-                    <table className="w-full text-sm table-fixed">
-                      <thead className="bg-bg-layout sticky top-0">
+                  <div className="k-table-wrap max-h-[50vh] overflow-y-auto">
+                    <table className="k-table k-table-sticky table-fixed">
+                      <thead>
                         <tr>
-                          <th className="px-3 py-2 w-8"></th>
-                          <th className="text-left px-3 py-2 text-text-secondary font-normal">题干</th>
-                          <th className="text-center px-3 py-2 text-text-secondary font-normal w-16">题型</th>
-                          <th className="text-center px-3 py-2 text-text-secondary font-normal w-16">难度</th>
+                          <th className="w-8"></th>
+                          <th>题干</th>
+                          <th className="text-center w-16">题型</th>
+                          <th className="text-center w-16">难度</th>
                         </tr>
                       </thead>
                       <tbody>
                         {bankQuestions.map(q => (
-                          <tr key={q.id} className={`border-b border-border/50 ${selectedQuestions.has(q.id) ? "bg-primary/5" : "hover:bg-bg-layout"}`}>
-                            <td className="px-3 py-2">
+                          <tr key={q.id} className={selectedQuestions.has(q.id) ? "bg-primary/5" : ""}>
+                            <td>
                               <input type="checkbox" checked={selectedQuestions.has(q.id)} onChange={() => toggleQuestion(q.id)} />
                             </td>
-                            <td className="px-3 py-2 truncate max-w-xs">{q.stem}</td>
-                            <td className="px-3 py-2 text-center text-text-secondary text-xs whitespace-nowrap">{TYPE_LABELS[q.type]}</td>
-                            <td className="px-3 py-2 text-center text-text-secondary text-xs whitespace-nowrap">{DIFF_LABELS[q.difficulty]}</td>
+                            <td className="truncate max-w-xs">{q.stem}</td>
+                            <td className="text-center whitespace-nowrap k-muted">{TYPE_LABELS[q.type]}</td>
+                            <td className="text-center whitespace-nowrap k-muted">{DIFF_LABELS[q.difficulty]}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -576,7 +575,7 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
               {/* 已选面板 */}
               {questionOrder.length > 0 && (
                 <div className="w-56 shrink-0">
-                  <div className="bg-bg-base rounded-lg border border-border p-3 sticky top-0">
+                  <div className="k-card p-3 sticky top-0">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-bold">已选题</span>
                       <span className="text-xs text-primary font-bold">{totalScore} 分</span>
@@ -587,7 +586,7 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                           <span className="text-text-secondary w-5">{i + 1}.</span>
                           <span className="flex-1 truncate">{bankQuestions.find(q => q.id === qid)?.stem.slice(0, 12) || qid.slice(0, 8)}</span>
                           <span className="text-text-secondary">{selectedQuestions.get(qid)}分</span>
-                          <button onClick={() => toggleQuestion(qid)} className="text-red-400 hover:text-red-600">&times;</button>
+                          <button onClick={() => toggleQuestion(qid)} className="k-link k-link-danger">&times;</button>
                         </div>
                       ))}
                     </div>
@@ -602,23 +601,22 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
             <div className="flex gap-4 h-full">
               {/* 左侧题库树 */}
               <div className="w-48 shrink-0">
-                <div className="relative mb-2">
-                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+                <div className="k-search mb-2">
+                  <Search size={14} />
                   <input
                     type="text" placeholder="搜索题库..."
                     value={searchText} onChange={e => setSearchText(e.target.value)}
-                    className="w-full border border-border rounded-md pl-7 pr-3 py-1.5 text-sm"
                   />
                 </div>
-                <div className="bg-bg-base rounded-lg border border-border max-h-[50vh] overflow-y-auto">
+                <div className="k-card max-h-[50vh] overflow-y-auto">
                   <div className="py-1">{renderTree(filteredTree)}</div>
                 </div>
               </div>
 
               {/* 右侧已选题库 */}
               <div className="flex-1 min-w-0">
-                <div className="bg-bg-base rounded-lg border border-border p-4">
-                  <h4 className="text-sm font-bold mb-3">已选题库范围</h4>
+                <div className="k-card p-4">
+                  <h4 className="k-card-title mb-3">已选题库范围</h4>
                   {selectedBankIds.size === 0 ? (
                     <p className="text-sm text-text-secondary">请在左侧点击题库进行选择</p>
                   ) : (
@@ -632,7 +630,7 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                               next.delete(id);
                               return next;
                             })}
-                            className="text-red-400 hover:text-red-600 text-xs"
+                            className="k-link k-link-danger"
                           >&times;</button>
                         </div>
                       ))}
@@ -649,7 +647,7 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
           {/* 步骤 3: 组卷策略（随机试卷） */}
           {step === 2 && (
             <div>
-              <div className="flex items-center justify-between mb-3 sticky -top-4 bg-bg-base z-10 pb-2 pt-4 -mx-6 px-6">
+              <div className="flex items-center justify-between mb-3 sticky -top-4 bg-bg-base z-10 pb-2 pt-4">
                 <span className="text-sm font-bold">组卷策略</span>
                 <span className="text-sm font-bold text-primary">总分：{totalScore} 分</span>
               </div>
@@ -685,7 +683,7 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                                   },
                                 },
                               }))}
-                              className="w-14 border border-border rounded-md px-1.5 py-0.5 text-xs text-center" min={0}
+                              className="k-ctl w-14 text-center" min={0}
                             />
                             <span className="text-xs text-text-secondary">题，每题</span>
                             <input
@@ -700,7 +698,7 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                                   },
                                 },
                               }))}
-                              className="w-14 border border-border rounded-md px-1.5 py-0.5 text-xs text-center" min={0}
+                              className="k-ctl w-14 text-center" min={0}
                             />
                             <span className="text-xs text-text-secondary">分</span>
                             <span className="text-xs text-text-secondary ml-auto">
@@ -724,19 +722,19 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                   试卷预览（{previewQuestions?.length || 0} 题，{totalScore} 分）
                 </span>
                 {paperType === "random" && (
-                  <button onClick={generatePreview} className="text-sm text-primary hover:underline">
+                  <button onClick={generatePreview} className="k-link">
                     换一批随机题
                   </button>
                 )}
               </div>
               {!previewQuestions || previewQuestions.length === 0 ? (
-                <div className="bg-bg-base rounded-lg p-8 border border-border text-center text-text-secondary text-sm">
+                <div className="k-card k-empty">
                   {loadingPreview ? "加载中..." : "点击\"生成预览\"查看试卷"}
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto">
                   {previewQuestions.map((q, i) => (
-                    <div key={`${q.id}-${i}`} className="flex items-center gap-3 py-2 px-3 bg-bg-base rounded-lg border border-border text-sm group">
+                    <div key={`${q.id}-${i}`} className="k-card flex items-center gap-3 py-2 px-3 text-sm group">
                       <div className="flex flex-col items-center">
                         <button onClick={() => moveQuestion(i, "up")} disabled={i === 0}
                           className="text-text-secondary hover:text-text-base disabled:opacity-30 leading-none text-xs">&uarr;</button>
@@ -744,7 +742,7 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                           className="text-text-secondary hover:text-text-base disabled:opacity-30 leading-none text-xs">&darr;</button>
                       </div>
                       <span className="text-text-secondary w-5 text-center">{i + 1}</span>
-                      <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded">{TYPE_LABELS[q.type] || q.type}</span>
+                      <span className="k-tag k-tag-primary">{TYPE_LABELS[q.type] || q.type}</span>
                       <span className="flex-1 truncate">{q.stem}</span>
                       <span className="text-xs text-text-secondary">{DIFF_LABELS[q.difficulty] || q.difficulty}</span>
                       <input
@@ -753,11 +751,11 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
                           const newScore = (parseInt(e.target.value) || 0);
                           setPreviewQuestions(prev => prev ? prev.map((p, j) => j === i ? { ...p, score: newScore } : p) : null);
                         }}
-                        className="w-14 border border-border rounded-md px-1.5 py-0.5 text-xs text-center" min={1}
+                        className="k-ctl w-14 text-center" min={1}
                       />
                       <span className="text-xs text-text-secondary">分</span>
                       <button onClick={() => removeFromPreview(i)}
-                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600">&times;</button>
+                        className="k-link k-link-danger opacity-0 group-hover:opacity-100">&times;</button>
                     </div>
                   ))}
                 </div>
@@ -767,31 +765,31 @@ export default function PaperCreate({ defaultCategoryId, onDone, onClose }: Prop
         </div>
 
         {/* 底部按钮 */}
-        <div className="px-6 py-4 border-t border-border flex items-center justify-between">
+        <div className="py-4 border-t border-border flex items-center justify-between">
           <div>
             {step > 0 && (
-              <button onClick={handlePrev} className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">
+              <button onClick={handlePrev} className="k-btn k-btn-default k-btn-sm">
                 上一步
               </button>
             )}
           </div>
           <div className="flex gap-3">
-            <button onClick={onClose} className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">
+            <button onClick={onClose} className="k-btn k-btn-default k-btn-sm">
               取消
             </button>
             {step < 3 ? (
               <button onClick={handleNext} disabled={!canNext()}
-                className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light disabled:opacity-50">
+                className="k-btn k-btn-primary k-btn-sm disabled:opacity-50">
                 下一步
               </button>
             ) : (
               <>
                 <button onClick={() => handleSave("draft")} disabled={saving}
-                  className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">
+                  className="k-btn k-btn-default k-btn-sm">
                   {saving ? "保存中..." : "保存草稿"}
                 </button>
                 <button onClick={() => handleSave("published")} disabled={saving}
-                  className="px-4 py-2 rounded-md text-sm bg-primary text-white hover:bg-primary-light disabled:opacity-50">
+                  className="k-btn k-btn-primary k-btn-sm disabled:opacity-50">
                   {saving ? "保存中..." : "保存并发布"}
                 </button>
               </>

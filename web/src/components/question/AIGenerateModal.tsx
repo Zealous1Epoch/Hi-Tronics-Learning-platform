@@ -149,13 +149,13 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/30" onClick={onClose}>
+    <div className="k-overlay" onClick={onClose}>
       <div
-        className="bg-bg-base rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+        className="k-modal max-w-2xl p-0! k-scroll max-h-[85vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-bg-base z-10">
-          <h3 className="font-bold text-base">
+          <h3 className="k-modal-title mb-0!">
             AI 出题
             {phase === "review" && <span className="ml-2 text-xs font-normal text-text-secondary">审核草稿后入库</span>}
           </h3>
@@ -171,18 +171,18 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
           {phase === "form" && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">主题关键词 <span className="text-red-500">*</span></label>
+                <label className="k-label">主题关键词 <span className="text-red-500">*</span></label>
                 <input
                   value={topic}
                   onChange={e => setTopic(e.target.value)}
                   placeholder="如：安全生产基础知识、消防四能力、厂区门禁制度…"
-                  className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="k-input"
                   maxLength={200}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label className="k-label">
                   各题型数量
                   <span className={`ml-2 text-xs font-normal ${total >= 1 && total <= 30 ? "text-text-secondary" : "text-red-500"}`}>
                     合计 {total} 题（1~30）
@@ -196,7 +196,7 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
                         type="number" min={0} max={30}
                         value={counts[r.key]}
                         onChange={e => setCounts(prev => ({ ...prev, [r.key]: Math.max(0, Math.min(30, parseInt(e.target.value) || 0)) }))}
-                        className="w-full px-2 py-1.5 border border-border rounded-md text-sm text-center"
+                        className="k-input text-center"
                       />
                     </div>
                   ))}
@@ -205,9 +205,9 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium mb-1">难度策略</label>
+                  <label className="k-label">难度策略</label>
                   <select value={difficultyMode} onChange={e => setDifficultyMode(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md text-sm bg-bg-base">
+                    className="k-select">
                     <option value="mixed">混合分布</option>
                     <option value="easy">偏易</option>
                     <option value="medium">中等</option>
@@ -215,9 +215,9 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">入库分类</label>
+                  <label className="k-label">入库分类</label>
                   <select value={categoryId} onChange={e => setCategoryId(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md text-sm bg-bg-base">
+                    className="k-select">
                     <option value="">不指定</option>
                     {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
@@ -225,21 +225,21 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">补充要求（可选，仅影响出题风格）</label>
+                <label className="k-label">补充要求（可选，仅影响出题风格）</label>
                 <textarea
                   value={extra}
                   onChange={e => setExtra(e.target.value)}
                   rows={2}
                   maxLength={500}
                   placeholder="如：结合制造业车间场景；避免出现具体法规条文编号"
-                  className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  className="k-textarea"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
-                <button onClick={onClose} className="px-4 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">取消</button>
+              <div className="k-modal-actions">
+                <button onClick={onClose} className="k-btn k-btn-default">取消</button>
                 <button onClick={handleGenerate}
-                  className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light disabled:opacity-50"
+                  className="k-btn k-btn-primary disabled:opacity-50"
                   disabled={total < 1 || total > 30}>
                   ✨ 开始生成
                 </button>
@@ -282,16 +282,16 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
                       <input type="checkbox" checked={isChecked} onChange={() => toggle(uid)} className="mt-1.5" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-xs">{TYPE_LABELS[d.type] || d.type} {idx + 1}</span>
+                          <span className="k-tag k-tag-primary">{TYPE_LABELS[d.type] || d.type} {idx + 1}</span>
                           {d.dup_existing && (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-xs">疑似与题库重复</span>
+                            <span className="k-tag k-tag-warning">疑似与题库重复</span>
                           )}
                           <select value={d.difficulty} onChange={e => changeDifficulty(uid, e.target.value)}
-                            className="px-1.5 py-0.5 border border-border rounded text-xs bg-bg-base">
+                            className="k-ctl">
                             {Object.entries(DIFF_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                           </select>
                           <button onClick={() => removeDraft(uid)}
-                            className="ml-auto text-xs text-text-secondary hover:text-red-500">删除</button>
+                            className="k-link k-link-danger ml-auto">删除</button>
                         </div>
                         <p className="text-sm text-text-base whitespace-pre-wrap break-words">{d.stem}</p>
 
@@ -337,11 +337,11 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
               })}
 
               <div className="flex items-center justify-between pt-2 sticky bottom-0 bg-bg-base pb-1">
-                <button onClick={() => setPhase("form")} className="px-4 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">
+                <button onClick={() => setPhase("form")} className="k-btn k-btn-default">
                   ← 重新生成
                 </button>
                 <button onClick={handleIngest} disabled={submitting || checkedCount === 0}
-                  className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light disabled:opacity-50">
+                  className="k-btn k-btn-primary disabled:opacity-50">
                   {submitting ? "入库中…" : `入库选中 ${checkedCount} 题`}
                 </button>
               </div>
@@ -363,7 +363,7 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
                 </ul>
               )}
               <p className="text-xs text-text-secondary">入库题目已自动打上「AI生成」标签</p>
-              <button onClick={onClose} className="px-5 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light">完成</button>
+              <button onClick={onClose} className="k-btn k-btn-primary">完成</button>
             </div>
           )}
         </div>

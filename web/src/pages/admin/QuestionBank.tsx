@@ -64,8 +64,6 @@ export default function QuestionBank() {
     // 页面锁定在视口高度（100vh - 顶栏 52 - main 上下 padding 44），
     // 溢出只发生在试题列表内部滚动条，整页不再跟随滚动
     <div className="flex flex-col h-[calc(100vh-96px)]">
-      <h2 className="text-xl font-bold text-primary mb-4 shrink-0">试题管理</h2>
-
       <div className="flex gap-4 flex-1 min-h-0">
         {/* 左侧树（超长时树内部滚动，不撑高页面） */}
         <div className="w-56 shrink-0 pr-5 overflow-y-auto min-h-0">
@@ -87,6 +85,9 @@ export default function QuestionBank() {
           <div className="bg-bg-layout/50 rounded-lg p-4 mb-4 shrink-0">
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <div className="flex items-baseline gap-2 min-w-0">
+                {/* 页面标题并入 KPI 头部，省去独立标题行的留白 */}
+                <h2 className="font-bold text-base text-primary whitespace-nowrap">试题管理</h2>
+                <span className="text-border-dark whitespace-nowrap">/</span>
                 <h3 className="font-bold text-sm text-primary truncate">{stats?.name || "加载中..."}</h3>
                 {stats && (
                   <span className="text-[11px] text-text-secondary/60 whitespace-nowrap">

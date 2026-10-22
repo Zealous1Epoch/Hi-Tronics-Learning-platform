@@ -96,3 +96,38 @@ def chat_completion_json(prompt: str, max_tokens: int | None = None) -> tuple[st
         len(content),
     )
     return content, usage
+
+
+def chat_completion_vision(prompt_text: str, image_b64: str, mime: str) -> str:
+    """单轮视觉调用（图片→文本），用于参考资料图片的 OCR 识别。
+
+    使用 settings.LLM_VISION_MODEL（须为支持 image_url 的多模态模型，
+    与主模型共用 base_url/api_key）。失败抛 openai 异常，由调用方转 HTTP 错误。
+    """
+    client = get_client()
+    t0 = time.time()
+    resp = client.chat.completions.create(
+        model=settings.LLM_VISION_MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt_text},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{image_b64}"},
+                    },
+                ],
+            }
+        ],
+        temperature=0.1,
+        max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
+    )
+    content = resp.choices[0].message.content or ""
+    logger.info(
+        "LLM 视觉调用 %s 完成: %.1fs, content_len=%s",
+        settings.LLM_VISION_MODEL,
+        time.time() - t0,
+        len(content),
+    )
+    return content

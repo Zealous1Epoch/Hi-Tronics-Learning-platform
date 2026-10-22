@@ -83,6 +83,10 @@ class Settings:
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
     LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "deepseek-chat")
+    # 视觉模型（参考资料图片 OCR 用），与主模型共用 base_url/api_key。
+    # 留空 = 图片上传报 400（PDF/Word/文本解析不受影响）。DeepSeek 官方无视觉模型，
+    # 需要图片识别时配同协议的多模态端点（如通义 qwen-vl 系列）。
+    LLM_VISION_MODEL: str = os.getenv("LLM_VISION_MODEL", "")
     # 单次调用超时（秒）。生成按题型拆分调用，单次典型 10-60s
     LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "75"))
     # 单次输出 token 上限（DeepSeek 上限 8192，留余量防推理/格式开销截断）

@@ -42,7 +42,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 const DIFF_LABELS: Record<string, string> = { easy: "简单", medium: "中等", hard: "困难" };
 const DIFF_COLORS: Record<string, string> = {
-  easy: "bg-green-100 text-green-700", medium: "bg-yellow-100 text-yellow-700", hard: "bg-red-100 text-red-700",
+  easy: "bg-success/10 text-success", medium: "bg-warning/10 text-warning", hard: "bg-danger/10 text-danger",
 };
 
 interface Props {

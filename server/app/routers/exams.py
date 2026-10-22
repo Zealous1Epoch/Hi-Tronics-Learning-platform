@@ -21,7 +21,10 @@ from app.schemas.exam import (
     ExamQuickCreate, ExamQuickCreateOut, PreviewDrawRequest,
 )
 from app.routers.auth import require_admin
-from app.services.exam_service import draw_random_questions, validate_random_rules
+from app.services.exam_service import (
+    build_result_review, draw_random_questions, validate_random_rules,
+    aggregate_exam_results,
+)
 from app.services.log_service import write_log
 from app.logger import get_logger
 
@@ -56,8 +59,35 @@ def list_exams(
     q = q.order_by(Exam.created_at.desc())
     if page and page_size:
         response.headers["X-Total-Count"] = str(q.count())
-        return q.offset((page - 1) * page_size).limit(page_size).all()
-    return q.all()
+        exams = q.offset((page - 1) * page_size).limit(page_size).all()
+    else:
+        exams = q.all()
+
+    # 附带「参考 X/Y」统计：两条分组查询，避免逐考试 N+1
+    if not exams:
+        return []
+    exam_ids = [e.id for e in exams]
+    course_ids = {e.course_id for e in exams}
+    assigned_map = dict(
+        db.query(CourseAssignment.course_id, func.count(func.distinct(CourseAssignment.user_id)))
+        .filter(CourseAssignment.course_id.in_(course_ids))
+        .group_by(CourseAssignment.course_id)
+        .all()
+    )
+    submitted_map = dict(
+        db.query(ExamResult.exam_id, func.count(func.distinct(ExamResult.user_id)))
+        .filter(ExamResult.exam_id.in_(exam_ids), ExamResult.submitted_at.isnot(None))
+        .group_by(ExamResult.exam_id)
+        .all()
+    )
+    return [
+        {
+            **ExamOut.model_validate(e).model_dump(),
+            "assigned_count": int(assigned_map.get(e.course_id, 0) or 0),
+            "submitted_user_count": int(submitted_map.get(e.id, 0) or 0),
+        }
+        for e in exams
+    ]
 
 
 @router.post("/exams", response_model=ExamOut, status_code=201)
@@ -243,6 +273,139 @@ def save_paper(
     db.commit()
     db.refresh(paper)
     return paper
+
+
+# ========== 成绩查看（管理端） ==========
+
+def _get_exam_or_404(db: Session, exam_id: str) -> Exam:
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="考试不存在")
+    return exam
+
+
+@router.get("/exams/{exam_id}/results")
+def get_exam_results(
+    exam_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """考试成绩汇总：应考/已交卷/通过/作答中/未参考 + 按人分组（多次作答取最高分）。
+
+    口径见 app.services.exam_service.aggregate_exam_results 文档。
+    """
+    exam = _get_exam_or_404(db, exam_id)
+    return aggregate_exam_results(db, exam)
+
+
+@router.get("/exams/{exam_id}/results/export")
+def export_exam_results(
+    exam_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """导出成绩 Excel：Sheet1 成绩（一人一行，含各次明细）、Sheet2 未参考名单。
+
+    注意：本路由必须注册在 `/exams/{exam_id}/results/{result_id}` 之前，
+    否则 "export" 会被当作 result_id 捕获（同 questions.py 的历史教训）。
+    """
+    exam = _get_exam_or_404(db, exam_id)
+    data = aggregate_exam_results(db, exam)
+
+    header_font = Font(bold=True)
+    header_fill = PatternFill("solid", fgColor="EFEFEF")
+    center = Alignment(horizontal="center")
+
+    def style_header(ws):
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "成绩"
+    ws.append(["姓名", "工号", "部门", "最高分", "是否通过", "交卷次数", "状态", "各次成绩", "最近交卷时间"])
+    for row in data["rows"]:
+        submitted = sorted(
+            (a for a in row["attempts"] if a["submitted_at"]),
+            key=lambda a: a["attempt_number"],
+        )
+        detail = "；".join(
+            f"第{a['attempt_number']}次 {a['score']}分({'通过' if a['passed'] else '未通过'})"
+            for a in submitted
+        )
+        if row["attempt_count"] > 0:
+            status = "已通过" if row["passed"] else "未通过"
+            if row["in_progress"]:
+                status += "（另有作答中）"
+        else:
+            status = "作答中"
+        last_submitted = max((a["submitted_at"] for a in submitted), default="") or ""
+        ws.append([
+            row["name"],
+            row["employee_id"] or "",
+            row["department"] or "",
+            row["best_score"] if row["best_score"] is not None else "",
+            "通过" if row["passed"] else ("未通过" if row["attempt_count"] > 0 else ""),
+            row["attempt_count"],
+            status,
+            detail,
+            last_submitted.replace("T", " "),
+        ])
+    style_header(ws)
+    for col, width in zip("ABCDEFGHI", (14, 12, 24, 8, 10, 10, 18, 60, 20)):
+        ws.column_dimensions[col].width = width
+    ws.freeze_panes = "A2"
+
+    ws2 = wb.create_sheet("未参考")
+    ws2.append(["姓名", "工号", "部门"])
+    for u in data["absent"]:
+        ws2.append([u["name"], u["employee_id"] or "", u["department"] or ""])
+    style_header(ws2)
+    for col, width in zip("ABC", (14, 12, 30)):
+        ws2.column_dimensions[col].width = width
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    filename = f"{exam.title}-成绩.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=exam-results.xlsx; filename*=UTF-8''{quote(filename)}"
+            ),
+        },
+    )
+
+
+@router.get("/exams/{exam_id}/results/{result_id}")
+def get_exam_result_detail(
+    exam_id: str,
+    result_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """管理端答卷详情：按题目快照逐题比对（与学员端回顾同一套 build_result_review）。"""
+    exam = _get_exam_or_404(db, exam_id)
+
+    result = db.query(ExamResult).filter(ExamResult.id == result_id).first()
+    if not result or result.exam_id != exam_id:
+        raise HTTPException(status_code=404, detail="考试记录不存在")
+    if not result.submitted_at:
+        raise HTTPException(status_code=400, detail="该考生尚未交卷，无法查看答卷")
+    if not result.questions:
+        raise HTTPException(status_code=400, detail="该考试记录缺少题目快照，无法查看答卷")
+
+    review = build_result_review(db, exam, result)
+    taker = db.query(User).filter(User.id == result.user_id).first()
+    review["user_name"] = taker.name if taker else "(已删除用户)"
+    review["employee_id"] = taker.employee_id if taker else None
+    review["department"] = taker.department if taker else None
+    return review
 
 
 # ========== 一键建考 ==========

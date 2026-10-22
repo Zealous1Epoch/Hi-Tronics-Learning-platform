@@ -171,6 +171,42 @@ export async function getMe(): Promise<UserInfo> {
   return api<UserInfo>("/auth/me");
 }
 
+/** 带鉴权下载文件（Excel 导出等）：优先用服务端 Content-Disposition 的文件名 */
+export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem("lp_token");
+    localStorage.removeItem("lp_user");
+    const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `${BASE_URL}login?redirect=${redirect}`;
+    throw new Error("认证已过期");
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `下载失败: ${res.status}`);
+  }
+
+  let filename = fallbackName;
+  const cd = res.headers.get("Content-Disposition") || "";
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+  if (utf8Match) filename = decodeURIComponent(utf8Match[1]);
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function uploadFileWithProgress<T extends object = Record<string, unknown>>(
   path: string,
   file: File,

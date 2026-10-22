@@ -46,6 +46,9 @@ class ExamOut(BaseModel):
     status: str
     created_by: str | None = None
     created_at: datetime
+    # 仅列表接口返回（聚合统计），单查/创建响应为 None
+    assigned_count: int | None = Field(None, description="应考人数（所属课程已分配学员数，仅列表接口）")
+    submitted_user_count: int | None = Field(None, description="已交卷人数（去重，仅列表接口）")
 
     class Config:
         from_attributes = True
@@ -76,6 +79,7 @@ class PaperOut(BaseModel):
     exam_id: str
     questions: list | None = None
     random_rules: list | None = None
+    source_banks: list | None = None
 
     class Config:
         from_attributes = True

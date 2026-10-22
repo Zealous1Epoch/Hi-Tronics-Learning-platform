@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import datetime
-from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -14,6 +13,7 @@ from app.models.exam import Exam, ExamPaper, ExamResult
 from app.models.question import Question
 from app.routers.auth import get_current_user
 from app.services.department_scope import check_course_assignment
+from app.services.exam_service import build_result_review, grade_question
 
 router = APIRouter(prefix="/api/student", tags=["学员考试"])
 
@@ -28,92 +28,6 @@ class SubmitAnswer(BaseModel):
 
 class SubmitRequest(BaseModel):
     answers: list[SubmitAnswer]
-
-
-def _get_answer_value(correct: dict) -> Any:
-    """从正确答案 JSON 中提取值，兼容 {"answer": ...} 和 {"correct": ...} 两种 key"""
-    if not isinstance(correct, dict):
-        return None
-    return correct.get("answer") if "answer" in correct else correct.get("correct")
-
-
-def _get_multi_correct_list(correct: dict) -> list[str] | None:
-    """从多选题正确答案中提取选项列表，兼容两种格式：
-    A) {"A": True, "B": False, "C": True} → ["A", "C"]
-    B) {"correct": ["A", "C"]} → ["A", "C"]
-    """
-    if not isinstance(correct, dict):
-        return None
-    # 格式 B：{"correct": ["A", "B"]}
-    if "correct" in correct and isinstance(correct["correct"], list):
-        return sorted(correct["correct"])
-    # 格式 A：{"A": True, "B": False, ...}
-    return sorted([k for k, v in correct.items() if v])
-
-
-def grade_question(question: Question, student_answer: str | list[str] | bool | None, total_points: int = 10) -> tuple[int, int]:
-    """自动打分，返回 (得分, 满分)。
-
-    修复：原先单选/多选/判断/填空题把满分硬编码为 10，导致试卷中配置的分值
-    （如「本题 90 分 / 那题 10 分」）被完全忽略，题目权重失真。
-    现统一以 total_points（来自试卷该题的分数配置）作为满分。
-    """
-    q_type = question.type
-    correct = question.answer
-    full_score = max(int(total_points or 0), 0)
-    if full_score <= 0:
-        return (0, full_score)
-
-    if q_type == "single_choice":
-        if student_answer and isinstance(correct, dict):
-            correct_answer = _get_answer_value(correct)
-            return (full_score if correct_answer is not None and str(student_answer) == str(correct_answer) else 0, full_score)
-        return (0, full_score)
-
-    elif q_type == "multi_choice":
-        if student_answer and isinstance(correct, dict):
-            correct_list = _get_multi_correct_list(correct)
-            if correct_list is None:
-                return (0, full_score)
-            student_list = sorted(student_answer) if isinstance(student_answer, list) else []
-            return (full_score if correct_list == student_list else 0, full_score)
-        return (0, full_score)
-
-    elif q_type == "true_false":
-        # 未作答必须为 None（不能是 False），否则「留空」会被当成「选错误」而白送分
-        if student_answer is not None and isinstance(correct, dict):
-            student_bool = student_answer if isinstance(student_answer, bool) else str(student_answer).strip().lower() == "true"
-            correct_answer = _get_answer_value(correct)
-            return (full_score if correct_answer is not None and student_bool == correct_answer else 0, full_score)
-        return (0, full_score)
-
-    elif q_type == "fill_blank":
-        if student_answer and isinstance(correct, dict):
-            correct_answer = _get_answer_value(correct)
-            return (full_score if correct_answer is not None and str(student_answer).strip().lower() == str(correct_answer).strip().lower() else 0, full_score)
-        return (0, full_score)
-
-    elif q_type == "essay":
-        keywords: list[str] = question.keywords or []
-        if not keywords or not student_answer:
-            return (0, full_score)
-        import re
-        expanded = []
-        for kw in keywords:
-            for sub in re.split(r"[,，]", kw):
-                s = sub.strip()
-                if s and s not in expanded:
-                    expanded.append(s)
-        if not expanded:
-            return (0, full_score)
-        answer_lower = str(student_answer).lower()
-        matched = sum(1 for kw in expanded if kw.lower() in answer_lower)
-        # 修复：原 `matched * (full_score // len(expanded))` 在关键词数多于满分时
-        # 每词得分被整除为 0，导致永远得 0 分。改为按比例四舍五入并截断到满分。
-        score = min(full_score, round(full_score * matched / len(expanded)))
-        return (score, full_score)
-
-    return (0, full_score)
 
 
 @router.get("/exams/{exam_id}/status")
@@ -514,7 +428,7 @@ def review_exam(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """查看考试回顾：错题 + 正确答案"""
+    """查看考试回顾：错题 + 正确答案（与管理端答卷详情共用 build_result_review）"""
     exam = db.query(Exam).filter(Exam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="考试不存在")
@@ -533,52 +447,4 @@ def review_exam(
     if not result.questions:
         raise HTTPException(status_code=400, detail="该考试记录缺少题目快照，无法查看回顾")
 
-    # 获取题目详情
-    question_ids = [q["question_id"] for q in result.questions]
-    score_map = {q["question_id"]: q["score"] for q in result.questions}
-    questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
-    question_map = {q.id: q for q in questions}
-
-    # 构建学生答案映射
-    answers_map: dict[str, dict] = {}
-    if isinstance(result.answers, list):
-        for ans in result.answers:
-            if isinstance(ans, dict) and "question_id" in ans:
-                answers_map[ans["question_id"]] = ans
-
-    # 逐题比对
-    review_questions = []
-    for qc in result.questions:
-        qid = qc["question_id"]
-        question = question_map.get(qid)
-        if not question:
-            continue
-
-        student_ans = answers_map.get(qid, {}).get("answer")
-        total_points = score_map.get(qid, 10)
-        got_score, max_score = grade_question(question, student_ans, total_points=total_points)
-
-        review_questions.append({
-            "id": question.id,
-            "type": question.type,
-            "stem": question.stem,
-            "options": question.options,
-            "score": total_points,
-            "student_answer": student_ans,
-            "correct_answer": question.answer,
-            "keywords": question.keywords,
-            "is_correct": got_score >= max_score,
-            "got_score": got_score,
-            "max_score": max_score,
-        })
-
-    return {
-        "exam_title": exam.title,
-        "total_score": exam.total_score,
-        "score": result.score,
-        "passed": result.passed,
-        "pass_score": exam.pass_score,
-        "attempt_number": result.attempt_number,
-        "submitted_at": result.submitted_at.isoformat() if result.submitted_at else None,
-        "questions": review_questions,
-    }
+    return build_result_review(db, exam, result)

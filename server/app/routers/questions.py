@@ -33,12 +33,18 @@ def list_questions(
     difficulty: str | None = Query(None, description="难度筛选"),
     category_id: str | None = Query(None, description="分类筛选"),
     search: str | None = Query(None, description="搜索题干"),
+    ids: str | None = Query(None, description="逗号分隔的题目 ID，传入时仅返回这些题且不分页（复制考试预填选题用）"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(50, ge=1, le=200, description="每页数量"),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
     q = db.query(Question)
+    if ids:
+        id_list = [i.strip() for i in ids.split(",") if i.strip()][:500]
+        q = q.filter(Question.id.in_(id_list))
+        items = q.all()
+        return {"items": items, "total": len(items), "page": 1, "page_size": len(items) or 1}
     if type:
         q = q.filter(Question.type == type)
     if difficulty:

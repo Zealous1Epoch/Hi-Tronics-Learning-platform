@@ -10,6 +10,8 @@ interface ExamItem {
   duration: number; total_score: number; pass_score: number;
   max_attempts: number | null; start_time: string | null; end_time: string | null;
   status: string; created_at: string;
+  // 列表接口附带的聚合统计
+  assigned_count: number | null; submitted_user_count: number | null;
 }
 interface CourseItem {
   id: string; title: string; category_id: string | null;
@@ -195,6 +197,7 @@ export default function ExamManage() {
                     <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">组卷</th>
                     <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-28">时长/分数</th>
                     <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-20">状态</th>
+                    <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-16">参考</th>
                     <th className="text-center px-3 py-2.5 font-normal text-text-secondary/70 text-xs w-64">操作</th>
                   </tr>
                 </thead>
@@ -207,10 +210,14 @@ export default function ExamManage() {
                       <td className="px-3 py-3 whitespace-nowrap text-center">
                         <span className={`text-xs px-1.5 py-0.5 rounded ${STATUS_COLORS[e.status]}`}>{STATUS_LABELS[e.status]}</span>
                       </td>
+                      <td className="px-3 py-3 text-center text-text-secondary whitespace-nowrap text-xs">
+                        {e.submitted_user_count ?? 0}/{e.assigned_count ?? 0}
+                      </td>
                       <td className="px-3 py-3 text-center whitespace-nowrap">
                         {e.status === "draft" && (
                           <button onClick={() => handlePublish(e.id)} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">发布</button>
                         )}
+                        <Link to={`/admin/exams/${e.id}/results`} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">成绩</Link>
                         <Link to={`/admin/exams/${e.id}/paper`} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">查看组卷</Link>
                         <button onClick={() => openEdit(e)} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">编辑</button>
                         <button onClick={() => handleDelete(e.id)} className="text-xs text-text-secondary/60 hover:text-red-500 transition-colors">删除</button>

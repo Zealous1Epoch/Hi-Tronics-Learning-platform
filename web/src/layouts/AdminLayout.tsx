@@ -232,23 +232,9 @@ export default function AdminLayout() {
                         style={{
                           justifyContent: collapsed ? "center" : "flex-start",
                           padding: collapsed ? "8px 0" : undefined,
-                          position: "relative",
                         }}
                       >
-                        {active && (
-                          <span
-                            style={{
-                              position: "absolute",
-                              left: -8,
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              width: 2,
-                              height: 16,
-                              background: "var(--color-primary)",
-                              borderRadius: 1,
-                            }}
-                          />
-                        )}
+                        {/* 选中竖条由 .k-nav-item-active 的 border-left 承担（对齐招聘 kami，勿再叠加内联 span） */}
                         <Icon size={16} strokeWidth={1.6} />
                         {!collapsed && <span>{item.label}</span>}
                       </Link>

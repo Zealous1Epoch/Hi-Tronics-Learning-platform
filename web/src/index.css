@@ -6,26 +6,36 @@
 @theme {
   --color-primary: #1B365D;
   --color-primary-light: #2D5080;
-  --color-primary-dark: #0F2240;
+  --color-primary-dark: #0E1F36;
+  /* 与招聘系统 kami 对齐：hover 加深方向（非变亮） */
+  --color-primary-hover: #142A48;
 
   --color-bg-base: #FAF9F5;
   --color-bg-layout: #F5F4ED;
   --color-bg-card: #FAF9F5;
   --color-bg-hover: #EFEEE7;
+  /* 次级填充：次要按钮底 / 树节点 hover（对齐招聘 --surface-warm） */
+  --color-bg-warm: #E8E6DC;
+  /* 树/列表选中行浅填充（对齐招聘 --accent-fill） */
+  --color-accent-fill: #E6ECF6;
 
   --color-text-base: #141413;
   --color-text-secondary: #5C5B55;
   --color-text-muted: #94918A;
+  /* 表头/分页等三级信息（对齐招聘 --meta） */
+  --color-text-meta: #6B6A64;
 
   --color-border: #E8E6DC;
   --color-border-dark: #D4D1C2;
 
+  /* 语义色对齐招聘系统组件层：更低饱和 */
   --color-success: #2F7A4F;
-  --color-warning: #A9701B;
-  --color-danger: #B03A3A;
+  --color-warning: #8A6B1F;
+  --color-danger: #8A3A30;
   --color-info: #1B365D;
 
   --radius-default: 6px;
+  --radius-tag: 4px;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
@@ -61,17 +71,24 @@ h3.k-title {
   background: rgba(27, 54, 93, 0.12);
 }
 
-/* 细滚动条 */
+/* 细滚动条（6px，对齐招聘系统 Apple 风） */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border-dark) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
 }
-*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-border-dark);
-  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 3px;
 }
 *::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- kami 组件类 ----------
+   全部收进 @layer components：Tailwind utilities（@layer utilities）在同属性上
+   天然可覆盖组件默认值（如 k-modal + max-w-2xl、k-table-wrap + overflow-auto），
+   符合 Tailwind 组件层惯例，免去 !important hack。非冲突属性行为不变。 */
+
+@layer components {
 
 /* ---------- 卡片 ---------- */
 
@@ -126,28 +143,40 @@ h3.k-title {
 .k-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .k-btn:focus-visible { outline: 2px solid rgba(27, 54, 93, 0.3); outline-offset: 1px; }
 
+/* 主按钮：hover/active 沿深蓝加深方向（对齐招聘 accent-hover/active） */
 .k-btn-primary {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-bg-card);
   border-color: var(--color-primary);
 }
-.k-btn-primary:hover:not(:disabled) { background: var(--color-primary-light); border-color: var(--color-primary-light); }
+.k-btn-primary:hover:not(:disabled) { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+.k-btn-primary:active:not(:disabled) { background: var(--color-primary-dark); transform: scale(0.98); }
 
+/* 次要按钮：暖灰实底（对齐招聘 btn-secondary / surface-warm） */
 .k-btn-default {
-  background: var(--color-bg-card);
+  background: var(--color-bg-warm);
   color: var(--color-text-base);
-  border-color: var(--color-border-dark);
+  border-color: var(--color-border);
 }
-.k-btn-default:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+.k-btn-default:hover:not(:disabled) { box-shadow: 0 4px 24px rgba(0, 0, 0, 0.05); border-color: var(--color-border-dark); }
+.k-btn-default:active:not(:disabled) { transform: scale(0.98); }
 
 .k-btn-ghost { background: transparent; color: var(--color-text-secondary); }
 .k-btn-ghost:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-primary); }
 
-.k-btn-danger { background: var(--color-bg-card); color: var(--color-danger); border-color: var(--color-border-dark); }
-.k-btn-danger:hover:not(:disabled) { border-color: var(--color-danger); background: rgba(176, 58, 58, 0.04); }
+/* 危险按钮：浅红底 + inset 红描边，非实心红（对齐招聘 btn-danger） */
+.k-btn-danger {
+  background: rgba(138, 58, 48, 0.08);
+  color: var(--color-danger);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px rgba(138, 58, 48, 0.25);
+}
+.k-btn-danger:hover:not(:disabled) { background: rgba(138, 58, 48, 0.14); }
 
-.k-btn-sm { font-size: 12px; padding: 3px 10px; }
+.k-btn-sm { font-size: 12px; padding: 4px 10px; }
 .k-btn-lg { font-size: 14px; padding: 9px 20px; }
+/* 行内迷你按钮（表格/工具条密集场景） */
+.k-btn-xs { font-size: 11px; padding: 3px 8px; border-radius: var(--radius-tag); }
 
 /* 文字按钮（表格操作列） */
 .k-link {
@@ -178,10 +207,11 @@ h3.k-title {
   transition: border-color 160ms ease, background-color 160ms ease;
 }
 .k-input::placeholder, .k-textarea::placeholder { color: var(--color-text-muted); }
+/* 聚焦统一 3px 主色光圈（对齐招聘全局输入规范） */
 .k-input:focus, .k-select:focus, .k-textarea:focus {
   outline: none;
   border-color: var(--color-primary);
-  background: rgba(27, 54, 93, 0.02);
+  box-shadow: 0 0 0 3px rgba(27, 54, 93, 0.08);
 }
 .k-input:disabled, .k-textarea:disabled { background: var(--color-bg-hover); color: var(--color-text-muted); }
 .k-textarea { resize: vertical; }
@@ -201,23 +231,25 @@ input.k-date-empty::-webkit-calendar-picker-indicator { opacity: 0.5; }
 
 /* ---------- 标签 ---------- */
 
+/* 标签：浅底主色，像盖章而非贴纸——无描边，仅 8~10% 透明底 + 深字 */
 .k-tag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 11px;
-  line-height: 1.6;
-  padding: 1px 7px;
-  border-radius: 4px;
-  background: var(--color-bg-hover);
+  line-height: 1.5;
+  padding: 3px 8px;
+  border-radius: var(--radius-tag);
+  background: rgba(107, 106, 100, 0.08);
   color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
   white-space: nowrap;
 }
-.k-tag-primary { background: rgba(27, 54, 93, 0.06); color: var(--color-primary); border-color: rgba(27, 54, 93, 0.18); }
-.k-tag-success { background: rgba(47, 122, 79, 0.07); color: var(--color-success); border-color: rgba(47, 122, 79, 0.2); }
-.k-tag-warning { background: rgba(169, 112, 27, 0.08); color: var(--color-warning); border-color: rgba(169, 112, 27, 0.22); }
-.k-tag-danger  { background: rgba(176, 58, 58, 0.07); color: var(--color-danger);  border-color: rgba(176, 58, 58, 0.2); }
+.k-tag .k-tag-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.k-tag-primary { background: rgba(27, 54, 93, 0.06); color: var(--color-primary); }
+.k-tag-success { background: rgba(47, 122, 79, 0.1); color: var(--color-success); }
+.k-tag-warning { background: rgba(138, 107, 31, 0.1); color: var(--color-warning); }
+.k-tag-danger  { background: rgba(138, 58, 48, 0.08); color: var(--color-danger); }
+.k-tag-soft    { background: transparent; border: 1px solid var(--color-border); color: var(--color-text-secondary); }
 
 /* ---------- 表格 ---------- */
 
@@ -227,25 +259,33 @@ input.k-date-empty::-webkit-calendar-picker-indicator { opacity: 0.5; }
   border-radius: var(--radius-default);
   overflow: hidden;
 }
+/* 极简表格：无斑马纹、无竖线、只有细横线（对齐招聘 .dt） */
 .k-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .k-table thead th {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--color-text-meta);
   text-align: left;
-  padding: 10px 14px;
+  padding: 11px 16px;
   border-bottom: 1px solid var(--color-border);
   white-space: nowrap;
   background: var(--color-bg-card);
+  user-select: none;
 }
 .k-table tbody td {
-  padding: 11px 14px;
-  border-bottom: 1px solid rgba(232, 230, 220, 0.7);
+  padding: 10px 16px;
+  border-bottom: 1px solid #E5E3D8;
   vertical-align: middle;
 }
 .k-table tbody tr:last-child td { border-bottom: none; }
-.k-table tbody tr:hover { background: var(--color-bg-hover); }
-.k-table-compact tbody td { padding: 7px 14px; }
+.k-table tbody tr:hover { background: rgba(27, 54, 93, 0.03); }
+.k-table tbody tr:active { background: rgba(27, 54, 93, 0.06); }
+/* 表头吸顶修饰类（配合外层滚动容器使用） */
+.k-table-sticky thead th { position: sticky; top: 0; z-index: 1; }
+.k-table-compact tbody td { padding: 7px 12px; }
+.k-table .k-strong { color: var(--color-text-base); font-weight: 500; }
+.k-table .k-muted { color: var(--color-text-meta); }
 
 /* ---------- 导航项 ---------- */
 
@@ -253,15 +293,18 @@ input.k-date-empty::-webkit-calendar-picker-indicator { opacity: 0.5; }
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 7px 10px;
-  border-radius: var(--radius-default);
+  padding: 7px 10px 7px 8px;
+  border-left: 2px solid transparent;
+  border-radius: 0 4px 4px 0;
   font-size: 13px;
   color: var(--color-text-secondary);
   transition: background-color 160ms ease, color 160ms ease;
 }
 .k-nav-item:hover { background: var(--color-bg-hover); color: var(--color-text-base); }
+/* 选中：浅底 + 左 2px 主色竖条（对齐招聘 admin-nav-link，不用实心色块） */
 .k-nav-item-active {
-  background: rgba(27, 54, 93, 0.06);
+  background: rgba(27, 54, 93, 0.07);
+  border-left-color: var(--color-primary);
   color: var(--color-primary);
   font-weight: 500;
 }
@@ -310,16 +353,182 @@ input.k-date-empty::-webkit-calendar-picker-indicator { opacity: 0.5; }
   background: rgba(20, 20, 19, 0.32);
   padding: 16px;
 }
+/* 基础尺寸用 :where（零特异度）声明，页面可用 Tailwind max-w-* 直接覆盖 */
 .k-modal {
   background: var(--color-bg-card);
-  border-radius: 8px;
   border: 1px solid var(--color-border);
   width: 100%;
-  max-width: 460px;
   padding: 20px 22px;
+  box-shadow: 0 8px 24px rgba(20, 20, 19, 0.1);
+}
+:where(.k-modal) { border-radius: var(--radius-default); max-width: 460px; }
+.k-modal-title {
+  font-family: var(--font-kai);
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--color-primary);
+  margin: 0 0 14px;
+}
+.k-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
 }
 
-/* video.js 播放器样式 */
+/* ---------- 筛选工具条（对齐招聘 .filter-bar / .filter-toolbar） ---------- */
+
+.k-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-default);
+}
+.k-filter-bar:focus-within { border-color: var(--color-primary); }
+/* 右侧推手：把操作按钮组推到行尾 */
+.k-spacer { margin-left: auto; }
+
+/* 筛选内联控件（比 k-input 紧凑、底取页面色形成"凹"感） */
+.k-ctl {
+  font: 400 13px/1.5 var(--font-sans);
+  color: var(--color-text-base);
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-default);
+  padding: 5px 10px;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+.k-ctl:focus {
+  border-color: var(--color-primary);
+  background: var(--color-bg-card);
+  box-shadow: 0 0 0 3px rgba(27, 54, 93, 0.08);
+}
+.k-ctl::placeholder { color: var(--color-text-muted); }
+
+/* 带左放大镜图标的搜索框（图标由页面内 lucide <Search size={14}/> 提供）。
+   注意：基准确用 width 而非 flex-basis——flex-basis 在 column 父容器里会
+   错误地变成"高度"（CourseTree 列内搜索框被撑成 280px 高的事故教训） */
+.k-search { position: relative; width: 280px; max-width: 100%; flex-shrink: 1; min-width: 140px; }
+.k-search > svg {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.k-search > input {
+  width: 100%;
+  font: 400 13px/1.5 var(--font-sans);
+  color: var(--color-text-base);
+  background: var(--color-bg-layout);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-default);
+  padding: 6px 28px 6px 32px;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+.k-search > input:focus {
+  border-color: var(--color-primary);
+  background: var(--color-bg-card);
+  box-shadow: 0 0 0 3px rgba(27, 54, 93, 0.08);
+}
+.k-search > input::placeholder { color: var(--color-text-muted); }
+/* 输入框右置清空 × */
+.k-search > .k-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  padding: 2px;
+}
+.k-search > .k-search-clear:hover { color: var(--color-text-base); }
+
+/* ---------- 分页条（对齐招聘 .pager：上边线 + 左统计右翻页） ---------- */
+
+.k-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+  color: var(--color-text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 统计卡（对齐招聘 .stat-card：点击即筛选） ---------- */
+
+.k-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-default);
+  padding: 10px 12px 9px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+.k-stat-card:hover { border-color: var(--color-border-dark); }
+.k-stat-card.is-active {
+  border-color: var(--color-primary);
+  background: rgba(27, 54, 93, 0.04);
+}
+.k-stat-label { font-size: 11px; color: var(--color-text-secondary); }
+.k-stat-value {
+  font-family: var(--font-kai);
+  font-weight: 500;
+  font-size: 22px;
+  line-height: 1.15;
+  color: var(--color-text-base);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 列表/树选中态（浅底 + 左 2px accent 竖条） ---------- */
+
+.k-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-left: 2px solid transparent;
+  border-radius: 0 4px 4px 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+.k-tree-item:hover { background: var(--color-bg-hover); color: var(--color-text-base); }
+.k-tree-item.is-active {
+  background: var(--color-accent-fill);
+  border-left-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+.k-tree-item .k-tree-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+} /* @layer components end */
+
+/* video.js 播放器样式（第三方库对抗规则，留在层外保持高优先） */
 .video-js {
   border-radius: var(--radius-default);
   overflow: hidden;

@@ -17,9 +17,9 @@ interface Props {
 }
 
 /**
- * 课程分类级联选择：点击触发展开面板；
+ * 课程分类级联选择：点击触发展开面板（无选中项 = 全部课程分类，触发器带清除按钮）；
  * 面板顶部支持输入过滤（结果平铺显示完整路径），未输入时按层级分列级联浏览。
- * hover 含子级节点展开下一列，点击任意节点即选中（含容器节点）。
+ * 点击含子级节点展开下一列（不再 hover 即开，避免误触），再点已展开节点选中；叶子点击直接选中。
  */
 export default function CategoryCascadeSelect({
   value,
@@ -101,6 +101,30 @@ export default function CategoryCascadeSelect({
       active ? "bg-accent-fill text-primary font-medium" : "text-text-base"
     }`;
 
+  /** 级联行：depthIdx 为该节点在展开链 path 中的层级；点击含子级节点先展开，再点选中 */
+  const renderCascadeRow = (node: FlatCategory, depthIdx: number) => {
+    const hasKids = (byParent.get(node.id) || []).length > 0;
+    const expanded = path.length > depthIdx && path[depthIdx] === node.id;
+    return (
+      <div
+        key={node.id}
+        className={rowCls(node.id === value || expanded)}
+        onClick={() => {
+          if (!hasKids || expanded) return pick(node.id);
+          setPath((p) => p.slice(0, depthIdx).concat(node.id));
+        }}
+      >
+        <span className="truncate flex-1">{node.name}</span>
+        {hasKids && (
+          <ChevronRight
+            size={12}
+            className={`text-text-muted shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+          />
+        )}
+      </div>
+    );
+  };
+
   return (
     <div ref={rootRef} className={`relative shrink-0 ${className}`}>
       <div
@@ -177,37 +201,13 @@ export default function CategoryCascadeSelect({
           ) : (
             <div className="flex max-h-60 overflow-x-auto">
               <div className="w-[140px] shrink-0 border-r border-border py-1 max-h-60 overflow-y-auto k-scroll">
-                <div className={rowCls(value === "")} onClick={() => pick("")}>
-                  全部课程分类
-                </div>
-                {(byParent.get("") || []).map((node) => (
-                  <div
-                    key={node.id}
-                    className={rowCls(node.id === value)}
-                    onMouseEnter={() => setPath((p) => p.slice(0, 0).concat(node.id))}
-                    onClick={() => pick(node.id)}
-                  >
-                    <span className="truncate flex-1">{node.name}</span>
-                    {(byParent.get(node.id) || []).length > 0 && <ChevronRight size={12} className="text-text-muted shrink-0" />}
-                  </div>
-                ))}
+                {(byParent.get("") || []).map((node) => renderCascadeRow(node, 0))}
               </div>
               {columns.slice(1).map((col, ci) => (
                 <div key={ci} className="w-[140px] shrink-0 border-r border-border last:border-r-0 py-1 max-h-60 overflow-y-auto k-scroll">
-                  {col.map((node) => (
-                    <div
-                      key={node.id}
-                      className={rowCls(node.id === value)}
-                      onMouseEnter={() => setPath((p) => p.slice(0, ci + 1).concat(node.id))}
-                      onClick={() => pick(node.id)}
-                    >
-                      <span className="truncate flex-1">{node.name}</span>
-                      {(byParent.get(node.id) || []).length > 0 && <ChevronRight size={12} className="text-text-muted shrink-0" />}
-                    </div>
-                  ))}
+                  {col.map((node) => renderCascadeRow(node, ci + 1))}
                 </div>
               ))}
-              {/* 叶子链的末列若节点无子级，上面 columns 只会少一列——点击即选，无需空列 */}
             </div>
           )}
         </div>

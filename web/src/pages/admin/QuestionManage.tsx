@@ -71,7 +71,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
   const [categoryFilter, setCategoryFilter] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const pageSize = 50;
+  const [pageSize, setPageSize] = useState(50);
 
   // AI 出题弹窗
   const [showAI, setShowAI] = useState(false);
@@ -129,11 +129,11 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
 
   useEffect(() => {
     setPage(1);
-  }, [typeFilter, diffFilter, categoryFilter, propCategoryId, search]);
+  }, [typeFilter, diffFilter, categoryFilter, propCategoryId, search, pageSize]);
 
   useEffect(() => {
     fetchQuestions();
-  }, [typeFilter, diffFilter, categoryFilter, propCategoryId, page]);
+  }, [typeFilter, diffFilter, categoryFilter, propCategoryId, page, pageSize]);
 
   useEffect(() => {
     if (!search) {
@@ -438,6 +438,17 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
         <div className="flex items-center justify-between mt-4 text-sm text-text-meta shrink-0">
           <span>共 {total} 题</span>
           <div className="flex items-center gap-2">
+            {/* 每页条数：变化时由依赖 effect 自动回第 1 页并重查 */}
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="k-ctl h-7 w-[92px] text-xs cursor-pointer"
+              title="每页显示条数"
+            >
+              {[20, 50, 100, 500].map((n) => (
+                <option key={n} value={n}>{n} 条/页</option>
+              ))}
+            </select>
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}

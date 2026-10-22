@@ -262,17 +262,7 @@ export default function CourseTree({
 
   return (
     <div className="flex flex-col h-full">
-      {/* 全部X 头部 */}
-      {showHeader && (
-        <div
-          onClick={() => onSelect(null)}
-          className={`k-tree-item mb-2 ${selectedId === null ? "is-active" : ""}`}
-        >
-          {rootLabel}
-        </div>
-      )}
-
-      {/* 搜索框 */}
+      {/* 搜索框置顶 */}
       {showSearch && (
         <div className="k-search mb-2">
           <Search size={14} />
@@ -282,6 +272,16 @@ export default function CourseTree({
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
           />
+        </div>
+      )}
+
+      {/* 全部X 头部（选中即展示全量，位于搜索框之下） */}
+      {showHeader && (
+        <div
+          onClick={() => onSelect(null)}
+          className={`k-tree-item mb-2 ${selectedId === null ? "is-active" : ""}`}
+        >
+          {rootLabel}
         </div>
       )}
 

@@ -233,7 +233,7 @@ export default function AdminLayout() {
                           ? { flexDirection: "column", justifyContent: "center", gap: 3, padding: "7px 0 6px" }
                           : { justifyContent: "flex-start" }}
                       >
-                        {/* 选中指示为底部 2px 主色横条，由 .k-nav-item-active::after 绘制（勿再叠加内联 span） */}
+                        {/* 选中态仅浅底+主色文字，无指示条（.k-nav-item-active），勿再叠加内联 span */}
                         <Icon size={16} strokeWidth={1.6} />
                         <span
                           style={collapsed

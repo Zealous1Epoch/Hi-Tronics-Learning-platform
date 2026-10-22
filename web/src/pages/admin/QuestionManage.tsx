@@ -10,6 +10,8 @@ export interface QuestionManageHandle {
 import { api, BASE } from "../../lib/api";
 import AIGenerateModal from "../../components/question/AIGenerateModal";
 import ImportQuestionsModal from "../../components/question/ImportQuestionsModal";
+import ComboSelect from "../../components/ui/ComboSelect";
+import CategoryCascadeSelect from "../../components/ui/CategoryCascadeSelect";
 
 interface QuestionItem {
   id: string; type: string; stem: string; options: Record<string, string> | null;
@@ -73,6 +75,13 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
 
   // AI 出题弹窗
   const [showAI, setShowAI] = useState(false);
+  // AI 能力探测（按钮随服务端 LLM 配置置灰）
+  const [aiEnabled, setAiEnabled] = useState(false);
+  useEffect(() => {
+    api<{ enabled: boolean }>("/ai/status")
+      .then((s) => setAiEnabled(s.enabled))
+      .catch(() => setAiEnabled(false));
+  }, []);
 
   // 批量导入弹窗（文件/结果等状态在 ImportQuestionsModal 内部）
   const [showImport, setShowImport] = useState(false);
@@ -324,31 +333,48 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
         </div>
       )}
 
-      {/* 筛选栏 */}
+      {/* 筛选栏：可输入下拉 + 级联分类 + 题干搜索 + 页面操作按钮组 */}
       <div className="k-filter-bar mb-4 shrink-0">
         {!propCategoryId && (
-          <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setLoading(true); }}
-            className="k-ctl w-32">
-            <option value="">全部分类</option>
-            {flatCategories.map((c) => (
-              <option key={c.id} value={c.id}>{c.parent_id ? "  " : ""}{c.name}</option>
-            ))}
-          </select>
+          <CategoryCascadeSelect
+            value={categoryFilter}
+            onChange={(v) => { setCategoryFilter(v); setLoading(true); }}
+            categories={flatCategories}
+            className="w-40"
+          />
         )}
-        <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); onTypeFilterChange?.(e.target.value); setLoading(true); }}
-          className="k-ctl w-28">
-          {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
-        <select value={diffFilter} onChange={(e) => { setDiffFilter(e.target.value); setLoading(true); }}
-          className="k-ctl w-28">
-          {DIFFICULTY_OPTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-        </select>
-        <div className="k-search">
+        <ComboSelect
+          value={typeFilter}
+          onChange={(v) => { setTypeFilter(v); onTypeFilterChange?.(v); setLoading(true); }}
+          options={TYPE_OPTIONS}
+          placeholder="全部题型"
+          className="w-32"
+        />
+        <ComboSelect
+          value={diffFilter}
+          onChange={(v) => { setDiffFilter(v); setLoading(true); }}
+          options={DIFFICULTY_OPTIONS}
+          placeholder="全部难度"
+          className="w-28"
+        />
+        {/* 搜索框弹性伸展占满剩余空间，按钮组紧随其右；窄屏时整组一起换行 */}
+        <div className="k-search flex-1 min-w-40">
           <Search size={14} />
           <input
             type="text" placeholder="搜索题干..."
             value={search} onChange={(e) => setSearch(e.target.value)}
           />
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={handleExport} className="k-btn k-btn-default k-btn-sm">导出</button>
+          <button onClick={() => setShowImport(true)} className="k-btn k-btn-default k-btn-sm">批量导入</button>
+          <button
+            onClick={() => aiEnabled && setShowAI(true)}
+            disabled={!aiEnabled}
+            title={aiEnabled ? "按主题关键词 AI 生成题目草稿，人工审核后入库" : "AI 功能未启用：服务端未配置 LLM_API_KEY"}
+            className="k-btn k-btn-default k-btn-sm"
+          >AI 出题</button>
+          <button onClick={openCreate} className="k-btn k-btn-primary k-btn-sm">新增试题</button>
         </div>
       </div>
 
@@ -357,7 +383,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
         <p className="k-empty">加载中...</p>
       ) : questions.length === 0 ? (
         <div className="k-card k-empty">
-          暂无试题，点击右上角新增
+          暂无试题，点击筛选栏右侧「新增试题」
         </div>
       ) : (
         <div className="k-table-wrap overflow-auto flex-1 min-h-0">

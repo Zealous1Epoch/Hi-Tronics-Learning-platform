@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../../lib/api";
-import QuestionManage, { type QuestionManageHandle } from "./QuestionManage";
+import QuestionManage from "./QuestionManage";
 import CourseTree, { type TreeNode } from "../../components/CourseTree";
 
 interface CategoryStats {
@@ -22,10 +22,8 @@ export default function QuestionBank() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stats, setStats] = useState<CategoryStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [aiEnabled, setAiEnabled] = useState(false);
   // KPI 题型卡选中态：点击卡片即筛选下方试题列表，再点取消
   const [kpiType, setKpiType] = useState("");
-  const qmRef = useRef<QuestionManageHandle>(null);
 
   const fetchTree = async () => {
     const data = await api<TreeNode[]>("/question-categories/tree");
@@ -34,13 +32,6 @@ export default function QuestionBank() {
   };
 
   useEffect(() => { fetchTree(); }, []);
-
-  // 探测 AI 出题可用性（未配置 LLM_API_KEY 时按钮置灰）
-  useEffect(() => {
-    api<{ enabled: boolean }>("/ai/status")
-      .then(s => setAiEnabled(s.enabled))
-      .catch(() => setAiEnabled(false));
-  }, []);
 
   // 选中节点变化时加载统计
   useEffect(() => {
@@ -51,63 +42,31 @@ export default function QuestionBank() {
     }
   }, [selectedId]);
 
-  const formatTime = (t: string | null) => {
-    if (!t) return "-";
-    return new Date(t).toLocaleString("zh-CN", {
-      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-    });
-  };
-
   const toggleType = (type: string) => setKpiType((prev) => (prev === type ? "" : type));
 
   return (
     // 页面锁定在视口高度（100vh - 顶栏 52 - main 上下 padding 44），
     // 溢出只发生在试题列表内部滚动条，整页不再跟随滚动
     <div className="flex flex-col h-[calc(100vh-96px)]">
-          {/* KPI 面板：题库统计 + 操作入口，通栏横贯页面左右 */}
-          <div className="k-card p-4 mb-4 shrink-0">
-            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-              <div className="flex items-baseline gap-2 min-w-0">
-                {/* 页面标题并入 KPI 头部，省去独立标题行的留白 */}
-                <h2 className="font-bold text-base text-primary whitespace-nowrap">试题管理</h2>
-                <span className="text-border-dark whitespace-nowrap">/</span>
-                <h3 className="font-bold text-sm text-primary truncate">{stats?.name || "加载中..."}</h3>
-                {stats && (
-                  <span className="text-[11px] text-text-secondary/60 whitespace-nowrap">
-                    {stats.is_leaf ? "叶子题库" : stats.child_count > 0 ? `容器节点 / ${stats.child_count} 个子节点` : "全部题库"}
-                    · 创建于 {formatTime(stats.created_at)}
-                  </span>
-                )}
-              </div>
-              <div className="flex gap-2 shrink-0">
-                <button onClick={() => qmRef.current?.handleExport()} className="k-btn k-btn-default k-btn-sm">导出</button>
-                <button onClick={() => qmRef.current?.openImport()} className="k-btn k-btn-default k-btn-sm">批量导入</button>
-                <button
-                  onClick={() => aiEnabled && qmRef.current?.openAI()}
-                  disabled={!aiEnabled}
-                  title={aiEnabled ? "按主题关键词 AI 生成题目草稿，人工审核后入库" : "AI 功能未启用：服务端未配置 LLM_API_KEY"}
-                  className="k-btn k-btn-default k-btn-sm"
-                >AI 出题</button>
-                <button onClick={() => qmRef.current?.openCreate()} className="k-btn k-btn-primary k-btn-sm">新增试题</button>
-              </div>
-            </div>
-            <div className="grid grid-cols-6 gap-2">
-              <button onClick={() => setKpiType("")}
-                title="清除题型筛选"
-                className={`k-stat-card ${kpiType === "" ? "is-active" : ""}`}>
-                <span className="k-stat-label">总题数</span>
-                <span className="k-stat-value">{stats?.total_count ?? "-"}</span>
-              </button>
-              {TYPES.map((type) => (
-                <button key={type} onClick={() => toggleType(type)}
-                  title={kpiType === type ? "取消筛选" : `只看${TYPE_LABELS[type]}`}
-                  className={`k-stat-card ${kpiType === type ? "is-active" : ""}`}>
-                  <span className="k-stat-label">{TYPE_LABELS[type]}</span>
-                  <span className="k-stat-value">{stats ? stats[type] : "-"}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* KPI 面板：题库题型统计卡，通栏横贯页面左右（操作入口在下方筛选栏右侧） */}
+      <div className="k-card p-4 mb-4 shrink-0">
+        <div className="grid grid-cols-6 gap-2">
+          <button onClick={() => setKpiType("")}
+            title="清除题型筛选"
+            className={`k-stat-card ${kpiType === "" ? "is-active" : ""}`}>
+            <span className="k-stat-label">总题数</span>
+            <span className="k-stat-value">{stats?.total_count ?? "-"}</span>
+          </button>
+          {TYPES.map((type) => (
+            <button key={type} onClick={() => toggleType(type)}
+              title={kpiType === type ? "取消筛选" : `只看${TYPE_LABELS[type]}`}
+              className={`k-stat-card ${kpiType === type ? "is-active" : ""}`}>
+              <span className="k-stat-label">{TYPE_LABELS[type]}</span>
+              <span className="k-stat-value">{stats ? stats[type] : "-"}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* 下半区：左=题库树（超长内部滚动） 右=试题列表，两栏顶部齐平 */}
       <div className="flex gap-4 flex-1 min-h-0">
@@ -130,7 +89,7 @@ export default function QuestionBank() {
               该题库为容器节点（题数统计已含子题库），请选择子题库管理试题
             </div>
           ) : (
-            <QuestionManage ref={qmRef} categoryId={selectedId} externalTypeFilter={kpiType} onTypeFilterChange={setKpiType} />
+            <QuestionManage categoryId={selectedId} externalTypeFilter={kpiType} onTypeFilterChange={setKpiType} />
           )}
         </div>
       </div>

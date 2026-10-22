@@ -112,11 +112,13 @@ class ExamQuickCreate(BaseModel):
     end_time: str | None = None
     publish: bool = Field(True, description="true=创建即发布；false=存草稿")
     save_paper_as: str | None = Field(None, max_length=200, description="传入则顺手把本次选题存为可复用试卷")
+    assign_user_ids: list[str] | None = Field(None, description="建考同时把这些学员分配到课程（幂等，已分配的跳过）")
 
 
 class ExamQuickCreateOut(ExamOut):
     replaced_exam_title: str | None = Field(None, description="课程原绑定的考试被自动置为已结束时返回其名称")
     saved_paper_id: str | None = None
+    assigned_new: int = Field(0, description="本次同步新分配到课程的学员数（已分配的不计）")
 
 
 class PreviewDrawRequest(BaseModel):

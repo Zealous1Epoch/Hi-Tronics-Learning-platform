@@ -37,9 +37,11 @@ interface Props {
   onChange: (categoryId: string | null, items: PickedQuestion[]) => void;
   /** 空题库时的引导（如「去导入试题」按钮由父组件渲染） */
   onBankEmpty?: (categoryId: string) => void;
+  /** 变化时重拉题目列表（向导内就地补题后立即看到新题） */
+  refreshKey?: number;
 }
 
-export default function QuestionPickerPanel({ onChange }: Props) {
+export default function QuestionPickerPanel({ onChange, refreshKey }: Props) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [treeSearch, setTreeSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -71,7 +73,7 @@ export default function QuestionPickerPanel({ onChange }: Props) {
       .then((d) => setQuestions(d.items))
       .catch(() => setQuestions([]))
       .finally(() => setLoadingList(false));
-  }, [bankId, typeFilter, diffFilter, kw]);
+  }, [bankId, typeFilter, diffFilter, kw, refreshKey]);
 
   // 选择结果向父组件同步
   useEffect(() => {

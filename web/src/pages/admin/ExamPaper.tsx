@@ -7,6 +7,7 @@ interface QuestionItem {
 }
 interface ExamInfo {
   id: string; title: string; paper_type: string; total_score: number; duration: number;
+  paper_id: string | null;
 }
 interface PaperData {
   id: string; exam_id: string; questions: { question_id: string; score: number }[] | null;
@@ -84,6 +85,12 @@ export default function ExamPaper() {
           </p>
         </div>
         <div className="flex gap-2">
+          {exam.paper_id && (
+            <button onClick={() => navigate(`/admin/papers/${exam.paper_id}`)}
+              className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">
+              去编辑试卷
+            </button>
+          )}
           {exam.paper_type === "random" && (
             <button onClick={handlePreview} className="px-4 py-2 border border-primary text-primary rounded-md text-sm hover:bg-primary/5">
               生成预览

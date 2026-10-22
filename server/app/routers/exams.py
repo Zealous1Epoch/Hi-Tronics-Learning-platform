@@ -1,12 +1,18 @@
 """考试管理路由"""
 
+import io
 import uuid
 from datetime import datetime
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.models.course import Course
+from app.models.course import Course, CourseAssignment
 from app.models.exam import Exam, ExamPaper, ExamResult
 from app.models.paper import Paper
 from app.models.question import Question
@@ -395,6 +401,28 @@ def quick_create_exam(
     if start_time and end_time and start_time >= end_time:
         raise HTTPException(status_code=400, detail="开放时间必须早于截止时间")
 
+    # 建考即分配学员：先校验后插入，与建考同一事务；校验不过直接 400，不留任何残留
+    assigned_new = 0
+    if data.assign_user_ids:
+        assign_ids = list(dict.fromkeys(data.assign_user_ids))  # 去重保序
+        found = {u.id for u in db.query(User).filter(User.id.in_(assign_ids)).all()}
+        missing = [i for i in assign_ids if i not in found]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"有 {len(missing)} 名学员不存在或已被删除，请重新选择")
+        existing = {
+            a.user_id for a in db.query(CourseAssignment).filter(
+                CourseAssignment.course_id == course.id,
+                CourseAssignment.user_id.in_(assign_ids),
+            ).all()
+        }
+        for uid in assign_ids:
+            if uid not in existing:
+                db.add(CourseAssignment(
+                    id=str(uuid.uuid4()), course_id=course.id, user_id=uid,
+                    assigned_by=current_user.id,
+                ))
+                assigned_new += 1
+
     exam = Exam(
         id=str(uuid.uuid4()),
         course_id=course.id,
@@ -455,4 +483,5 @@ def quick_create_exam(
     out = ExamOut.model_validate(exam).model_dump()
     out["replaced_exam_title"] = replaced_title
     out["saved_paper_id"] = saved_paper_id
+    out["assigned_new"] = assigned_new
     return out

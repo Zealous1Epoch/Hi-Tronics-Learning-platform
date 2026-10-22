@@ -274,6 +274,92 @@ def test_quick_create_save_paper_as(client, admin_headers, course_id, db):
     assert "复用模板" in titles
 
 
+# ========== 建考即分配（assign_user_ids） ==========
+
+def _mk_user(db, name):
+    from app.models.user import User
+    from app.services.auth_service import hash_password
+    u = User(
+        id=str(uuid.uuid4()),
+        username=f"stu_{uuid.uuid4().hex[:8]}",
+        password_hash=hash_password("Student123!"),
+        name=name, role="student", status="active",
+    )
+    db.add(u)
+    db.commit()
+    return u
+
+
+def _assign_rows(db, course_id):
+    from app.models.course import CourseAssignment
+    db.expire_all()
+    return db.query(CourseAssignment).filter(CourseAssignment.course_id == course_id).all()
+
+
+def test_quick_create_assigns_users(client, admin_headers, course_id, db):
+    """建考同时分配学员：生成 CourseAssignment 行，assigned_new 计数正确"""
+    q = _q_single(db, "题")
+    u1, u2 = _mk_user(db, "学员甲"), _mk_user(db, "学员乙")
+    res = client.post("/api/exams/quick-create", headers=admin_headers,
+                      json=_fixed_body(course_id, [q.id], [10], assign_user_ids=[u1.id, u2.id]))
+    assert res.status_code == 201, res.text
+    assert res.json()["assigned_new"] == 2
+
+    rows = _assign_rows(db, course_id)
+    assert {r.user_id for r in rows} == {u1.id, u2.id}
+    assert all(r.assigned_by for r in rows)
+
+
+def test_quick_create_assign_skips_existing(client, admin_headers, course_id, db):
+    """已分配过的学员不产生重复行（幂等）"""
+    from app.models.course import CourseAssignment
+    q = _q_single(db, "题")
+    u1 = _mk_user(db, "已分配学员")
+    db.add(CourseAssignment(id=str(uuid.uuid4()), course_id=course_id, user_id=u1.id))
+    db.commit()
+
+    res = client.post("/api/exams/quick-create", headers=admin_headers,
+                      json=_fixed_body(course_id, [q.id], [10], assign_user_ids=[u1.id]))
+    assert res.status_code == 201, res.text
+    assert res.json()["assigned_new"] == 0
+    assert len(_assign_rows(db, course_id)) == 1
+
+
+def test_quick_create_invalid_user_rejected(client, admin_headers, course_id, db):
+    """学员不存在 → 400，且不留下考试/试卷/分配等任何残留（同事务原子性）"""
+    q = _q_single(db, "题")
+    u = _mk_user(db, "有效学员")
+    res = client.post("/api/exams/quick-create", headers=admin_headers,
+                      json=_fixed_body(course_id, [q.id], [10],
+                                       assign_user_ids=[u.id, str(uuid.uuid4())]))
+    assert res.status_code == 400
+    assert "学员" in res.json()["detail"]
+
+    db.expire_all()
+    assert db.query(Exam).filter(Exam.title == "一键考").count() == 0
+    assert _assign_rows(db, course_id) == []
+    from app.models.course import Course
+    course = db.query(Course).filter(Course.id == course_id).first()
+    assert course.exam_id is None
+
+
+def test_quick_create_assigned_new_counts_distinct(client, admin_headers, course_id, db):
+    """混合批次：batch 内重复的 user_id 只算一次，assigned_new=本次新增行数"""
+    from app.models.course import CourseAssignment
+    q = _q_single(db, "题")
+    u1, u2 = _mk_user(db, "学员甲"), _mk_user(db, "学员乙")
+    db.add(CourseAssignment(id=str(uuid.uuid4()), course_id=course_id, user_id=u1.id))
+    db.commit()
+
+    res = client.post("/api/exams/quick-create", headers=admin_headers,
+                      json=_fixed_body(course_id, [q.id], [10],
+                                       assign_user_ids=[u2.id, u1.id, u2.id]))
+    assert res.status_code == 201, res.text
+    assert res.json()["assigned_new"] == 1
+    rows = _assign_rows(db, course_id)
+    assert len(rows) == 2  # u1 旧行 + u2 新行，无重复
+
+
 # ========== 服务端预览抽题 ==========
 
 def test_preview_draw(client, admin_headers, db):

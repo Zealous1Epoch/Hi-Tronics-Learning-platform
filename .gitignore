@@ -43,3 +43,4 @@ web/dist/
 
 # 工作区本地数据（记忆、产物快照），仅供本机使用
 .workbuddy/
+output/

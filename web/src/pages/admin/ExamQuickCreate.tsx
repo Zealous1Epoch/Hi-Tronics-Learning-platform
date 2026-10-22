@@ -1,12 +1,14 @@
 /**
- * 一键建考向导（三步）
+ * 一键建考向导（三步 · 右拉抽屉）
  *
  * ① 基本信息：名称 + 开放时间（时长/重考等全部给默认值）
- * ② 选择内容：从题库固定选题 / 随机规则 / 复用已发布试卷（三选一）
+ * ② 选择内容：从题库固定选题 / 随机规则 / 全部试卷（三选一；「全部试卷」
+ *    平铺所有已发布试卷直接选用，不需要先选分类）
  * ③ 确认发布：关联课程 + 顺手分配学员 + 及格分（自动 60%）+ 可选存为试卷模板 → 创建并发布
  *
+ * 抽屉形态对齐 CourseFormDrawer（右拉 + 进出场动画），顶部为步骤进度条。
  * 后端 POST /api/exams/quick-create 一个事务完成「建考试 + 组卷 + 绑课程 + 发布」，
- * 管理员不再需要先去试卷管理建卷、发布，再回考试管理挑选。
+ * 「新增考试」与「复制考试」共用本向导，管理员不再需要先去试卷管理建卷、发布。
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -47,13 +49,26 @@ const STEPS = ["基本信息", "选择内容", "确认发布"];
 const TABS = [
   { key: "bank_fixed", label: "从题库选题" },
   { key: "bank_random", label: "随机抽题规则" },
-  { key: "paper", label: "复用已有试卷" },
+  { key: "paper", label: "全部试卷" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
 export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  // 抽屉进出场动画（与 CourseFormDrawer 同套路：rAF 触发首帧滑动，关闭留 220ms 滑出）
+  const [entered, setEntered] = useState(false);
+  const [closing, setClosing] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  const finish = () => {
+    if (saving || closing) return;
+    setClosing(true);
+    setTimeout(onClose, 220);
+  };
 
   // ① 基本信息（复制模式：带名称后缀/时长/次数，唯独不带旧时间窗——新一场要自己定时限）
   const [title, setTitle] = useState(copyFrom ? `${copyFrom.title}（副本）` : "");
@@ -233,23 +248,40 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
     }
   };
 
+  const shifted = entered && !closing;
   return (
-    <div className="k-overlay" onClick={onClose}>
-      <div className="k-modal p-0! w-full max-w-5xl min-h-[62vh] max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        {/* 头部 + 步骤条 */}
-        <div className="px-6 pt-4 pb-3 border-b border-border">
-          <div className="flex items-center justify-between mb-3">
+    <div
+      className="fixed inset-0"
+      style={{ zIndex: 60, background: "rgba(20, 20, 19, 0.32)", opacity: shifted ? 1 : 0, transition: "opacity 200ms ease" }}
+      onClick={finish}
+    >
+      <div
+        className="absolute top-0 right-0 h-full flex flex-col border-l border-border"
+        style={{
+          width: "min(940px, 96vw)",
+          background: "var(--color-bg-card)",
+          boxShadow: "-12px 0 32px rgba(0,0,0,0.12)",
+          transform: shifted ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 220ms ease",
+        }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label={copyFrom ? "复制考试" : "一键创建考试"}
+      >
+        {/* 头部 + 步骤进度条（连接线随步骤推进填充，形成进度感） */}
+        <div className="shrink-0 px-6 pt-4 pb-3 border-b border-border">
+          <div className="flex items-center justify-between mb-4">
             <h3 className="k-modal-title mb-0!">
               {copyFrom ? <>复制考试 <span className="ml-2 text-sm font-normal text-text-secondary">基于「{copyFrom.title}」另建一场，题目与规则已预填</span></> : "一键创建考试"}
             </h3>
-            <button onClick={onClose} className="text-text-secondary hover:text-text-base text-xl leading-none">&times;</button>
+            <button onClick={finish} className="text-text-secondary hover:text-text-base text-xl leading-none">&times;</button>
           </div>
-          <div className="flex items-center">
+          <div className="flex items-center pb-1">
             {STEPS.map((label, i) => (
-              <div key={label} className="flex items-center">
-                {i > 0 && <div className={`w-10 h-px mx-2 ${i <= step ? "bg-primary" : "bg-border"}`} />}
-                <div className={`flex items-center gap-1.5 text-sm ${i === step ? "text-primary font-bold" : i < step ? "text-primary" : "text-text-secondary"}`}>
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
+              <div key={label} className={`flex items-center min-w-0 ${i > 0 ? "flex-1" : ""}`}>
+                {i > 0 && <div className={`flex-1 h-[3px] mx-2 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border"}`} />}
+                <div className={`flex items-center gap-1.5 text-sm whitespace-nowrap ${i === step ? "text-primary font-bold" : i < step ? "text-primary" : "text-text-secondary"}`}>
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-colors ${
                     i <= step ? "bg-primary text-white" : "bg-border text-text-secondary"
                   }`}>{i < step ? "✓" : i + 1}</span>
                   <span>{label}</span>
@@ -260,7 +292,7 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
         </div>
 
         {/* 内容区 */}
-        <div className="flex-1 overflow-y-auto k-scroll px-6 py-4">
+        <div className="flex-1 min-h-0 overflow-y-auto k-scroll px-6 py-4">
           {/* ① 基本信息 */}
           {step === 0 && (
             <div className="max-w-lg space-y-4">
@@ -309,6 +341,11 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
                     }`}>{t.label}</button>
                 ))}
                 <div className="ml-auto mb-1 flex items-center gap-2">
+                  <button onClick={() => setTab("paper")}
+                    title="平铺浏览全部已发布试卷，直接选用（不需要先选分类）"
+                    className={`k-btn k-btn-sm ${tab === "paper" ? "k-btn-primary" : "k-btn-default"}`}>
+                    全部试卷
+                  </button>
                   <button
                     onClick={() => aiEnabled && setShowAI(true)}
                     disabled={!aiEnabled}
@@ -439,7 +476,7 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
                   <input type="checkbox" checked={saveTemplate} onChange={(e) => setSaveTemplate(e.target.checked)} className="mt-0.5" />
                   <span>
                     <span className="font-medium">同时保存为可复用试卷</span>
-                    <span className="block text-xs text-text-secondary">存进试卷管理，下次可直接走「复用已有试卷」</span>
+                    <span className="block text-xs text-text-secondary">存进试卷管理，下次可直接走「全部试卷」选用</span>
                   </span>
                 </label>
                 {saveTemplate && (
@@ -478,8 +515,8 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
           )}
         </div>
 
-        {/* 底部按钮（子弹窗打开期间禁用，防止穿透点步） */}
-        <div className="px-6 py-3.5 border-t border-border flex items-center justify-between">
+        {/* 底部按钮（子弹窗打开期间禁用，防止穿透点步；抽屉底栏固定不滚动） */}
+        <div className="shrink-0 px-6 py-3.5 border-t border-border flex items-center justify-between">
           <div>
             {step > 0 && (
               <button onClick={() => setStep(step - 1)} disabled={saving || showAI || showImport}

@@ -1,6 +1,6 @@
 """AI 出题相关 Pydantic 模型"""
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.question import QuestionCreate
 
@@ -37,6 +37,26 @@ class AIGenerateRequest(BaseModel):
     )
     extra_requirement: str | None = Field(None, max_length=500, description="补充要求（仅影响出题风格）")
     category_id: str | None = Field(None, description="入库目标题库分类（草稿阶段仅透传）")
+    knowledge_points: list[str] | None = Field(
+        None, max_length=8, description="知识点标签（≤8 个），题目在这些知识点间分布"
+    )
+    audience: str | None = Field(None, max_length=100, description="考核对象，如：一线操作工、新入职员工")
+    reference_text: str | None = Field(
+        None, max_length=8000, description="参考资料原文（手贴文本或文件解析结果拼接），出题内容优先依据该材料"
+    )
+
+    @field_validator("knowledge_points")
+    @classmethod
+    def _clean_kps(cls, v: list[str] | None) -> list[str] | None:
+        """去空白/空项/重复，单项截断 50 字；全部为空则归 None"""
+        if v is None:
+            return None
+        cleaned: list[str] = []
+        for item in v:
+            t = str(item or "").strip()[:50]
+            if t and t not in cleaned:
+                cleaned.append(t)
+        return cleaned or None
 
     @model_validator(mode="after")
     def _check_total(self):
@@ -67,6 +87,17 @@ class AIGenerateResponse(BaseModel):
 class AIStatusOut(BaseModel):
     enabled: bool
     model: str
+
+
+class AIParseDocOut(BaseModel):
+    """POST /ai/parse-document 响应：解析出的纯文本（不回显文件本身）"""
+
+    name: str
+    ext: str
+    chars: int
+    truncated: bool = False
+    text: str
+    note: str | None = None
 
 
 class BulkCreateRequest(BaseModel):

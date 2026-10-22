@@ -290,6 +290,7 @@ input.k-date-empty::-webkit-calendar-picker-indicator { opacity: 0.5; }
 /* ---------- 导航项 ---------- */
 
 .k-nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -301,12 +302,21 @@ input.k-date-empty::-webkit-calendar-picker-indicator { opacity: 0.5; }
   transition: background-color 160ms ease, color 160ms ease;
 }
 .k-nav-item:hover { background: var(--color-bg-hover); color: var(--color-text-base); }
-/* 选中：浅底 + 左 2px 主色竖条（对齐招聘 admin-nav-link，不用实心色块） */
+/* 选中：浅底 + 底部 2px 主色横条（::after 画线避免布局偏移） */
 .k-nav-item-active {
   background: rgba(27, 54, 93, 0.07);
-  border-left-color: var(--color-primary);
   color: var(--color-primary);
   font-weight: 500;
+}
+.k-nav-item-active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-primary);
 }
 .k-nav-group-label {
   font-size: 11px;

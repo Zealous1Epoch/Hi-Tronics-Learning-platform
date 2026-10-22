@@ -64,24 +64,7 @@ export default function QuestionBank() {
     // 页面锁定在视口高度（100vh - 顶栏 52 - main 上下 padding 44），
     // 溢出只发生在试题列表内部滚动条，整页不再跟随滚动
     <div className="flex flex-col h-[calc(100vh-96px)]">
-      <div className="flex gap-4 flex-1 min-h-0">
-        {/* 左侧树（超长时树内部滚动，不撑高页面） */}
-        <div className="w-56 shrink-0 pr-5 overflow-y-auto min-h-0">
-          <CourseTree
-            tree={tree}
-            flatCategories={[]}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            rootLabel="全部试题"
-            placeholder="搜索题库名..."
-            loading={loading}
-            emptyText="暂无题库"
-          />
-        </div>
-
-        {/* 右侧：KPI 面板 + 试题列表 */}
-        <div className="flex-1 min-w-0 flex flex-col min-h-0">
-          {/* KPI 面板：题库统计 + 操作入口 */}
+          {/* KPI 面板：题库统计 + 操作入口，通栏横贯页面左右 */}
           <div className="bg-bg-layout/50 rounded-lg p-4 mb-4 shrink-0">
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <div className="flex items-baseline gap-2 min-w-0">
@@ -130,6 +113,21 @@ export default function QuestionBank() {
             </div>
           </div>
 
+      {/* 下半区：左=题库树（超长内部滚动） 右=试题列表，两栏顶部齐平 */}
+      <div className="flex gap-4 flex-1 min-h-0">
+        <div className="w-56 shrink-0 overflow-y-auto min-h-0">
+          <CourseTree
+            tree={tree}
+            flatCategories={[]}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            rootLabel="全部试题"
+            placeholder="搜索题库名..."
+            loading={loading}
+            emptyText="暂无题库"
+          />
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
           {/* 试题列表 */}
           {stats && !stats.is_leaf && selectedId !== null ? (
             <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { Search } from "lucide-react";
 import { api } from "../../lib/api";
 import CourseTree, { type TreeNode, type FlatCategory, getCategoryPath, buildDescendantMap } from "../../components/CourseTree";
 import ExamQuickCreate, { type CopySource } from "./ExamQuickCreate";
@@ -17,6 +18,10 @@ interface ExamItem {
 interface CourseItem {
   id: string; title: string; category_id: string | null;
 }
+interface PaperItem {
+  id: string; title: string; category_id: string | null; paper_type: string;
+  total_score: number; status: string;
+}
 // GET /exams/{id}/paper 响应（复制考试时用）
 interface CopyPaperData {
   questions: { question_id: string; score: number }[] | null;
@@ -29,14 +34,16 @@ const STATUS_COLORS: Record<string, string> = {
   draft: "k-tag", published: "k-tag k-tag-success",
   ended: "k-tag k-tag-danger",
 };
+const PAPER_TYPE_LABELS: Record<string, string> = { fixed: "固定", random: "随机" };
 
 export default function ExamManage() {
   const [exams, setExams] = useState<ExamItem[]>([]);
   const [courses, setCourses] = useState<CourseItem[]>([]);
+  const [papers, setPapers] = useState<PaperItem[]>([]);
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
-  // 一键建考向导
+  // 一键建考向导（仅用于「复制考试」预填）
   const [showWizard, setShowWizard] = useState(false);
   // 编辑弹窗
   const [showModal, setShowModal] = useState(false);
@@ -59,15 +66,25 @@ export default function ExamManage() {
   const [copyFrom, setCopyFrom] = useState<CopySource | null>(null);
   const [copying, setCopying] = useState<string | null>(null);
 
+  // 新增考试弹窗（旧版流程：分类→选已发布试卷→配置）
+  const [modalCategoryId, setModalCategoryId] = useState<string | null>(null);
+  const [selectedPaperId, setSelectedPaperId] = useState("");
+  const [selectedCourseId, setSelectedCourseId] = useState("");
+  const [paperSearch, setPaperSearch] = useState("");
+  const [duration, setDuration] = useState(60);
+  const [passScore, setPassScore] = useState(60);
+
   const fetchData = async () => {
-    const [examsData, coursesData, catsData, treeData] = await Promise.all([
+    const [examsData, coursesData, papersData, catsData, treeData] = await Promise.all([
       api<ExamItem[]>("/exams"),
       api<CourseItem[]>("/courses"),
+      api<PaperItem[]>("/papers/published"),
       api<FlatCategory[]>("/question-categories/flat"),
       api<TreeNode[]>("/question-categories/tree"),
     ]);
     setExams(examsData);
     setCourses(coursesData);
+    setPapers(papersData);
     setFlatCategories(catsData);
     setTree(treeData);
     setLoading(false);
@@ -89,9 +106,96 @@ export default function ExamManage() {
     return exams.filter((e) => courseIds.has(e.course_id));
   }, [selectedCategoryId, exams, courses, categoryDescendants]);
 
+  // 新增弹窗：按选中分类筛已发布试卷
+  const filteredPapers = useMemo(() => {
+    if (!modalCategoryId) return [];
+    const descendantIds = categoryDescendants.get(modalCategoryId);
+    if (!descendantIds) return [];
+    let result = papers.filter((p) => p.category_id && descendantIds.has(p.category_id));
+    if (paperSearch) {
+      const lower = paperSearch.toLowerCase();
+      result = result.filter((p) => p.title.toLowerCase().includes(lower));
+    }
+    return result;
+  }, [modalCategoryId, papers, categoryDescendants, paperSearch]);
+
+  // 新增弹窗：按选中分类找关联课程
+  const matchedCourses = useMemo(() => {
+    if (!modalCategoryId) return [];
+    const descendantIds = categoryDescendants.get(modalCategoryId);
+    if (!descendantIds) return [];
+    return courses.filter((c) => c.category_id && descendantIds.has(c.category_id));
+  }, [modalCategoryId, courses, categoryDescendants]);
+
+  const selectedPaper = useMemo(
+    () => papers.find((p) => p.id === selectedPaperId) || null,
+    [papers, selectedPaperId],
+  );
+
+  const createCourseId = useMemo(
+    () => selectedCourseId || (matchedCourses.length === 1 ? matchedCourses[0].id : ""),
+    [selectedCourseId, matchedCourses],
+  );
+
+  // 匹配到唯一课程时自动选中
+  useEffect(() => {
+    if (matchedCourses.length === 1) {
+      setSelectedCourseId(matchedCourses[0].id);
+    }
+  }, [matchedCourses]);
+
+  const resetModalForm = () => {
+    setModalCategoryId(null);
+    setSelectedPaperId("");
+    setSelectedCourseId("");
+    setPaperSearch("");
+    setDuration(60);
+    setPassScore(60);
+  };
+
   const openCreate = () => {
-    setCopyFrom(null);
-    setShowWizard(true);
+    setEditingId(null);
+    resetModalForm();
+    setShowModal(true);
+  };
+
+  const handleCreate = async () => {
+    const courseId = createCourseId;
+    if (!modalCategoryId) { alert("请先选择课程分类"); return; }
+    if (!selectedPaperId) { alert("请先选择试卷"); return; }
+    if (!courseId) {
+      if (matchedCourses.length === 0) {
+        alert("所选分类下没有关联课程，无法创建考试");
+      } else {
+        alert("请选择关联课程");
+      }
+      return;
+    }
+    const paper = selectedPaper;
+    if (!paper) { alert("试卷信息加载失败，请重新选择"); return; }
+
+    setSaving(true);
+    try {
+      await api("/exams", {
+        method: "POST",
+        body: JSON.stringify({
+          title: paper.title,
+          course_id: courseId,
+          paper_type: paper.paper_type,
+          paper_id: paper.id,
+          duration,
+          total_score: paper.total_score,
+          pass_score: passScore,
+        }),
+      });
+      setShowModal(false);
+      fetchData();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "未知错误";
+      alert(`创建失败：${msg}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ISO datetime → datetime-local 输入框格式（截到分钟）
@@ -306,6 +410,148 @@ export default function ExamManage() {
           onClose={() => { setShowWizard(false); setCopyFrom(null); }}
           onDone={() => { setShowWizard(false); setCopyFrom(null); fetchData(); }}
         />
+      )}
+
+      {/* 新增考试弹窗：左分类树 + 右选已发布试卷 + 底部考试配置 */}
+      {showModal && !editingId && (
+        <div className="k-overlay" onClick={() => setShowModal(false)}>
+          <div className="k-modal w-full max-w-2xl p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+              <h3 className="k-modal-title m-0 text-[16px]">新增考试</h3>
+              <button onClick={() => setShowModal(false)}
+                className="text-text-secondary hover:text-text-base text-xl leading-none">&times;</button>
+            </div>
+
+            <div className="flex" style={{ height: "420px" }}>
+              {/* 左：题库分类树 */}
+              <div className="w-48 shrink-0 border-r border-border flex flex-col">
+                <CourseTree
+                  tree={tree}
+                  flatCategories={flatCategories}
+                  selectedId={modalCategoryId}
+                  onSelect={(id) => {
+                    if (id !== null) {
+                      setModalCategoryId(id);
+                      setSelectedPaperId("");
+                      setSelectedCourseId("");
+                    }
+                  }}
+                  rootLabel="全部考试"
+                  showHeader={false}
+                  showSearch={false}
+                  emptyText="暂无课程"
+                  treeContainerClass="flex-1"
+                  loading={loading}
+                />
+              </div>
+
+              {/* 右：课程匹配 + 试卷列表 */}
+              <div className="flex-1 flex flex-col min-w-0">
+                <div className="px-4 pt-3 pb-2 space-y-2">
+                  {modalCategoryId && (
+                    <p className="text-xs text-text-secondary">{getCategoryPath(modalCategoryId, flatCategories)}</p>
+                  )}
+                  {modalCategoryId && matchedCourses.length === 1 && (
+                    <p className="text-xs text-text-secondary">关联课程: {matchedCourses[0].title}</p>
+                  )}
+                  {modalCategoryId && matchedCourses.length > 1 && (
+                    <select value={selectedCourseId} onChange={(e) => setSelectedCourseId(e.target.value)}
+                      className="k-select w-full text-xs">
+                      <option value="">选择课程</option>
+                      {matchedCourses.map((c) => (
+                        <option key={c.id} value={c.id}>{c.title}</option>
+                      ))}
+                    </select>
+                  )}
+                  <div className="relative">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+                    <input type="text" placeholder="搜索试卷..." value={paperSearch}
+                      onChange={(e) => setPaperSearch(e.target.value)}
+                      className="k-input w-full pl-7 text-sm" />
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto k-scroll px-4">
+                  {!modalCategoryId ? (
+                    <p className="text-sm text-text-secondary text-center mt-12">请在左侧选择课程分类</p>
+                  ) : filteredPapers.length === 0 ? (
+                    <div className="text-center mt-10 space-y-2">
+                      <p className="text-sm text-text-secondary">
+                        {paperSearch ? "无匹配试卷" : "该分类下暂无已发布试卷"}
+                      </p>
+                      {papers.some((p) => !p.category_id) && (
+                        <p className="text-xs k-tag-warning">
+                          另有 {papers.filter((p) => !p.category_id).length} 份试卷未设置题库分类，无法被选到，请先到「试卷管理」为其补充分类
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {filteredPapers.map((p) => (
+                        <label key={p.id}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer border transition-colors ${
+                            selectedPaperId === p.id ? "border-primary bg-primary/5" : "border-transparent hover:bg-bg-layout"
+                          }`}
+                        >
+                          <input type="radio" name="paper" checked={selectedPaperId === p.id}
+                            onChange={() => setSelectedPaperId(p.id)} className="shrink-0" />
+                          <div className="flex-1 min-w-0"><p className="text-sm k-strong truncate">{p.title}</p></div>
+                          <span className="text-xs text-text-secondary shrink-0">{PAPER_TYPE_LABELS[p.paper_type] || "固定"}</span>
+                          <span className="text-xs text-text-secondary shrink-0 w-12 text-right">{p.total_score}分</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {selectedPaperId && (
+                  <div className="border-t border-border px-4 py-3 bg-bg-layout/50 space-y-2">
+                    <p className="text-xs text-text-secondary">考试配置</p>
+                    {matchedCourses.length === 0 && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs k-tag-warning">该分类下没有课程</span>
+                        <select value={selectedCourseId} onChange={(e) => setSelectedCourseId(e.target.value)}
+                          className="k-select text-xs min-w-0">
+                          <option value="">请手动选择关联课程（全部课程）</option>
+                          {courses.map((c) => (
+                            <option key={c.id} value={c.id}>{c.title}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-text-secondary">考试时长</label>
+                        <input type="number" value={duration || ""} onChange={(e) => setDuration(parseInt(e.target.value) || 0)}
+                          className="k-input w-16 text-sm text-right" min={1} />
+                        <span className="text-xs text-text-secondary">分钟</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-text-secondary">及格分数</label>
+                        <input type="number" value={passScore || ""} onChange={(e) => setPassScore(parseInt(e.target.value) || 0)}
+                          className="k-input w-16 text-sm text-right" min={1} />
+                        <span className="text-xs text-text-secondary">分</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="k-modal-actions border-t border-border mt-0 px-5 py-3">
+              {(!selectedPaperId || !createCourseId) && (
+                <span className="mr-auto text-xs text-text-secondary self-center">
+                  {!selectedPaperId ? "先在右侧选择试卷" : "请先选择关联课程"}
+                </span>
+              )}
+              <button onClick={() => setShowModal(false)} className="k-btn k-btn-default">取消</button>
+              <button onClick={handleCreate} disabled={saving || !selectedPaperId || !createCourseId}
+                className="k-btn k-btn-primary disabled:opacity-50">
+                {saving ? "创建中..." : "创建考试"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 编辑考试弹窗 */}

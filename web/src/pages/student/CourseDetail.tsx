@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ChevronRight, ChevronDown, FileText } from "lucide-react";
+import { ChevronRight, ChevronDown, FileText, ClipboardList, Lock } from "lucide-react";
 import { api } from "../../lib/api";
 import { videoStreamUrl } from "../../lib/courseApi";
 import VideoPlayer from "../../components/VideoPlayer";
@@ -56,6 +56,8 @@ export default function CourseDetail() {
   const [playUrl, setPlayUrl] = useState<string | null>(null);
   /** 当前打开的课件 id（null=看视频；无视频课程自动落到第一个课件） */
   const [activeMaterialId, setActiveMaterialId] = useState<string | null>(null);
+  /** 主区是否切到「考试」视图（考试与视频/课件并列为课程内容的一项） */
+  const [viewingExam, setViewingExam] = useState(false);
   const [currentVideoWatched, setCurrentVideoWatched] = useState(false);
   const [currentWatchSec, setCurrentWatchSec] = useState(0);
   const [currentTotalSec, setCurrentTotalSec] = useState(0);
@@ -72,6 +74,7 @@ export default function CourseDetail() {
       if (!mountedRef.current || gen !== genRef.current) return;
       setCourse(data);
       setActiveMaterialId(null);
+      setViewingExam(false);
       // 默认展开所有有视频的章节
       setExpandedChapters(new Set((data.chapters || []).map(ch => ch.id)));
       // 进度统一按视频统计（所有课程）
@@ -170,6 +173,8 @@ export default function CourseDetail() {
   if (!course) return <p className="text-text-secondary">课程不存在</p>;
 
   const materials = course.materials || [];
+  // 考试视图与视频/课件并列为三种「课程内容」，点开哪个显示哪个
+  const showExamView = viewingExam && !!course.exam_id;
   // 未手动点开课件时：无视频课程默认打开第一个课件（课件即课程内容）
   const activeMaterial: MaterialItem | null = activeMaterialId
     ? materials.find(m => m.id === activeMaterialId) || null
@@ -259,7 +264,7 @@ export default function CourseDetail() {
       <button
         key={v.id}
         data-video-idx={idx}
-        onClick={() => { setActiveMaterialId(null); setActiveVideoIdx(idx); }}
+        onClick={() => { setViewingExam(false); setActiveMaterialId(null); setActiveVideoIdx(idx); }}
         className={`w-full text-left pl-9 pr-3 py-2 text-sm rounded ml-1 mr-2 mb-0.5 transition-colors border-l-2 ${
           isActive
             ? "bg-primary/5 text-primary font-medium border-l-primary"
@@ -329,9 +334,64 @@ export default function CourseDetail() {
       <div className="flex gap-4">
         {/* 播放器（统一线上课程始终渲染） */}
         <div className="flex-1 min-w-0">
-          {/* 课件模式：卡片撑到视口底部，阅读器吃满高度（视频模式保持自适应） */}
-          <div className={`bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden ${activeMaterial ? "h-[calc(100vh-210px)]" : ""}`}>
-            {activeMaterial ? (
+          {/* 课件模式：卡片撑到视口底部，阅读器吃满高度（视频/考试模式保持自适应） */}
+          <div className={`bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden ${activeMaterial && !showExamView ? "h-[calc(100vh-210px)]" : ""}`}>
+            {showExamView ? (
+              <div className="p-6">
+                <div className="flex items-center gap-2 mb-1">
+                  <ClipboardList size={18} className="text-primary shrink-0" />
+                  <h3 className="text-base font-bold text-primary">课程考试</h3>
+                  {progress?.exam_passed && (
+                    <span className="px-2 py-0.5 rounded text-xs bg-green-50 text-green-600 border border-green-200">已通过</span>
+                  )}
+                </div>
+                <p className="text-sm text-text-secondary mb-4">
+                  {allVideos.length > 0
+                    ? "观看完当前章节视频后即可开始考试"
+                    : "完成课程内容后参加本课程的检验测验"}
+                </p>
+                {examStatus === "ended" ? (
+                  <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border">
+                    考试已结束
+                  </span>
+                ) : allVideos.length > 0 && !examEnabled ? (
+                  <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border cursor-not-allowed">
+                    完成当前章节视频后可开始考试
+                  </span>
+                ) : (
+                  <Link
+                    to={`/student/exams/${course.exam_id}?courseId=${course.id}`}
+                    className="inline-block px-6 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
+                  >
+                    开始考试
+                  </Link>
+                )}
+                {/* 考试记录 */}
+                {examResults.length > 0 && (
+                  <div className="mt-6">
+                    <h4 className="text-sm font-bold text-primary mb-3">考试记录</h4>
+                    <div className="space-y-2">
+                      {examResults.map((r) => (
+                        <div key={r.id} className="bg-bg-base rounded-lg border border-border p-3 flex items-center justify-between">
+                          <div>
+                            <span className="text-sm font-medium">第 {r.attempt_number} 次</span>
+                            <span className={`ml-3 text-sm font-medium ${r.passed ? "text-green-600" : "text-primary"}`}>
+                              {r.score} 分 {r.passed ? "(通过)" : "(未通过)"}
+                            </span>
+                          </div>
+                          <Link
+                            to={`/student/exams/${course.exam_id}?courseId=${course.id}&review=${r.id}`}
+                            className="text-sm text-primary hover:underline"
+                          >
+                            查看详情
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : activeMaterial ? (
               <MaterialViewer material={activeMaterial} />
             ) : activeVideo && playUrl ? (
               <div className="bg-black">
@@ -353,7 +413,7 @@ export default function CourseDetail() {
                 课程内容准备中，请稍后再来
               </div>
             )}
-            {activeVideo && !activeMaterial && (
+            {activeVideo && !activeMaterial && !showExamView && (
               <div className="px-4 py-2.5 border-t border-border flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
                 <span className="text-sm font-medium truncate flex-1">{activeVideo.title}</span>
@@ -373,55 +433,6 @@ export default function CourseDetail() {
           {course.description && (
             <p className="mt-4 text-sm text-text-secondary">{course.description}</p>
           )}
-          {course.exam_id && examStatus === "published" && (
-            <div className="mt-4">
-              {allVideos.length > 0 && !examEnabled ? (
-                <div>
-                  <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border cursor-not-allowed">
-                    完成当前章节视频后可开始考试
-                  </span>
-                </div>
-              ) : (
-                <Link
-                  to={`/student/exams/${course.exam_id}?courseId=${course.id}`}
-                  className="inline-block px-6 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light"
-                >
-                  开始考试
-                </Link>
-              )}
-            </div>
-          )}
-          {course.exam_id && examStatus === "ended" && (
-            <div className="mt-4">
-              <span className="inline-block px-6 py-2 bg-bg-layout text-text-secondary rounded-md text-sm border border-border">
-                考试已结束
-              </span>
-            </div>
-          )}
-          {/* 考试记录 */}
-          {examResults.length > 0 && (
-            <div className="mt-6">
-              <h3 className="text-sm font-bold text-primary mb-3">考试记录</h3>
-              <div className="space-y-2">
-                {examResults.map((r) => (
-                  <div key={r.id} className="bg-bg-base rounded-lg border border-border p-3 flex items-center justify-between">
-                    <div>
-                      <span className="text-sm font-medium">第 {r.attempt_number} 次</span>
-                      <span className={`ml-3 text-sm font-medium ${r.passed ? "text-green-600" : "text-primary"}`}>
-                        {r.score} 分 {r.passed ? "(通过)" : "(未通过)"}
-                      </span>
-                    </div>
-                    <Link
-                      to={`/student/exams/${course.exam_id}?courseId=${course.id}&review=${r.id}`}
-                      className="text-sm text-primary hover:underline"
-                    >
-                      查看详情
-                    </Link>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* 章节列表 */}
@@ -431,7 +442,7 @@ export default function CourseDetail() {
             {/* 续播提示 */}
             {lastWatched && (
               <button
-                onClick={() => setActiveVideoIdx(lastWatched.index)}
+                onClick={() => { setViewingExam(false); setActiveMaterialId(null); setActiveVideoIdx(lastWatched.index); }}
                 className="w-full text-left px-3 py-3 mb-1.5 rounded-lg mx-2 bg-primary/5 hover:bg-primary/10 transition-colors group"
               >
                 <div className="text-xs text-primary/50 mb-0.5">上次看到</div>
@@ -491,7 +502,7 @@ export default function CourseDetail() {
                     return (
                       <button
                         key={m.id}
-                        onClick={() => setActiveMaterialId(m.id)}
+                        onClick={() => { setViewingExam(false); setActiveMaterialId(m.id); }}
                         title={m.original_name}
                         className={`w-full flex items-center gap-2 pl-4 pr-3 py-2 text-sm rounded ml-1 mr-2 mb-0.5 transition-colors border-l-2 ${
                           isActive
@@ -504,6 +515,41 @@ export default function CourseDetail() {
                       </button>
                     );
                   })}
+                </div>
+              )}
+              {/* 考试：与视频/课件并列为课程内容的一项，固定在列表底部 */}
+              {course.exam_id && (examStatus === "published" || examStatus === "ended") && (
+                <div className="border-t border-border mt-1.5 pt-1.5 pb-2">
+                  <button
+                    onClick={() => { setActiveMaterialId(null); setViewingExam(true); }}
+                    title={allVideos.length > 0 && !examEnabled && examStatus === "published" ? "观看完当前章节视频后可开始考试" : undefined}
+                    className={`w-full flex items-center gap-2 pl-4 pr-3 py-2 text-sm rounded ml-1 mr-2 mb-0.5 transition-colors border-l-2 ${
+                      showExamView
+                        ? "bg-primary/5 text-primary font-medium border-l-primary"
+                        : "text-text-secondary/70 border-l-transparent hover:bg-bg-layout hover:text-text-secondary"
+                    }`}
+                  >
+                    {progress?.exam_passed ? (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-green-600 shrink-0">
+                        <circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.5" />
+                        <path d="M4.5 7L6 8.5L9.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    ) : examStatus === "published" && allVideos.length > 0 && !examEnabled ? (
+                      <Lock size={14} className="text-text-secondary/50 shrink-0" />
+                    ) : (
+                      <ClipboardList size={14} className={showExamView ? "text-primary shrink-0" : "text-text-secondary/60 shrink-0"} />
+                    )}
+                    <span className="truncate flex-1 text-left">课程考试</span>
+                    {progress?.exam_passed ? (
+                      <span className="text-xs text-green-600 shrink-0">已通过</span>
+                    ) : examStatus === "ended" ? (
+                      <span className="text-xs text-text-secondary/60 shrink-0">已结束</span>
+                    ) : !examEnabled && allVideos.length > 0 ? (
+                      <span className="text-xs text-text-secondary/50 shrink-0">未解锁</span>
+                    ) : examResults.length > 0 ? (
+                      <span className="text-xs text-text-secondary/60 shrink-0">最高 {Math.max(...examResults.map(r => r.score))} 分</span>
+                    ) : null}
+                  </button>
                 </div>
               )}
             </div>

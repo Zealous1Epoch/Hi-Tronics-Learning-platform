@@ -37,6 +37,7 @@ export default function QuestionBank() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stats, setStats] = useState<CategoryStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [aiEnabled, setAiEnabled] = useState(false);
   const qmRef = useRef<QuestionManageHandle>(null);
 
   const fetchTree = async () => {
@@ -46,6 +47,13 @@ export default function QuestionBank() {
   };
 
   useEffect(() => { fetchTree(); }, []);
+
+  // 探测 AI 出题可用性（未配置 LLM_API_KEY 时按钮置灰）
+  useEffect(() => {
+    api<{ enabled: boolean }>("/ai/status")
+      .then(s => setAiEnabled(s.enabled))
+      .catch(() => setAiEnabled(false));
+  }, []);
 
   // 选中节点变化时加载统计
   useEffect(() => {
@@ -105,6 +113,12 @@ export default function QuestionBank() {
                 <div className="flex gap-2">
                   <button onClick={() => qmRef.current?.handleExport()} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">导出</button>
                   <button onClick={() => qmRef.current?.openImport()} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">批量导入</button>
+                  <button
+                    onClick={() => aiEnabled && qmRef.current?.openAI()}
+                    disabled={!aiEnabled}
+                    title={aiEnabled ? "按主题关键词 AI 生成题目草稿，人工审核后入库" : "AI 功能未启用：服务端未配置 LLM_API_KEY"}
+                    className={`px-3 py-2 border border-border rounded-md text-sm ${aiEnabled ? "hover:bg-bg-layout" : "opacity-50 cursor-not-allowed"}`}
+                  >AI 出题</button>
                   <button onClick={() => qmRef.current?.openCreate()} className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light">新增试题</button>
                 </div>
               )}

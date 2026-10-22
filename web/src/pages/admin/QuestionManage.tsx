@@ -4,8 +4,10 @@ export interface QuestionManageHandle {
   openCreate: () => void;
   handleExport: () => void;
   openImport: () => void;
+  openAI: () => void;
 }
 import { api, BASE } from "../../lib/api";
+import AIGenerateModal from "../../components/question/AIGenerateModal";
 
 interface QuestionItem {
   id: string; type: string; stem: string; options: Record<string, string> | null;
@@ -58,6 +60,9 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const pageSize = 50;
+
+  // AI 出题弹窗
+  const [showAI, setShowAI] = useState(false);
 
   // 批量导入弹窗
   const [showImport, setShowImport] = useState(false);
@@ -322,6 +327,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
     openCreate,
     handleExport: handleExport,
     openImport: () => { setShowImport(true); setImportResult(null); setImportFile(null); },
+    openAI: () => setShowAI(true),
   }));
 
   return (
@@ -561,6 +567,16 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
             </div>
           </div>
         </div>
+      )}
+
+      {/* AI 出题弹窗 */}
+      {showAI && (
+        <AIGenerateModal
+          onClose={() => setShowAI(false)}
+          onDone={fetchQuestions}
+          defaultCategoryId={propCategoryId}
+          categories={flatCategories}
+        />
       )}
 
       {/* 预览弹窗 */}

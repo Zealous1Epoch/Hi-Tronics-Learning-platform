@@ -1,7 +1,6 @@
 """学员端考试路由"""
 
 import uuid
-import secrets
 from datetime import datetime
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
@@ -211,54 +210,20 @@ def _load_snapshot_questions(db: Session, snapshot: list[dict]) -> list[dict]:
 
 
 def _draw_random_questions(db: Session, paper: ExamPaper, exam: Exam) -> list[dict]:
-    """按规则随机抽题，返回 [{id,type,stem,options,score,difficulty}]。"""
-    from app.models.paper import Paper as PaperModel
-    from app.models.question_category import QuestionCategory
+    """按规则随机抽题，返回 [{id,type,stem,options,score,difficulty}]。
 
-    # 题库范围：优先取 Paper.source_banks
-    source_banks = None
-    if exam.paper_id:
+    题库范围优先级：ExamPaper.source_banks（一键建考直建的考试没有 papers 记录，
+    范围存在 exam_papers 上）→ papers.source_banks（旧「先建试卷再建考试」链路）。
+    """
+    from app.models.paper import Paper as PaperModel
+    from app.services.exam_service import draw_random_questions
+
+    source_banks = paper.source_banks
+    if not source_banks and exam.paper_id:
         src_paper = db.query(PaperModel).filter(PaperModel.id == exam.paper_id).first()
         if src_paper and src_paper.source_banks:
             source_banks = src_paper.source_banks
-
-    bank_ids: set[str] = set()
-    if source_banks:
-        pending = list(source_banks)
-        while pending:
-            bank_id = pending.pop()
-            if bank_id in bank_ids:
-                continue
-            bank_ids.add(bank_id)
-            pending.extend(
-                c.id for c in db.query(QuestionCategory.id)
-                .filter(QuestionCategory.parent_id == bank_id).all()
-            )
-
-    result: list[dict] = []
-    for rule in paper.random_rules or []:
-        pool_query = db.query(Question).filter(
-            Question.type == rule["type"],
-            Question.difficulty == rule["difficulty"],
-        )
-        if bank_ids:
-            pool_query = pool_query.filter(Question.category_id.in_(bank_ids))
-        pool = pool_query.all()
-        selected = secrets.SystemRandom().sample(pool, min(rule["count"], len(pool)))
-        for q in selected:
-            result.append({
-                "id": q.id,
-                "type": q.type,
-                "stem": q.stem,
-                "options": q.options,
-                "score": rule["score"],
-                "difficulty": q.difficulty,
-            })
-    # 按题型分组（单选→多选→判断→填空→问答），组内按难度升序
-    TYPE_ORDER = {"single_choice": 0, "multi_choice": 1, "true_false": 2, "fill_blank": 3, "essay": 4}
-    DIFFICULTY_ORDER = {"easy": 0, "medium": 1, "hard": 2}
-    result.sort(key=lambda q: (TYPE_ORDER.get(q["type"], 99), DIFFICULTY_ORDER.get(q["difficulty"], 99)))
-    return result
+    return draw_random_questions(db, paper.random_rules or [], source_banks)
 
 
 def _draw_fixed_questions(db: Session, paper: ExamPaper) -> list[dict]:

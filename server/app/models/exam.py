@@ -66,6 +66,9 @@ class ExamPaper(Base):
     random_rules: Mapped[list | None] = mapped_column(
         JSON, nullable=True, comment="随机组卷: [{type, difficulty, count, score}]"
     )
+    source_banks: Mapped[list | None] = mapped_column(
+        JSON, nullable=True, comment="随机抽题范围的题库分类 [category_id]（quick-create 直建考试时无 papers 记录，范围存在这里）"
+    )
 
 
 class ExamResult(Base):

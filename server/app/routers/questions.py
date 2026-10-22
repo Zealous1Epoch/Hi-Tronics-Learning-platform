@@ -16,8 +16,13 @@ from app.models.question import Question
 from app.models.paper import Paper
 from app.models.exam import ExamPaper
 from app.schemas.question import QuestionCreate, QuestionUpdate, QuestionOut, PaginatedResponse
+from app.schemas.ai_question import BulkCreateRequest
 from app.routers.auth import require_admin
+from app.services.ai_question_service import normalize_stem, validate_item
 from app.services.log_service import write_log
+
+# AI 出题入库统一打的标签
+AI_TAG = "AI生成"
 
 router = APIRouter(prefix="/api", tags=["题库管理"])
 
@@ -411,6 +416,64 @@ async def import_questions(
     db.commit()
 
     write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="question", action="import", resource_type="试题", resource_name="", description=f"{current_user.name} 批量导入了 {created} 道试题", level="info")
+    return {"created": created, "skipped": skipped, "errors": errors}
+
+
+# ========== AI 草稿批量入库 ==========
+
+@router.post("/questions/bulk-create")
+def bulk_create_questions(
+    data: BulkCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """批量创建试题（AI 生成草稿人工审核后的入库通道）。
+
+    与 Excel 导入同款返回形状 {created, skipped, errors}；逐条再过一遍
+    validate_item 双保险（不信任前端数据），归一化题干去重，统一打「AI生成」标签。
+    """
+    created = 0
+    skipped = 0
+    errors = []
+    seen_keys: set[str] = set()
+    existing_keys = {normalize_stem(stem) for (stem,) in db.query(Question.stem).all()}
+
+    for i, item in enumerate(data.items, start=1):
+        draft, ws = validate_item(item.model_dump(), expected_type=item.type)
+        if draft is None:
+            errors.append(f"第{i}题：{ws[-1] if ws else '校验未通过'}")
+            continue
+        key = normalize_stem(draft["stem"])
+        if key in existing_keys or key in seen_keys:
+            skipped += 1
+            continue
+        seen_keys.add(key)
+        # 去重保序追加 AI 标签
+        tags = list(dict.fromkeys([*(item.tags or []), AI_TAG]))
+        question = Question(
+            id=str(uuid.uuid4()),
+            type=draft["type"],
+            stem=draft["stem"],
+            options=draft["options"],
+            answer=draft["answer"],
+            keywords=draft["keywords"],
+            difficulty=draft["difficulty"],
+            tags=tags,
+            section=item.section,
+            category_id=item.category_id,
+            created_by=current_user.id,
+        )
+        db.add(question)
+        created += 1
+
+    db.commit()
+
+    write_log(
+        db=db, operator=current_user.name, operator_id=current_user.id,
+        category="question", action="bulk_create", resource_type="试题", resource_name="",
+        description=f"{current_user.name} 批量入库了 {created} 道试题（跳过重复 {skipped}，失败 {len(errors)}）",
+        level="info",
+    )
     return {"created": created, "skipped": skipped, "errors": errors}
 
 

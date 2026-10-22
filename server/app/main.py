@@ -35,6 +35,7 @@ from app.routers.attendance import (
     router as attendance_router,
     student_router as student_attendance_router,
 )
+from app.routers.ai import router as ai_router
 from app.services.seed import seed_builtin_admin
 
 logger = setup_logging(debug=settings.DEBUG)
@@ -91,6 +92,10 @@ async def lifespan(app: FastAPI):
                 "SSO_SHARED_SECRET 未配置且未开启 SSO_ALLOW_INSECURE_COMPAT："
                 "/sso/login 将返回 503，OA 免密登录不可用"
             )
+
+    # AI 出题功能状态提示（无 key 时 /api/ai/generate 返回 503，fail-closed）
+    if not settings.LLM_API_KEY:
+        logger.warning("LLM_API_KEY 未配置：AI 出题功能不可用（/api/ai/generate 返回 503）")
 
     # 表结构管理：生产以 alembic 迁移为唯一途径（DEBUG=false），
     # create_all 只建缺失表、不加列/索引且绕过 alembic_version，双轨会导致 schema 漂移。
@@ -153,6 +158,7 @@ app.include_router(sso_router)
 app.include_router(sso_api_router)
 app.include_router(attendance_router)
 app.include_router(student_attendance_router)
+app.include_router(ai_router)
 
 
 @app.get("/api/health")

@@ -77,6 +77,22 @@ class Settings:
     OSS_ENDPOINT: str = os.getenv("OSS_ENDPOINT", "")
     OSS_BUCKET: str = os.getenv("OSS_BUCKET", "hitronics-learning-platform")
 
+    # LLM（AI 出题）配置。LLM_API_KEY 留空 = AI 功能整体关闭（fail-closed）：
+    # GET /api/ai/status 返回 enabled=false，POST /api/ai/generate 返回 503。
+    # 兼容 OpenAI 协议的官方供应商均可：DeepSeek / 通义 / 智谱 等。
+    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
+    LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "deepseek-chat")
+    # 单次调用超时（秒）。生成按题型拆分调用，单次典型 10-60s
+    LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "75"))
+    # 单次输出 token 上限（DeepSeek 上限 8192，留余量防推理/格式开销截断）
+    LLM_MAX_OUTPUT_TOKENS: int = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "6000"))
+    # 仅 vLLM 自托管需要（官方 API 会忽略该参数）：关闭推理模型 thinking，
+    # 防 reasoning token 吃满 max_tokens 导致 JSON 腰斩（2026-10-16 招聘系统事故教训）
+    LLM_DISABLE_THINKING: bool = (
+        os.getenv("LLM_DISABLE_THINKING", "false").lower() == "true"
+    )
+
     # 内置管理员账号（生产环境必须通过环境变量设置密码）
     BUILTIN_ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "hitronics")
     BUILTIN_ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")

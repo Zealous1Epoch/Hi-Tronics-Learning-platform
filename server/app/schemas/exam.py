@@ -81,6 +81,49 @@ class PaperOut(BaseModel):
         from_attributes = True
 
 
+# ========== 一键建考（quick-create） ==========
+
+class QuickQuestion(BaseModel):
+    """固定组卷选题：score=0/None 表示未设分值，由服务端按总分平摊"""
+    question_id: str
+    score: int | None = Field(None, ge=0)
+
+
+class QuickCreateContent(BaseModel):
+    """考试内容来源：bank=直接从题库选题/配规则；paper=复用已有试卷"""
+    source: str = Field("bank", description="bank / paper")
+    paper_id: str | None = Field(None, description="source=paper 时必填")
+    paper_type: str = Field("fixed", description="fixed / random（source=bank 时生效）")
+    questions: list[QuickQuestion] | None = None
+    random_rules: list[PaperRule] | None = None
+    source_banks: list[str] | None = Field(None, description="随机抽题的题库分类范围（可含父级，服务端展开全部后代）")
+    category_id: str | None = Field(None, description="选题所在分类（save_paper_as 时作为试卷分类）")
+
+
+class ExamQuickCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    course_id: str
+    content: QuickCreateContent
+    duration: int = Field(60, ge=1, description="考试时长(分钟)")
+    total_score: int | None = Field(None, ge=1, description="留空自动计算；固定组卷未设分值时作为平摊目标")
+    pass_score: int | None = Field(None, ge=0, description="留空默认总分×60%")
+    max_attempts: int | None = Field(None, ge=1)
+    start_time: str | None = None
+    end_time: str | None = None
+    publish: bool = Field(True, description="true=创建即发布；false=存草稿")
+    save_paper_as: str | None = Field(None, max_length=200, description="传入则顺手把本次选题存为可复用试卷")
+
+
+class ExamQuickCreateOut(ExamOut):
+    replaced_exam_title: str | None = Field(None, description="课程原绑定的考试被自动置为已结束时返回其名称")
+    saved_paper_id: str | None = None
+
+
+class PreviewDrawRequest(BaseModel):
+    random_rules: list[PaperRule]
+    source_banks: list[str] | None = None
+
+
 class ExamResultOut(BaseModel):
     id: str
     exam_id: str

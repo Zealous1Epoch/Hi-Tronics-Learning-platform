@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../lib/api";
 import CourseTree, { type TreeNode, type FlatCategory, getCategoryPath, buildDescendantMap } from "../../components/CourseTree";
-import ExamQuickCreate from "./ExamQuickCreate";
+import ExamQuickCreate, { type CopySource } from "./ExamQuickCreate";
+import type { PickedQuestion } from "../../components/exam/QuestionPickerPanel";
 
 interface ExamItem {
   id: string; course_id: string; title: string; paper_type: string;
@@ -15,6 +16,12 @@ interface ExamItem {
 }
 interface CourseItem {
   id: string; title: string; category_id: string | null;
+}
+// GET /exams/{id}/paper 响应（复制考试时用）
+interface CopyPaperData {
+  questions: { question_id: string; score: number }[] | null;
+  random_rules: { type: string; difficulty: string; count: number; score: number }[] | null;
+  source_banks: string[] | null;
 }
 
 const STATUS_LABELS: Record<string, string> = { draft: "草稿", published: "已发布", ended: "已结束" };
@@ -45,6 +52,12 @@ export default function ExamManage() {
   const [editPassScore, setEditPassScore] = useState(60);
   const [editMaxAttempts, setEditMaxAttempts] = useState("");
   const [editStatus, setEditStatus] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
+
+  // 复制考试（把源考试数据预填进一键建考向导）
+  const [copyFrom, setCopyFrom] = useState<CopySource | null>(null);
+  const [copying, setCopying] = useState<string | null>(null);
 
   const fetchData = async () => {
     const [examsData, coursesData, catsData, treeData] = await Promise.all([
@@ -77,8 +90,12 @@ export default function ExamManage() {
   }, [selectedCategoryId, exams, courses, categoryDescendants]);
 
   const openCreate = () => {
+    setCopyFrom(null);
     setShowWizard(true);
   };
+
+  // ISO datetime → datetime-local 输入框格式（截到分钟）
+  const toLocalInput = (iso: string | null) => (iso ? iso.slice(0, 16) : "");
 
   const openEdit = (e: ExamItem) => {
     setEditingId(e.id);
@@ -87,11 +104,55 @@ export default function ExamManage() {
     setEditPassScore(e.pass_score);
     setEditMaxAttempts(e.max_attempts?.toString() || "");
     setEditStatus(e.status);
+    setEditStartTime(toLocalInput(e.start_time));
+    setEditEndTime(toLocalInput(e.end_time));
     setShowModal(true);
+  };
+
+  // 复制考试：拉源考试的组卷配置，预填进一键建考向导（时间窗/课程绑定不带过来）
+  const handleCopy = async (e: ExamItem) => {
+    setCopying(e.id);
+    try {
+      const paper = await api<CopyPaperData>(`/exams/${e.id}/paper`);
+      let picked: PickedQuestion[] = [];
+      if (e.paper_type === "fixed") {
+        const ids = (paper.questions || []).map((q) => q.question_id);
+        if (!ids.length) { alert("该考试还没有组卷题目，无法复制"); return; }
+        const found = await api<{ items: { id: string; type: string; stem: string; difficulty: string }[] }>(
+          `/questions?ids=${encodeURIComponent(ids.join(","))}`,
+        );
+        const byId = new Map(found.items.map((q) => [q.id, q]));
+        picked = (paper.questions || [])
+          .filter((q) => byId.has(q.question_id))
+          .map((q) => ({ question_id: q.question_id, ...byId.get(q.question_id)!, score: q.score }));
+        if (picked.length < ids.length) {
+          alert(`有 ${ids.length - picked.length} 道题已被删除，复制时将自动跳过`);
+        }
+      }
+      setCopyFrom({
+        title: e.title,
+        duration: e.duration,
+        pass_score: e.pass_score,
+        max_attempts: e.max_attempts,
+        paper_type: e.paper_type === "random" ? "random" : "fixed",
+        fixed_questions: e.paper_type === "random" ? null : picked,
+        random_rules: e.paper_type === "random" ? (paper.random_rules || []) : null,
+        source_banks: paper.source_banks || null,
+      });
+      setShowWizard(true);
+    } catch (err: unknown) {
+      alert(`读取源考试失败：${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setCopying(null);
+    }
   };
 
   const handleEditSave = async () => {
     if (!editingId || !editTitle.trim()) return;
+    if (editStartTime && editEndTime && editStartTime >= editEndTime) {
+      alert("开放时间必须早于截止时间");
+      return;
+    }
     setSaving(true);
     try {
       await api(`/exams/${editingId}`, {
@@ -102,6 +163,9 @@ export default function ExamManage() {
           pass_score: editPassScore,
           max_attempts: editMaxAttempts ? parseInt(editMaxAttempts) : null,
           status: editStatus,
+          // 显式传 null 可清空时间窗（PUT 为 exclude_unset 语义）
+          start_time: editStartTime || null,
+          end_time: editEndTime || null,
         }),
       });
       setShowModal(false);
@@ -220,6 +284,10 @@ export default function ExamManage() {
                         <Link to={`/admin/exams/${e.id}/results`} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">成绩</Link>
                         <Link to={`/admin/exams/${e.id}/paper`} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">查看组卷</Link>
                         <button onClick={() => openEdit(e)} className="text-xs text-text-secondary hover:text-primary transition-colors mr-3">编辑</button>
+                        <button onClick={() => handleCopy(e)} disabled={copying === e.id}
+                          className="text-xs text-text-secondary hover:text-primary transition-colors mr-3 disabled:opacity-40">
+                          {copying === e.id ? "读取中..." : "复制"}
+                        </button>
                         <button onClick={() => handleDelete(e.id)} className="text-xs text-text-secondary/60 hover:text-red-500 transition-colors">删除</button>
                       </td>
                     </tr>
@@ -231,11 +299,12 @@ export default function ExamManage() {
         </div>
       </div>
 
-      {/* 一键建考向导 */}
+      {/* 一键建考向导（copyFrom 非空时为复制模式） */}
       {showWizard && (
         <ExamQuickCreate
-          onClose={() => setShowWizard(false)}
-          onDone={() => { setShowWizard(false); fetchData(); }}
+          copyFrom={copyFrom}
+          onClose={() => { setShowWizard(false); setCopyFrom(null); }}
+          onDone={() => { setShowWizard(false); setCopyFrom(null); fetchData(); }}
         />
       )}
 
@@ -276,6 +345,18 @@ export default function ExamManage() {
                     <option value="published">已发布</option>
                     <option value="ended">已结束</option>
                   </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-text-secondary mb-1">开放时间（留空=立即开放）</label>
+                  <input type="datetime-local" value={editStartTime} onChange={(e) => setEditStartTime(e.target.value)}
+                    className="w-full min-w-0 border border-border rounded-md px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-text-secondary mb-1">截止时间（留空=不限）</label>
+                  <input type="datetime-local" value={editEndTime} onChange={(e) => setEditEndTime(e.target.value)}
+                    className="w-full min-w-0 border border-border rounded-md px-3 py-2 text-sm" />
                 </div>
               </div>
             </div>

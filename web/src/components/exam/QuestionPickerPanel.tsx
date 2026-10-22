@@ -39,13 +39,16 @@ interface Props {
   onBankEmpty?: (categoryId: string) => void;
   /** 变化时重拉题目列表（向导内就地补题后立即看到新题） */
   refreshKey?: number;
+  /** 复制考试预填：打开面板时直接带入题库分类与已选题列表 */
+  initialBankId?: string | null;
+  initialItems?: PickedQuestion[];
 }
 
-export default function QuestionPickerPanel({ onChange, refreshKey }: Props) {
+export default function QuestionPickerPanel({ onChange, refreshKey, initialBankId, initialItems }: Props) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [treeSearch, setTreeSearch] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [bankId, setBankId] = useState<string | null>(null);
+  const [bankId, setBankId] = useState<string | null>(initialBankId ?? null);
 
   const [questions, setQuestions] = useState<QuestionRow[]>([]);
   const [loadingList, setLoadingList] = useState(false);
@@ -53,9 +56,11 @@ export default function QuestionPickerPanel({ onChange, refreshKey }: Props) {
   const [diffFilter, setDiffFilter] = useState("");
   const [kw, setKw] = useState("");
 
-  // 已选题：Map<qid, PickedQuestion>，order 保持加入顺序
-  const [sel, setSel] = useState<Map<string, PickedQuestion>>(new Map());
-  const [order, setOrder] = useState<string[]>([]);
+  // 已选题：Map<qid, PickedQuestion>，order 保持加入顺序（复制考试时用 initialItems 预填）
+  const [sel, setSel] = useState<Map<string, PickedQuestion>>(
+    () => new Map((initialItems || []).map((q) => [q.question_id, q])),
+  );
+  const [order, setOrder] = useState<string[]>(() => (initialItems || []).map((q) => q.question_id));
   const [batchScore, setBatchScore] = useState("");
 
   useEffect(() => {

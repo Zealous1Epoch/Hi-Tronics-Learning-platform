@@ -23,9 +23,23 @@ interface CourseItem { id: string; title: string; category_id: string | null }
 interface ExamLite { id: string; course_id: string; title: string; status: string }
 interface PaperItem { id: string; title: string; paper_type: string; total_score: number; status: string }
 
+/** 复制考试预填数据：来自源考试的元信息与组卷配置（时间窗/课程绑定不带过来） */
+export interface CopySource {
+  title: string;
+  duration: number;
+  pass_score: number;
+  max_attempts: number | null;
+  paper_type: "fixed" | "random";
+  fixed_questions: PickedQuestion[] | null;
+  random_rules: RandomRule[] | null;
+  source_banks: string[] | null;
+}
+
 interface Props {
   onClose: () => void;
   onDone: () => void;
+  /** 传入则进入「复制考试」模式：各步预填，用户确认后另建一场新考试 */
+  copyFrom?: CopySource | null;
 }
 
 const STEPS = ["基本信息", "选择内容", "确认发布"];
@@ -36,23 +50,23 @@ const TABS = [
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
-export default function ExamQuickCreate({ onClose, onDone }: Props) {
+export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
-  // ① 基本信息
-  const [title, setTitle] = useState("");
-  const [duration, setDuration] = useState(60);
+  // ① 基本信息（复制模式：带名称后缀/时长/次数，唯独不带旧时间窗——新一场要自己定时限）
+  const [title, setTitle] = useState(copyFrom ? `${copyFrom.title}（副本）` : "");
+  const [duration, setDuration] = useState(copyFrom?.duration || 60);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
 
-  // ② 内容
-  const [tab, setTab] = useState<TabKey>("bank_fixed");
+  // ② 内容（复制模式：预填选题/规则，入库题目可能已被删除——面板照常展示，创建时后端会再校验）
+  const [tab, setTab] = useState<TabKey>(copyFrom?.paper_type === "random" ? "bank_random" : "bank_fixed");
   const [pickerCat, setPickerCat] = useState<string | null>(null);
-  const [picked, setPicked] = useState<PickedQuestion[]>([]);
+  const [picked, setPicked] = useState<PickedQuestion[]>(copyFrom?.fixed_questions || []);
   const [splitTarget, setSplitTarget] = useState(100);
-  const [randBanks, setRandBanks] = useState<string[]>([]);
-  const [randRules, setRandRules] = useState<RandomRule[]>([]);
+  const [randBanks, setRandBanks] = useState<string[]>(copyFrom?.source_banks || []);
+  const [randRules, setRandRules] = useState<RandomRule[]>(copyFrom?.random_rules || []);
   const [papers, setPapers] = useState<PaperItem[]>([]);
   const [paperSearch, setPaperSearch] = useState("");
   const [selectedPaperId, setSelectedPaperId] = useState("");
@@ -68,8 +82,9 @@ export default function ExamQuickCreate({ onClose, onDone }: Props) {
   const [exams, setExams] = useState<ExamLite[]>([]);
   const [flatCategories, setFlatCategories] = useState<FlatCategory[]>([]);
   const [courseId, setCourseId] = useState("");
-  const [passInput, setPassInput] = useState("");
-  const [maxAttempts, setMaxAttempts] = useState("");
+  // 复制模式：及格分/次数沿用源考试，课程重新选（一场课程只能绑一场考试，不复用绑定关系）
+  const [passInput, setPassInput] = useState(copyFrom ? String(copyFrom.pass_score) : "");
+  const [maxAttempts, setMaxAttempts] = useState(copyFrom?.max_attempts ? String(copyFrom.max_attempts) : "");
   const [saveTemplate, setSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
 
@@ -223,7 +238,9 @@ export default function ExamQuickCreate({ onClose, onDone }: Props) {
         {/* 头部 + 步骤条 */}
         <div className="px-6 pt-4 pb-3 border-b border-border">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-lg">一键创建考试</h3>
+            <h3 className="font-bold text-lg">
+              {copyFrom ? <>复制考试 <span className="ml-2 text-sm font-normal text-text-secondary">基于「{copyFrom.title}」另建一场，题目与规则已预填</span></> : "一键创建考试"}
+            </h3>
             <button onClick={onClose} className="text-text-secondary hover:text-text-base text-xl leading-none">&times;</button>
           </div>
           <div className="flex items-center">
@@ -312,11 +329,16 @@ export default function ExamQuickCreate({ onClose, onDone }: Props) {
               {tab === "bank_fixed" && (
                 <QuestionPickerPanel
                   refreshKey={pickerRefreshKey}
+                  initialItems={copyFrom?.fixed_questions ?? undefined}
                   onChange={(cat, items) => { setPickerCat(cat); setPicked(items); }}
                 />
               )}
               {tab === "bank_random" && (
-                <RandomRulesPanel onChange={(banks, rules) => { setRandBanks(banks); setRandRules(rules); }} />
+                <RandomRulesPanel
+                  initialBanks={copyFrom?.source_banks ?? undefined}
+                  initialRules={copyFrom?.random_rules ?? undefined}
+                  onChange={(banks, rules) => { setRandBanks(banks); setRandRules(rules); }}
+                />
               )}
               {tab === "paper" && (
                 <div>

@@ -27,16 +27,24 @@ interface PreviewQuestion {
 
 interface Props {
   onChange: (sourceBanks: string[], rules: RandomRule[]) => void;
+  /** 复制考试预填：抽题范围与规则 */
+  initialBanks?: string[];
+  initialRules?: RandomRule[];
 }
 
-export default function RandomRulesPanel({ onChange }: Props) {
+export default function RandomRulesPanel({ onChange, initialBanks, initialRules }: Props) {
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [banks, setBanks] = useState<Set<string>>(new Set());
-  // rules[type][difficulty] = {count, score}
+  const [banks, setBanks] = useState<Set<string>>(() => new Set(initialBanks || []));
+  // rules[type][difficulty] = {count, score}（复制考试时用 initialRules 预填）
   const [rules, setRules] = useState<Record<string, Record<string, { count: number; score: number }>>>(() => {
     const init: Record<string, Record<string, { count: number; score: number }>> = {};
     for (const t of ALL_TYPES) init[t] = { easy: { count: 0, score: 0 }, medium: { count: 0, score: 0 }, hard: { count: 0, score: 0 } };
+    for (const r of initialRules || []) {
+      if (init[r.type] && init[r.type][r.difficulty as "easy" | "medium" | "hard"]) {
+        init[r.type][r.difficulty as "easy" | "medium" | "hard"] = { count: r.count, score: r.score };
+      }
+    }
     return init;
   });
 

@@ -12,7 +12,9 @@ interface ExamInfo {
 interface PaperData {
   id: string; exam_id: string; questions: { question_id: string; score: number }[] | null;
   random_rules: { type: string; difficulty: string; count: number; score: number }[] | null;
+  source_banks: string[] | null;
 }
+interface PreviewQuestion { id: string; type: string; stem: string; difficulty: string; score: number }
 
 const TYPE_LABELS: Record<string, string> = {
   single_choice: "单选", multi_choice: "多选", true_false: "判断",
@@ -28,36 +30,46 @@ export default function ExamPaper() {
   const [paper, setPaper] = useState<PaperData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // 随机预览
-  const [previewQuestions, setPreviewQuestions] = useState<QuestionItem[] | null>(null);
+  // 服务端随机预览（与学员端开考同一套抽题逻辑，所见即所得）
+  const [preview, setPreview] = useState<{ questions: PreviewQuestion[]; total_score: number; shortages: string[] } | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
 
   useEffect(() => {
     Promise.all([
       api<ExamInfo>(`/exams/${id}`),
-      api<{ items: QuestionItem[] }>("/questions?page_size=200"),
       api<PaperData>(`/exams/${id}/paper`),
-    ]).then(([examData, questionsData, paperData]) => {
+    ]).then(async ([examData, paperData]) => {
       setExam(examData);
-      setQuestions(questionsData.items);
       setPaper(paperData);
       setLoading(false);
-    });
+      // 固定卷按 ID 精确拉题（不再全量拉 200 条在前端找，题多也不会缺）
+      const qids = (paperData.questions || []).map((q) => q.question_id);
+      if (qids.length) {
+        try {
+          const d = await api<{ items: QuestionItem[] }>(`/questions?ids=${encodeURIComponent(qids.join(","))}`);
+          setQuestions(d.items);
+        } catch { setQuestions([]); }
+      }
+    }).catch(() => setLoading(false));
   }, [id]);
 
-  const handlePreview = () => {
-    if (!paper?.random_rules) return;
-    const result: QuestionItem[] = [];
-    paper.random_rules.forEach((rule) => {
-      const pool = questions.filter(
-        (q) => q.type === rule.type && q.difficulty === rule.difficulty
+  const handlePreview = async () => {
+    if (!paper?.random_rules?.length) return;
+    setPreviewing(true);
+    try {
+      const data = await api<{ questions: PreviewQuestion[]; total_score: number; shortages: string[] }>(
+        "/exams/preview-draw",
+        { method: "POST", body: JSON.stringify({ random_rules: paper.random_rules, source_banks: paper.source_banks || null }) },
       );
-      const shuffled = [...pool].sort(() => Math.random() - 0.5);
-      const selected = shuffled.slice(0, Math.min(rule.count, pool.length));
-      result.push(...selected);
-    });
-    setPreviewQuestions(result.sort(() => Math.random() - 0.5));
-    setShowPreview(true);
+      setPreview(data);
+      setShowPreview(true);
+    } catch (e: unknown) {
+      setPreview({ questions: [], total_score: 0, shortages: [e instanceof Error ? e.message : "预览失败"] });
+      setShowPreview(true);
+    } finally {
+      setPreviewing(false);
+    }
   };
 
   if (loading) return <p className="text-text-secondary">加载中...</p>;
@@ -92,8 +104,9 @@ export default function ExamPaper() {
             </button>
           )}
           {exam.paper_type === "random" && (
-            <button onClick={handlePreview} className="px-4 py-2 border border-primary text-primary rounded-md text-sm hover:bg-primary/5">
-              生成预览
+            <button onClick={handlePreview} disabled={previewing}
+              className="px-4 py-2 border border-primary text-primary rounded-md text-sm hover:bg-primary/5 disabled:opacity-50">
+              {previewing ? "抽题中..." : "抽题预览"}
             </button>
           )}
           <button onClick={() => navigate("/admin/exams")}
@@ -148,25 +161,37 @@ export default function ExamPaper() {
         </div>
       )}
 
-      {/* 随机预览弹窗 */}
-      {showPreview && previewQuestions && (
+      {/* 服务端抽题预览弹窗（与学员端开考同一抽题逻辑） */}
+      {showPreview && preview && (
         <div className="fixed inset-0 bg-black/30 flex items-start justify-center pt-20 z-50" onClick={() => setShowPreview(false)}>
           <div className="bg-bg-base rounded-lg shadow-xl p-6 w-full max-w-lg max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold">试卷预览（{previewQuestions.length} 题）</h3>
-              <button onClick={handlePreview} className="text-sm text-primary hover:underline">换一批</button>
+              <h3 className="font-bold">抽题预览（{preview.questions.length} 题 / {preview.total_score} 分）</h3>
+              <div className="flex items-center gap-3">
+                <button onClick={handlePreview} disabled={previewing} className="text-sm text-primary hover:underline disabled:opacity-50">换一批</button>
+                <button onClick={() => setShowPreview(false)} className="text-text-secondary hover:text-text-base text-lg">&times;</button>
+              </div>
             </div>
+            {preview.shortages.length > 0 && (
+              <div className="mb-3 px-3 py-2 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-xs space-y-0.5">
+                {preview.shortages.map((s, i) => <p key={i}>⚠ {s}</p>)}
+              </div>
+            )}
             <div className="space-y-3">
-              {previewQuestions.map((q, i) => (
-                <div key={q.id} className="py-2 px-3 bg-bg-layout rounded text-sm">
+              {preview.questions.map((q, i) => (
+                <div key={`${q.id}-${i}`} className="py-2 px-3 bg-bg-layout rounded text-sm">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-bold text-primary">{i + 1}.</span>
                     <span className="text-xs text-text-secondary">[{TYPE_LABELS[q.type]}]</span>
                     <span className="text-xs text-text-secondary">{DIFF_LABELS[q.difficulty]}</span>
+                    <span className="text-xs text-text-secondary ml-auto">{q.score}分</span>
                   </div>
                   <p>{q.stem}</p>
                 </div>
               ))}
+              {preview.questions.length === 0 && (
+                <p className="text-sm text-text-secondary text-center py-6">{preview.shortages.length ? "题库存量不足，未能抽出完整试卷，请按上方提示调整规则" : "未抽到题目"}</p>
+              )}
             </div>
             <div className="flex justify-end mt-4">
               <button onClick={() => setShowPreview(false)} className="px-4 py-2 rounded-md text-sm border border-border hover:bg-bg-layout">关闭</button>

@@ -61,12 +61,14 @@ export default function QuestionBank() {
   const toggleType = (type: string) => setKpiType((prev) => (prev === type ? "" : type));
 
   return (
-    <div>
-      <h2 className="text-xl font-bold text-primary mb-4">试题管理</h2>
+    // 页面锁定在视口高度（100vh - 顶栏 52 - main 上下 padding 44），
+    // 溢出只发生在试题列表内部滚动条，整页不再跟随滚动
+    <div className="flex flex-col h-[calc(100vh-96px)]">
+      <h2 className="text-xl font-bold text-primary mb-4 shrink-0">试题管理</h2>
 
-      <div className="flex gap-4 min-h-[calc(100vh-180px)]">
-        {/* 左侧树 */}
-        <div className="w-56 shrink-0 pr-5">
+      <div className="flex gap-4 flex-1 min-h-0">
+        {/* 左侧树（超长时树内部滚动，不撑高页面） */}
+        <div className="w-56 shrink-0 pr-5 overflow-y-auto min-h-0">
           <CourseTree
             tree={tree}
             flatCategories={[]}
@@ -80,9 +82,9 @@ export default function QuestionBank() {
         </div>
 
         {/* 右侧：KPI 面板 + 试题列表 */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
           {/* KPI 面板：题库统计 + 操作入口 */}
-          <div className="bg-bg-layout/50 rounded-lg p-4 mb-4">
+          <div className="bg-bg-layout/50 rounded-lg p-4 mb-4 shrink-0">
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <div className="flex items-baseline gap-2 min-w-0">
                 <h3 className="font-bold text-sm text-primary truncate">{stats?.name || "加载中..."}</h3>

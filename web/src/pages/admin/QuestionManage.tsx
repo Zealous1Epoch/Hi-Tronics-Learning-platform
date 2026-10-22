@@ -305,8 +305,10 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
     openAI: () => setShowAI(true),
   }));
 
+  // flex-1/min-h-0 仅在被 QuestionBank 的定高 flex 列挂载时生效；
+  // 独立路由 /admin/questions 下父容器无定高，这些类自动退化为普通流式布局
   return (
-    <div>
+    <div className="flex flex-col flex-1 min-h-0">
 
       {/* 批量操作栏 */}
       {selectedIds.size > 0 && (
@@ -322,7 +324,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
       )}
 
       {/* 筛选栏 */}
-      <div className="flex gap-3 mb-4">
+      <div className="flex gap-3 mb-4 shrink-0">
         {!propCategoryId && (
           <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setLoading(true); }}
             className="border border-border/60 rounded-md px-3 py-1.5 text-sm bg-bg-base">
@@ -355,19 +357,21 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
           暂无试题，点击右上角新增
         </div>
       ) : (
-        <div className="bg-bg-base rounded-lg border border-border overflow-hidden">
+        <div className="bg-bg-base rounded-lg border border-border overflow-auto flex-1 min-h-0">
           <table className="w-full text-sm table-fixed">
-            <thead className="bg-bg-layout/50 border-b border-border/50">
+            {/* th 用 sticky 固定（thead 上的 sticky 对旧 Safari 无效）；
+                实色底 + inset 阴影补底边线，滚动时表头不透视不丢线 */}
+            <thead>
               <tr>
-                <th className="px-4 py-2.5 w-8">
+                <th className="px-4 py-2.5 w-8 sticky top-0 z-10 bg-bg-layout shadow-[inset_0_-1px_0_var(--color-border)]">
                   <input type="checkbox" checked={selectedIds.size === questions.length && questions.length > 0}
                     onChange={toggleSelectAll} />
                 </th>
-                <th className="text-center px-4 py-2.5 text-xs font-normal text-text-secondary/70 w-[26%]">题干</th>
-                <th className="text-center px-2 py-2.5 text-xs font-normal text-text-secondary/70 w-16">题型</th>
-                <th className="text-center px-2 py-2.5 text-xs font-normal text-text-secondary/70 w-16">难度</th>
-                <th className="text-center px-2 py-2.5 text-xs font-normal text-text-secondary/70 w-24">题库分类</th>
-                <th className="text-right px-3 py-2.5 text-xs font-normal text-text-secondary/70 w-40">操作</th>
+                <th className="text-center px-4 py-2.5 text-xs font-normal text-text-secondary/70 w-[26%] sticky top-0 z-10 bg-bg-layout shadow-[inset_0_-1px_0_var(--color-border)]">题干</th>
+                <th className="text-center px-2 py-2.5 text-xs font-normal text-text-secondary/70 w-16 sticky top-0 z-10 bg-bg-layout shadow-[inset_0_-1px_0_var(--color-border)]">题型</th>
+                <th className="text-center px-2 py-2.5 text-xs font-normal text-text-secondary/70 w-16 sticky top-0 z-10 bg-bg-layout shadow-[inset_0_-1px_0_var(--color-border)]">难度</th>
+                <th className="text-center px-2 py-2.5 text-xs font-normal text-text-secondary/70 w-24 sticky top-0 z-10 bg-bg-layout shadow-[inset_0_-1px_0_var(--color-border)]">题库分类</th>
+                <th className="text-right px-3 py-2.5 text-xs font-normal text-text-secondary/70 w-40 sticky top-0 z-10 bg-bg-layout shadow-[inset_0_-1px_0_var(--color-border)]">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -403,7 +407,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
 
       {/* 分页 */}
       {total > 0 && (
-        <div className="flex items-center justify-between mt-4 text-sm text-text-secondary">
+        <div className="flex items-center justify-between mt-4 text-sm text-text-secondary shrink-0">
           <span>共 {total} 题</span>
           <div className="flex items-center gap-2">
             <button

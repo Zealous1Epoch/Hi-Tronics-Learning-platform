@@ -45,7 +45,15 @@ const DIFF_COLORS: Record<string, string> = {
   easy: "bg-green-100 text-green-700", medium: "bg-yellow-100 text-yellow-700", hard: "bg-red-100 text-red-700",
 };
 
-const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | null }>(function QuestionManage({ categoryId: propCategoryId }, ref) {
+interface Props {
+  categoryId?: string | null;
+  /** KPI 面板题型卡选中值（受控）：变化时同步内部题型筛选 */
+  externalTypeFilter?: string;
+  /** 内部题型筛选变化时回传（下拉切换 → KPI 高亮同步） */
+  onTypeFilterChange?: (type: string) => void;
+}
+
+const QuestionManage = forwardRef<QuestionManageHandle, Props>(function QuestionManage({ categoryId: propCategoryId, externalTypeFilter, onTypeFilterChange }, ref) {
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState("");
@@ -100,6 +108,14 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
     setFlatCategories(catsData);
     setLoading(false);
   };
+
+  // KPI 题型卡 → 内部筛选（受控方向）
+  useEffect(() => {
+    if (externalTypeFilter !== undefined && externalTypeFilter !== typeFilter) {
+      setTypeFilter(externalTypeFilter);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalTypeFilter]);
 
   useEffect(() => {
     setPage(1);
@@ -316,7 +332,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, { categoryId?: string | 
             ))}
           </select>
         )}
-        <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setLoading(true); }}
+        <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); onTypeFilterChange?.(e.target.value); setLoading(true); }}
           className="border border-border/60 rounded-md px-3 py-1.5 text-sm bg-bg-base">
           {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>

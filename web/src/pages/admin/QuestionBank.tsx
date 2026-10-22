@@ -10,34 +10,21 @@ interface CategoryStats {
   created_at: string | null;
 }
 
-const tabs = [
-  { key: "manage", label: "题库管理" },
-  { key: "questions", label: "试题" },
-] as const;
-
-type TabKey = (typeof tabs)[number]["key"];
+const TYPES = ["single_choice", "multi_choice", "true_false", "fill_blank", "essay"] as const;
 
 const TYPE_LABELS: Record<string, string> = {
   single_choice: "单选题", multi_choice: "多选题", true_false: "判断题",
   fill_blank: "填空题", essay: "问答题",
 };
 
-const STAT_COLORS: Record<string, string> = {
-  single_choice: "bg-bg-base/80 text-text-secondary/80 rounded",
-  multi_choice: "bg-bg-base/80 text-text-secondary/80 rounded",
-  true_false: "bg-bg-base/80 text-text-secondary/80 rounded",
-  fill_blank: "bg-bg-base/80 text-text-secondary/80 rounded",
-  essay: "bg-bg-base/80 text-text-secondary/80 rounded",
-  total: "bg-bg-base text-text-secondary rounded font-medium",
-};
-
 export default function QuestionBank() {
-  const [activeTab, setActiveTab] = useState<TabKey>("manage");
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stats, setStats] = useState<CategoryStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [aiEnabled, setAiEnabled] = useState(false);
+  // KPI 题型卡选中态：点击卡片即筛选下方试题列表，再点取消
+  const [kpiType, setKpiType] = useState("");
   const qmRef = useRef<QuestionManageHandle>(null);
 
   const fetchTree = async () => {
@@ -71,6 +58,8 @@ export default function QuestionBank() {
     });
   };
 
+  const toggleType = (type: string) => setKpiType((prev) => (prev === type ? "" : type));
+
   return (
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">试题管理</h2>
@@ -90,89 +79,61 @@ export default function QuestionBank() {
           />
         </div>
 
-        {/* 右侧面板 */}
+        {/* 右侧：KPI 面板 + 试题列表 */}
         <div className="flex-1 min-w-0">
-          <div className="mb-4 pb-3 border-b border-border">
-            <div className="flex items-center justify-between">
-              <div className="flex gap-3">
-                {tabs.map(t => (
-                  <button
-                    key={t.key}
-                    onClick={() => setActiveTab(t.key)}
-                    className={`px-4 py-2 rounded-md text-sm transition-colors ${
-                      activeTab === t.key
-                        ? "bg-primary/5 text-primary font-medium"
-                        : "text-text-secondary hover:bg-bg-layout"
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                ))}
+          {/* KPI 面板：题库统计 + 操作入口 */}
+          <div className="bg-bg-layout/50 rounded-lg p-4 mb-4">
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <div className="flex items-baseline gap-2 min-w-0">
+                <h3 className="font-bold text-sm text-primary truncate">{stats?.name || "加载中..."}</h3>
+                {stats && (
+                  <span className="text-[11px] text-text-secondary/60 whitespace-nowrap">
+                    {stats.is_leaf ? "叶子题库" : stats.child_count > 0 ? `容器节点 / ${stats.child_count} 个子节点` : "全部题库"}
+                    · 创建于 {formatTime(stats.created_at)}
+                  </span>
+                )}
               </div>
-              {activeTab === "questions" && (
-                <div className="flex gap-2">
-                  <button onClick={() => qmRef.current?.handleExport()} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">导出</button>
-                  <button onClick={() => qmRef.current?.openImport()} className="px-3 py-2 border border-border rounded-md text-sm hover:bg-bg-layout">批量导入</button>
-                  <button
-                    onClick={() => aiEnabled && qmRef.current?.openAI()}
-                    disabled={!aiEnabled}
-                    title={aiEnabled ? "按主题关键词 AI 生成题目草稿，人工审核后入库" : "AI 功能未启用：服务端未配置 LLM_API_KEY"}
-                    className={`px-3 py-2 border border-border rounded-md text-sm ${aiEnabled ? "hover:bg-bg-layout" : "opacity-50 cursor-not-allowed"}`}
-                  >AI 出题</button>
-                  <button onClick={() => qmRef.current?.openCreate()} className="px-4 py-2 bg-primary text-white rounded-md text-sm hover:bg-primary-light">新增试题</button>
-                </div>
-              )}
+              <div className="flex gap-2 shrink-0">
+                <button onClick={() => qmRef.current?.handleExport()} className="px-3 py-1.5 border border-border rounded-md text-xs hover:bg-bg-layout">导出</button>
+                <button onClick={() => qmRef.current?.openImport()} className="px-3 py-1.5 border border-border rounded-md text-xs hover:bg-bg-layout">批量导入</button>
+                <button
+                  onClick={() => aiEnabled && qmRef.current?.openAI()}
+                  disabled={!aiEnabled}
+                  title={aiEnabled ? "按主题关键词 AI 生成题目草稿，人工审核后入库" : "AI 功能未启用：服务端未配置 LLM_API_KEY"}
+                  className={`px-3 py-1.5 border border-border rounded-md text-xs ${aiEnabled ? "hover:bg-bg-layout" : "opacity-50 cursor-not-allowed"}`}
+                >AI 出题</button>
+                <button onClick={() => qmRef.current?.openCreate()} className="px-3.5 py-1.5 bg-primary text-white rounded-md text-xs hover:bg-primary-light">新增试题</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-6 gap-2">
+              <button onClick={() => setKpiType("")}
+                title="清除题型筛选"
+                className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded border text-xs transition-colors cursor-pointer ${
+                  kpiType === "" ? "border-primary bg-primary/5" : "border-transparent bg-bg-base/80 hover:bg-bg-base"
+                }`}>
+                <span className="text-text-secondary">总题数</span>
+                <span className="font-bold text-base text-text-base">{stats?.total_count ?? "-"}</span>
+              </button>
+              {TYPES.map((type) => (
+                <button key={type} onClick={() => toggleType(type)}
+                  title={kpiType === type ? "取消筛选" : `只看${TYPE_LABELS[type]}`}
+                  className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded border text-xs transition-colors cursor-pointer ${
+                    kpiType === type ? "border-primary bg-primary/5" : "border-transparent bg-bg-base/80 hover:bg-bg-base"
+                  }`}>
+                  <span className="text-text-secondary">{TYPE_LABELS[type]}</span>
+                  <span className="font-bold text-base text-text-base">{stats ? stats[type] : "-"}</span>
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Tab 1: 题库管理 */}
-          {activeTab === "manage" && (
-            <div>
-              {stats ? (
-                <div className="space-y-4">
-                  <div className="bg-bg-layout/50 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-bold text-sm text-primary">{stats.name}</h3>
-                      <span className="text-[11px] text-text-secondary/60">
-                        {stats.is_leaf ? "叶子题库" : stats.child_count > 0 ? `容器节点 / ${stats.child_count} 个子节点` : "全部题库"}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 mb-3">
-                      {(["single_choice", "multi_choice", "true_false", "fill_blank", "essay"] as const).map(type => (
-                        <div key={type} className={`flex items-center justify-between px-3 py-2 rounded text-xs ${STAT_COLORS[type]}`}>
-                          <span>{TYPE_LABELS[type]}</span>
-                          <span className="font-bold">{stats[type]}</span>
-                        </div>
-                      ))}
-                      <div className={`flex items-center justify-between px-3 py-2 rounded text-xs ${STAT_COLORS.total}`}>
-                        <span>合计</span>
-                        <span className="font-bold">{stats.total_count}</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-text-secondary">
-                      创建时间: {formatTime(stats.created_at)}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
-                  加载中...
-                </div>
-              )}
+          {/* 试题列表 */}
+          {stats && !stats.is_leaf && selectedId !== null ? (
+            <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
+              该题库为容器节点（题数统计已含子题库），请选择子题库管理试题
             </div>
-          )}
-
-          {/* Tab 2: 试题 */}
-          {activeTab === "questions" && (
-            <div>
-              {selectedId && stats && !stats.is_leaf ? (
-                <div className="bg-bg-base rounded-lg p-12 border border-border text-center text-text-secondary">
-                  请选择子题库查看试题
-                </div>
-              ) : (
-                <QuestionManage ref={qmRef} categoryId={selectedId} />
-              )}
-            </div>
+          ) : (
+            <QuestionManage ref={qmRef} categoryId={selectedId} externalTypeFilter={kpiType} onTypeFilterChange={setKpiType} />
           )}
         </div>
       </div>

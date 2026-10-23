@@ -361,12 +361,13 @@ export default function ExamManage() {
               <table className="k-table table-fixed">
                 <thead>
                   <tr>
-                    <th className="text-center">考试名称</th>
-                    <th className="text-center w-20">组卷</th>
-                    <th className="text-center w-28">时长/分数</th>
-                    <th className="text-center w-20">状态</th>
-                    <th className="text-center w-16">参考</th>
-                    <th className="text-center w-64">操作</th>
+                    {/* table-fixed 下全列给百分比：名称列不再吞掉剩余宽度，各列均匀铺满 */}
+                    <th className="text-center w-[26%]">考试名称</th>
+                    <th className="text-center w-[9%]">组卷</th>
+                    <th className="text-center w-[17%]">时长/分数</th>
+                    <th className="text-center w-[12%]">状态</th>
+                    <th className="text-center w-[12%]">参考</th>
+                    <th className="text-center w-[24%]">操作</th>
                   </tr>
                 </thead>
                 <tbody>

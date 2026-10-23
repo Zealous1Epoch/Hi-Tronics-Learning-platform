@@ -391,21 +391,22 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
             {/* 表头吸顶由表格挂 k-table-sticky 提供（外层 .k-table-wrap 为滚动容器） */}
             <thead>
               <tr>
-                <th className="w-8">
+                {/* 全列百分比均匀分布；操作列改居中，与其他列一致 */}
+                <th className="w-8 text-center">
                   <input type="checkbox" checked={selectedIds.size === questions.length && questions.length > 0}
                     onChange={toggleSelectAll} />
                 </th>
-                <th className="text-center w-[26%]">题干</th>
-                <th className="text-center w-16">题型</th>
-                <th className="text-center w-16">难度</th>
-                <th className="text-center w-24">题库分类</th>
-                <th className="text-right w-40">操作</th>
+                <th className="text-center w-[30%]">题干</th>
+                <th className="text-center w-[10%]">题型</th>
+                <th className="text-center w-[10%]">难度</th>
+                <th className="text-center w-[18%]">题库分类</th>
+                <th className="text-center w-[24%]">操作</th>
               </tr>
             </thead>
             <tbody>
               {questions.map((q) => (
                 <tr key={q.id}>
-                  <td>
+                  <td className="text-center">
                     <input type="checkbox" checked={selectedIds.has(q.id)} onChange={() => toggleSelect(q.id)} />
                   </td>
                   <td className="truncate text-center">{q.stem}</td>
@@ -420,7 +421,7 @@ const QuestionManage = forwardRef<QuestionManageHandle, Props>(function Question
                       {getCategoryPath((q as any).category_id)}
                     </span>
                   </td>
-                  <td className="text-right">
+                  <td className="text-center whitespace-nowrap">
                     <button onClick={() => setPreviewQuestion(q)} className="k-link mr-2">预览</button>
                     <button onClick={() => openEdit(q)} className="k-link mr-2">编辑</button>
                     <button onClick={() => handleClone(q.id)} className="k-link mr-2">复制</button>

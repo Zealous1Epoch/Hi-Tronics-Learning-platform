@@ -117,13 +117,14 @@ export default function PaperManage() {
               <table className="k-table table-fixed">
                 <thead>
                   <tr>
-                    <th className="text-center">试卷名称</th>
-                    <th className="text-center w-16">类型</th>
-                    <th className="text-center w-40">类别</th>
-                    <th className="text-center w-20">题目数</th>
-                    <th className="text-center w-20">总分</th>
-                    <th className="text-center w-20">状态</th>
-                    <th className="text-center w-32">操作</th>
+                    {/* table-fixed 下全列给百分比：名称列不再吞掉剩余宽度，各列均匀铺满 */}
+                    <th className="text-center w-[24%]">试卷名称</th>
+                    <th className="text-center w-[9%]">类型</th>
+                    <th className="text-center w-[19%]">类别</th>
+                    <th className="text-center w-[10%]">题目数</th>
+                    <th className="text-center w-[10%]">总分</th>
+                    <th className="text-center w-[12%]">状态</th>
+                    <th className="text-center w-[16%]">操作</th>
                   </tr>
                 </thead>
                 <tbody>

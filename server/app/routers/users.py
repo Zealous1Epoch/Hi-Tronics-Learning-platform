@@ -268,20 +268,77 @@ def update_user_status(
 @router.delete("/{user_id}")
 def delete_user(
     user_id: str,
+    confirm: bool = Query(False, description="必须显式传 true 才执行删除"),
+    force: bool = Query(False, description="用户已有学习/考试/签到等历史记录时，需再传 force=true 才会连历史一并删除"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """删除用户"""
+    """删除用户。
+
+    修复（与课程/考试删除的 confirm/force 惯例对齐）：
+    此前直接 `db.delete(user)`，而 learning_progress / exam_results /
+    attendance_records / course_assignments / tasks / notice_reads / notices
+    等表的外键均无 ondelete（MySQL 默认 RESTRICT），只要用户产生过任何学习
+    痕迹接口就抛 IntegrityError → 500。现改为：
+    - 必须显式 `confirm=true`
+    - 有学习/考试/签到等记录时默认拒绝（409），确认后传 `force=true` 连历史一并清理
+    """
+    if not confirm:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="删除用户需要显式确认（confirm=true）")
     if user_id == current_user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能删除自己")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     _assert_not_last_active_admin(db, user, deleting=True)
+
+    from app.models.attendance import AttendanceRecord
+    from app.models.course import CourseAssignment
+    from app.models.exam import ExamResult
+    from app.models.learning_progress import LearningProgress
+    from app.models.notice import Notice, NoticeRead
+    from app.models.task import Task
+    from sqlalchemy import or_
+
+    progress_n = db.query(LearningProgress).filter(LearningProgress.user_id == user_id).count()
+    result_n = db.query(ExamResult).filter(ExamResult.user_id == user_id).count()
+    attend_n = db.query(AttendanceRecord).filter(AttendanceRecord.user_id == user_id).count()
+    assign_n = db.query(CourseAssignment).filter(CourseAssignment.user_id == user_id).count()
+    task_n = db.query(Task).filter(Task.user_id == user_id).count()
+    read_n = db.query(NoticeRead).filter(NoticeRead.user_id == user_id).count()
+    notice_n = db.query(Notice).filter(Notice.author_id == user_id).count()
+
+    history_total = progress_n + result_n + attend_n + read_n + notice_n
+    if history_total and not force:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"该用户已产生学习记录（学习进度 {progress_n} 条、考试记录 {result_n} 条、"
+                f"签到记录 {attend_n} 条、公告阅读 {read_n} 条、发布公告 {notice_n} 条），"
+                "为避免误删历史数据已阻止删除；如确认要连同记录一并删除，请传 force=true。"
+            ),
+        )
+
+    if force:
+        # 按外键依赖顺序显式清理：先删引用方，再删被引用方，最后删用户。
+        # 公告阅读要同时覆盖「本人读过的」与「本人发布的公告被谁读过」两类。
+        my_notice_ids = [n.id for n in db.query(Notice.id).filter(Notice.author_id == user_id).all()]
+        read_filter = NoticeRead.user_id == user_id
+        if my_notice_ids:
+            read_filter = or_(read_filter, NoticeRead.notice_id.in_(my_notice_ids))
+        db.query(NoticeRead).filter(read_filter).delete(synchronize_session=False)
+        if my_notice_ids:
+            db.query(Notice).filter(Notice.id.in_(my_notice_ids)).delete(synchronize_session=False)
+        db.query(AttendanceRecord).filter(AttendanceRecord.user_id == user_id).delete(synchronize_session=False)
+        db.query(LearningProgress).filter(LearningProgress.user_id == user_id).delete(synchronize_session=False)
+        db.query(ExamResult).filter(ExamResult.user_id == user_id).delete(synchronize_session=False)
+        db.query(Task).filter(Task.user_id == user_id).delete(synchronize_session=False)
+        db.query(CourseAssignment).filter(CourseAssignment.user_id == user_id).delete(synchronize_session=False)
+
     invalidate_user_cache(user_id)
     db.delete(user)
     db.commit()
-    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="user", action="delete", resource_type="用户", resource_name=user.name, description=f"{current_user.name} 删除了用户「{user.name}」", level="warning")
+    write_log(db=db, operator=current_user.name, operator_id=current_user.id, category="user", action="delete", resource_type="用户", resource_name=user.name, description=f"{current_user.name} 删除了用户「{user.name}」" + ("（连同学习历史）" if force and history_total else ""), level="warning")
     return {"ok": True}
 
 

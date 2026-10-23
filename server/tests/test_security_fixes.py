@@ -683,3 +683,62 @@ def test_sso_compat_flag_default_false():
 
     src = Path(config_module.__file__).read_text(encoding="utf-8")
     assert 'os.getenv("SSO_ALLOW_INSECURE_COMPAT", "false")' in src
+
+
+# ───────────────── P1：删除用户 500（外键 RESTRICT 无清理）─────────────────
+
+def test_delete_user_requires_confirm(client, admin_headers, db):
+    """修复前：DELETE /users/{id} 无 confirm 参数直接删。
+    现与课程/考试删除惯例对齐，必须显式 confirm=true。"""
+    stu = User(
+        id=str(uuid.uuid4()), username="del_no_hist",
+        password_hash=hash_password("Del12345!"),
+        name="无历史学员", role="student", status="active",
+    )
+    db.add(stu)
+    db.commit()
+
+    res = client.delete(f"/api/users/{stu.id}", headers=admin_headers)
+    assert res.status_code == 400
+    assert "confirm" in res.json()["detail"]
+
+    # 无历史记录时 confirm=true 可直接删
+    res = client.delete(f"/api/users/{stu.id}?confirm=true", headers=admin_headers)
+    assert res.status_code == 200
+    assert db.query(User).filter(User.id == stu.id).first() is None
+
+
+def test_delete_user_with_history_409_then_force(client, admin_headers, db):
+    """修复前：用户只要有 learning_progress 等任意关联记录，
+    db.delete(user) 就撞 MySQL 外键 RESTRICT → 500。
+    现应先 409，force=true 才连历史一并清理。"""
+    from app.models.learning_progress import LearningProgress
+
+    stu = User(
+        id=str(uuid.uuid4()), username="del_with_hist",
+        password_hash=hash_password("Del12345!"),
+        name="有历史学员", role="student", status="active",
+    )
+    db.add(stu)
+    db.commit()
+    prog = LearningProgress(
+        id=str(uuid.uuid4()), user_id=stu.id, course_id="c1", video_id="v1",
+        watched_seconds=100, total_seconds=100, completed=True,
+    )
+    db.add(prog)
+    db.commit()
+
+    res = client.delete(f"/api/users/{stu.id}?confirm=true", headers=admin_headers)
+    assert res.status_code == 409
+    assert "学习记录" in res.json()["detail"]
+    # 409 时用户与记录都必须还在
+    assert db.query(User).filter(User.id == stu.id).first() is not None
+
+    res = client.delete(
+        f"/api/users/{stu.id}?confirm=true&force=true", headers=admin_headers
+    )
+    assert res.status_code == 200
+    assert db.query(User).filter(User.id == stu.id).first() is None
+    assert db.query(LearningProgress).filter(
+        LearningProgress.user_id == stu.id
+    ).count() == 0

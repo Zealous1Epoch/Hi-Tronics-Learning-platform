@@ -175,8 +175,24 @@ export default function DepartmentUserManage() {
     const acc = row.account;
     if (!acc) return;
     if (!confirm(`确定删除用户 ${acc.name}？`)) return;
-    await api(`/users/${acc.user_id}`, { method: "DELETE" });
-    fetchOrg();
+    try {
+      await api(`/users/${acc.user_id}?confirm=true`, { method: "DELETE" });
+      fetchOrg();
+    } catch (e: any) {
+      const msg = e?.message || "删除失败";
+      // 后端检测到学习/考试/签到等历史记录时返回 409，需二次确认才连历史一并删除
+      if (msg.includes("学习记录")) {
+        if (!confirm(`${msg}\n\n确定要连同这些记录一并删除该用户吗？此操作不可恢复。`)) return;
+        try {
+          await api(`/users/${acc.user_id}?confirm=true&force=true`, { method: "DELETE" });
+          fetchOrg();
+        } catch (e2: any) {
+          alert(e2?.message || "删除失败");
+        }
+        return;
+      }
+      alert(msg);
+    }
   };
 
   // ── 开通账号 / 新增用户 ──

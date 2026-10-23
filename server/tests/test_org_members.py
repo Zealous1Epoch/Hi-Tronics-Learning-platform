@@ -150,11 +150,28 @@ def test_members_account_annotation(client, admin_headers, db, monkeypatch):
 
 
 def test_members_meta_null_before_first_sync(client, admin_headers):
+    """空镜像 fallback 模式（2026-10-23 语义变更）：以平台账号为名册，
+    融合视图/选人组件在不导入 HR 名册时也有完整的树与列表。"""
     res = client.get("/api/org/members", headers=admin_headers)
     assert res.status_code == 200
     body = res.json()
     assert body["meta"] is None
-    assert body["members"] == []
+    assert len(body["members"]) >= 1  # 至少含测试管理员账号
+    assert all(m["account"] is not None for m in body["members"])
+    assert all(m["emp_id"] is None for m in body["members"])  # 平台账号不作名册工号
+    assert body["unlinked_accounts"] == []  # fallback 模式不重复进兜底栏
+    assert "fallback" not in body  # 内部标记不外漏
+
+
+def test_org_sync_gate_disabled(client, admin_headers, monkeypatch):
+    """ORG_SYNC_ENABLED=false 时同步/批量开通 503（生产名册闸门），
+    融合视图（GET /members）不受影响。"""
+    from app.routers import org as org_router
+
+    monkeypatch.setattr(org_router.settings, "ORG_SYNC_ENABLED", False)
+    assert client.post("/api/org/sync", headers=admin_headers).status_code == 503
+    assert client.post("/api/org/provision", headers=admin_headers).status_code == 503
+    assert client.get("/api/org/members", headers=admin_headers).status_code == 200
 
 
 # ────────────────────── 开通账号守卫 ──────────────────────

@@ -15,6 +15,10 @@ import { Plus, RefreshCw, Search, Settings2, UserPlus } from "lucide-react";
 
 const PAGE_SIZE = 50;
 
+// HR 名册导入入口开关：生产构建（web/.env.production）设 false —— 融合视图
+// 界面保留但不导入全公司名册（按钮隐藏 + 后端 ORG_SYNC_ENABLED 闸门双保险）。
+const SYNC_ENABLED = import.meta.env.VITE_ENABLE_ORG_SYNC !== "false";
+
 type AccFilter = "all" | "has" | "none" | "unlinked";
 
 export default function DepartmentUserManage() {
@@ -374,27 +378,34 @@ export default function DepartmentUserManage() {
       <div className="flex items-center justify-between gap-3 pb-3 mb-4 border-b border-border shrink-0">
         <h2 className="k-title text-[22px] text-primary">用户管理</h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="k-btn k-btn-default k-btn-sm disabled:opacity-50"
-          >
-            <RefreshCw size={12} className={`inline mr-1 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "同步中..." : "同步全员"}
-          </button>
-          <button
-            onClick={handleProvision}
-            disabled={provisioning || !org?.meta}
-            title={
-              org?.meta
-                ? "为名册中所有未开通账号的员工创建无密码学生账号（仅可经 OA/企业微信登录），可重复执行"
-                : "请先同步全员名册"
-            }
-            className="k-btn k-btn-default k-btn-sm disabled:opacity-50"
-          >
-            <UserPlus size={12} className="inline mr-1" />
-            {provisioning ? "开通中..." : "为全员开通账号"}
-          </button>
+          {/* VITE_ENABLE_ORG_SYNC=false（生产 .env.production）时隐藏 HR 名册
+              导入入口；后端 /api/org/sync、/provision 也受 ORG_SYNC_ENABLED 闸门约束。
+              隐藏后融合视图仍完整可用——空镜像时后端以平台账号为名册返回。 */}
+          {SYNC_ENABLED && (
+            <>
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="k-btn k-btn-default k-btn-sm disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={`inline mr-1 ${syncing ? "animate-spin" : ""}`} />
+                {syncing ? "同步中..." : "同步全员"}
+              </button>
+              <button
+                onClick={handleProvision}
+                disabled={provisioning || !org?.meta}
+                title={
+                  org?.meta
+                    ? "为名册中所有未开通账号的员工创建无密码学生账号（仅可经 OA/企业微信登录），可重复执行"
+                    : "请先同步全员名册"
+                }
+                className="k-btn k-btn-default k-btn-sm disabled:opacity-50"
+              >
+                <UserPlus size={12} className="inline mr-1" />
+                {provisioning ? "开通中..." : "为全员开通账号"}
+              </button>
+            </>
+          )}
           <button
             onClick={() => openCreate()}
             className="k-btn k-btn-primary k-btn-sm"
@@ -463,9 +474,9 @@ export default function DepartmentUserManage() {
               <option value="all">全部人员</option>
               <option value="has">有平台账号</option>
               <option value="none">未开通账号</option>
-              <option value="unlinked">
-                不在名册的账号{org?.meta ? `（${org.meta.unlinked_account_count}）` : ""}
-              </option>
+              {org?.meta && (
+                <option value="unlinked">不在名册的账号（{org.meta.unlinked_account_count}）</option>
+              )}
             </select>
             <div className="k-search">
               <Search size={14} />
@@ -515,9 +526,13 @@ export default function DepartmentUserManage() {
                   <tr>
                     <td colSpan={6} className="k-empty">
                       {!org?.meta ? (
-                        <span>
-                          尚未同步全员名册，点击右上角「<button onClick={handleSync} className="text-primary underline mx-0.5" disabled={syncing}>同步全员</button>」从招聘系统拉取全公司人员
-                        </span>
+                        SYNC_ENABLED ? (
+                          <span>
+                            尚未同步全员名册，点击右上角「<button onClick={handleSync} className="text-primary underline mx-0.5" disabled={syncing}>同步全员</button>」从招聘系统拉取全公司人员
+                          </span>
+                        ) : (
+                          "暂无用户，可点击右上角「新增用户」或「批量导入」创建账号"
+                        )
                       ) : accFilter === "unlinked" ? (
                         "所有平台账号都已对应到名册中的人员"
                       ) : (
@@ -528,7 +543,7 @@ export default function DepartmentUserManage() {
                 ) : (
                   pageRows.map(row => (
                     <tr
-                      key={row.unlinked ? `u-${row.user_id}` : `m-${row.emp_id}`}
+                      key={row.emp_id ? `m-${row.emp_id}` : `u-${row.user_id}`}
                       className={!row.account ? "opacity-80" : ""}
                     >
                       <td className="k-strong text-center truncate" title={row.name}>{row.name}</td>

@@ -160,6 +160,67 @@ def _iso(dt) -> str | None:
     return dt.isoformat(sep=" ", timespec="seconds") if dt else None
 
 
+def _platform_fused_members(db: Session) -> list[dict]:
+    """镜像为空（从未同步 / 生产未导入 HR 名册）时，以平台账号自身为名册。
+
+    融合视图与选人组件因此在不导入全公司的情况下也「有树有列表」，
+    行为与 HR 名册模式连续；dept_path 按平台 departments 父链拼装
+    （'>' 分隔，与 HR 名册同口径），无 department_id 的旧账号回退用
+    department 文本（'-' 分隔）转换。行结构对齐 OrgMemberRow：
+    emp_id 恒为 None（平台账号工号不作名册工号用），前端 key 走
+    user_id 兜底，unlinked 标记为 False（它们就是名册本体）。
+    """
+    from app.models.department import Department
+
+    depts = {d.id: d for d in db.scalars(select(Department)).all()}
+
+    def chain(dept_id: str | None) -> str:
+        parts: list[str] = []
+        cur = depts.get(dept_id) if dept_id else None
+        guard = 0
+        while cur is not None and guard < 20:
+            parts.append(cur.name)
+            cur = depts.get(cur.parent_id)
+            guard += 1
+        return ">".join(reversed(parts))
+
+    rows = db.execute(
+        select(
+            User.id, User.username, User.name, User.employee_id,
+            User.department, User.department_id, User.role, User.status,
+        )
+    ).all()
+    out = []
+    for a in rows:
+        dept_path = chain(a.department_id) or (a.department or "").replace("-", ">")
+        account = {
+            "user_id": a.id,
+            "username": a.username,
+            "name": a.name,
+            "employee_id": a.employee_id,
+            "department": a.department,
+            "role": a.role,
+            "status": a.status,
+        }
+        out.append(
+            {
+                "emp_id": None,
+                "user_id": a.id,
+                "name": a.name,
+                "username": a.username,
+                "employee_id": a.employee_id,
+                "position": None,
+                "dept_path": dept_path or None,
+                "department": a.department,
+                "top_dept": dept_path.split(">")[0] if dept_path else None,
+                "account": account,
+                "account_count": 1,
+                "unlinked": False,
+            }
+        )
+    return out
+
+
 def build_fused_payload(db: Session) -> dict:
     """镜像全员 + 平台账号融合标注（2 条 SQL，内存匹配，无 N+1）。
 
@@ -169,8 +230,13 @@ def build_fused_payload(db: Session) -> dict:
       前端提供「不在名册的账号」筛选项兜底，保证这些账号仍可管理；
     - 同工号多账号 → 主账号取「启用态优先、其次创建时间最新」，
       account_count 返回实际数量供前端显 ×N 角标。
+
+    镜像为空时（从未同步）退化为「平台账号即名册」模式（_platform_fused_members），
+    并置 fallback 标记，路由层据此跳过 unlinked_accounts（避免选人组件重复显示）。
     """
     members = db.scalars(select(OrgMember).order_by(OrgMember.seq)).all()
+    if not members:
+        return {"meta": None, "members": _platform_fused_members(db), "fallback": True}
     accounts = db.execute(
         select(
             User.id, User.username, User.name, User.employee_id,

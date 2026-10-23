@@ -31,6 +31,10 @@ class Settings:
     ORG_SOURCE_DB_URL: str = os.getenv("ORG_SOURCE_DB_URL", "")
     ORG_SOURCE_DB_NAME: str = os.getenv("ORG_SOURCE_DB_NAME", "recruitment_db")
     ORG_SOURCE_CONNECT_TIMEOUT: int = int(os.getenv("ORG_SOURCE_CONNECT_TIMEOUT", "5"))
+    # 名册导入闸门：false 时 POST /api/org/sync 与 /api/org/provision 返回 503，
+    # 全公司 HR 名册无法进入镜像（融合视图自动以平台账号为名册展示，功能不受影响）。
+    # 生产环境在慧姐确认「导入全公司」之前保持 false；开发环境默认 true 不受影响。
+    ORG_SYNC_ENABLED: bool = os.getenv("ORG_SYNC_ENABLED", "true").lower() == "true"
 
     # JWT 配置
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")

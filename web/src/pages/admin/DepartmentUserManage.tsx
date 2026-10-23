@@ -24,6 +24,9 @@ type AccFilter = "all" | "has" | "none" | "unlinked";
 export default function DepartmentUserManage() {
   // 全员名册（镜像）+ 账号融合数据
   const [org, setOrg] = useState<OrgMembersResponse | null>(null);
+  // 平台部门扁平表（/departments/flat）：新增/编辑弹窗的部门下拉数据源。
+  // 部门树只由「部门管理」和名册重整维护，用户表单不再手输文本造节点。
+  const [flatDepts, setFlatDepts] = useState<{ id: string; name: string; parent_id: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -73,9 +76,40 @@ export default function DepartmentUserManage() {
     }
   };
 
+  const fetchFlatDepts = async () => {
+    try {
+      setFlatDepts(await api<{ id: string; name: string; parent_id: string | null }[]>("/departments/flat"));
+    } catch {
+      /* 下拉数据拉取失败不阻塞页面，弹窗内表现为部门选项为空 */
+    }
+  };
+
   useEffect(() => {
     fetchOrg();
+    fetchFlatDepts();
   }, []);
+
+  // 部门下拉选项：深度优先排序，label 缩进表层级，value = 完整路径文本
+  // （'-' 分隔，提交后端后按已有链精确匹配——选项即合法值，杜绝手输造碎节点）
+  const deptOptions = useMemo(() => {
+    const byParent = new Map<string | null, typeof flatDepts>();
+    for (const d of flatDepts) {
+      const key = d.parent_id ?? null;
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key)!.push(d);
+    }
+    for (const arr of byParent.values()) arr.sort((a, b) => a.name.localeCompare(b.name, "zh"));
+    const out: { value: string; label: string }[] = [];
+    const walk = (pid: string | null, prefix: string[], depth: number) => {
+      for (const d of byParent.get(pid) ?? []) {
+        const path = [...prefix, d.name];
+        out.push({ value: path.join("-"), label: `${"　".repeat(depth)}${d.name}` });
+        walk(d.id, path, depth + 1);
+      }
+    };
+    walk(null, [], 0);
+    return out;
+  }, [flatDepts]);
 
   // ── 派生：部门树 / 面包屑 / 行集合 ──
   const tree = useMemo(() => buildCompanyTree(org?.members ?? []), [org]);
@@ -200,6 +234,9 @@ export default function DepartmentUserManage() {
   };
 
   // ── 开通账号 / 新增用户 ──
+  // 预填部门仅接受「已有部门链」的路径（下拉框合法值），名册路径对不上时留空自选
+  const legitDept = (t: string) => (deptOptions.some(o => o.value === t) ? t : "");
+
   const openCreate = (row?: OrgMemberRow) => {
     const deptFromTree =
       selectedKey === COMPANY_KEY || selectedKey === UNASSIGNED_KEY
@@ -211,9 +248,10 @@ export default function DepartmentUserManage() {
       username: row?.emp_id ?? "",
       password: "",
       employee_id: row?.emp_id ?? "",
-      department: row ? (row.dept_path || "").replaceAll(">", "-") : deptFromTree,
+      department: legitDept(row ? (row.dept_path || "").replaceAll(">", "-") : deptFromTree),
       role: "student",
     });
+    fetchFlatDepts();
     setShowCreateUser(true);
   };
 
@@ -251,10 +289,11 @@ export default function DepartmentUserManage() {
       name: acc.name,
       username: acc.username,
       employee_id: acc.employee_id || "",
-      department: acc.department || "",
+      department: legitDept(acc.department || ""),
       role: acc.role,
       password: "",
     });
+    fetchFlatDepts();
     setShowEditUser(true);
   };
 
@@ -586,7 +625,7 @@ export default function DepartmentUserManage() {
       </div>
 
       {/* 平台部门管理弹窗 */}
-      <DeptManageModal open={showDeptModal} onClose={() => setShowDeptModal(false)} />
+      <DeptManageModal open={showDeptModal} onClose={() => { setShowDeptModal(false); fetchFlatDepts(); }} />
 
       {/* 批量导入弹窗 */}
       {showImport && (
@@ -602,8 +641,8 @@ export default function DepartmentUserManage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium mb-1">下载模板</p>
                   <p className="text-xs text-text-secondary mb-2">
-                    按模板格式填写用户信息；「部门」列填完整路径（- 分隔，如：生产部-某某车间-某某班组），
-                    不存在的部门会自动创建
+                    按模板格式填写用户信息；「部门」列填已有部门的完整路径（- 分隔，如：生产部-某某车间-某某班组），
+                    部门不存在时该行会被拒绝——新增部门请先在「平台部门管理」创建
                   </p>
                   <button
                     onClick={() => {
@@ -767,13 +806,20 @@ export default function DepartmentUserManage() {
                 />
               </div>
               <div>
-                <label className="k-label">部门路径</label>
-                <input
-                  type="text" value={newUser.department}
+                <label className="k-label">部门</label>
+                <select
+                  value={newUser.department}
                   onChange={e => setNewUser(prev => ({ ...prev, department: e.target.value }))}
                   className="k-input"
-                  placeholder="如：生产部-某某车间-某某班组（- 分隔，自动建部门树）"
-                />
+                >
+                  <option value="">（不设置）</option>
+                  {deptOptions.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-text-meta mt-1">
+                  部门树由「平台部门管理」维护，此处只能从已有部门中选择
+                </p>
               </div>
               <div>
                 <label className="k-label">角色</label>
@@ -853,11 +899,16 @@ export default function DepartmentUserManage() {
               </div>
               <div>
                 <label className="k-label">部门</label>
-                <input
-                  type="text" value={editForm.department}
+                <select
+                  value={editForm.department}
                   onChange={e => setEditForm(prev => ({ ...prev, department: e.target.value }))}
                   className="k-input"
-                />
+                >
+                  <option value="">（清除部门）</option>
+                  {deptOptions.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="k-label">角色</label>

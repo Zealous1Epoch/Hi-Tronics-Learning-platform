@@ -199,6 +199,13 @@ def test_create_user_duplicate_employee_id_400(client, admin_headers, db, monkey
 
 
 def test_create_user_backfills_department_id(client, admin_headers, db):
+    """2026-10-23 语义：创建用户的部门文本必须命中【已有】部门链（不再借机新建），
+    命中则回填 department_id；未命中 400。"""
+    from app.services.department_sync import ensure_department_path
+
+    ensure_department_path(db, "生产部-测试车间")  # 模拟部门管理预先建好链
+    db.commit()
+
     res = client.post(
         "/api/users",
         headers=admin_headers,
@@ -207,18 +214,33 @@ def test_create_user_backfills_department_id(client, admin_headers, db):
             "username": "tree_user",
             "password": "Pass123456",
             "employee_id": "000123",
-            "department": "生产部-测试车间-测试班组",
+            "department": "生产部-测试车间",
             "role": "student",
         },
     )
     assert res.status_code == 201
     body = res.json()
     assert body["department_id"]
-
     leaf = db.get(Department, body["department_id"])
-    assert leaf.name == "测试班组"
-    assert leaf.parent.name == "测试车间"
-    assert leaf.parent.parent.name == "生产部"
+    assert leaf.name == "测试车间"
+    assert leaf.parent.name == "生产部"
+
+    # 链中不存在的层级 → 400，且不产生任何新节点
+    before = db.query(Department).count()
+    res = client.post(
+        "/api/users",
+        headers=admin_headers,
+        json={
+            "name": "碎树用户",
+            "username": "frag_user",
+            "password": "Pass123456",
+            "department": "生产部-不存在的车间-野生班组",
+            "role": "student",
+        },
+    )
+    assert res.status_code == 400
+    assert "不存在" in res.json()["detail"]
+    assert db.query(Department).count() == before
 
 
 # ────────────────────── 批量导入行为回归 ──────────────────────
@@ -238,13 +260,19 @@ def _xlsx_bytes(rows):
 
 
 def test_batch_import_backfills_dept_and_rejects_dup_emp(client, admin_headers, db, monkeypatch):
+    """2026-10-23 语义：导入行的部门必须命中已有链；未命中该行报错跳过（不建碎节点）。"""
+    from app.services.department_sync import ensure_department_path
+
     monkeypatch.setattr(org_sync, "fetch_source_rows", lambda: make_source_rows(1))
     assert client.post("/api/org/sync", headers=admin_headers).status_code == 200
     add_user(db, "existing", employee_id="000001")
+    ensure_department_path(db, "生产部-新车间")  # 部门管理预建链
+    db.commit()
 
     content = _xlsx_bytes([
-        ["重复工号者", "imp_dup", "Pass123456", "000001", "生产部", "学员"],   # 工号重复 → 跳过
-        ["新员工", "imp_ok", "Pass123456", "000002", "生产部-新车间", "学员"],  # 部门自动建树 → 成功
+        ["重复工号者", "imp_dup", "Pass123456", "000001", "生产部", "学员"],      # 工号重复 → 跳过
+        ["新员工", "imp_ok", "Pass123456", "000002", "生产部-新车间", "学员"],     # 命中已有链 → 成功
+        ["野部门者", "imp_frag", "Pass123456", "000003", "生产部-查无此部门", "学员"],  # 未命中 → 跳过
     ])
     res = client.post(
         "/api/users/batch-import",
@@ -253,12 +281,15 @@ def test_batch_import_backfills_dept_and_rejects_dup_emp(client, admin_headers, 
     )
     assert res.status_code == 200
     body = res.json()
-    assert body["success_count"] == 1 and body["skip_count"] == 1
+    assert body["success_count"] == 1 and body["skip_count"] == 2
 
     imported = db.query(User).filter(User.username == "imp_ok").first()
     assert imported is not None and imported.department_id is not None
     leaf = db.get(Department, imported.department_id)
     assert leaf.name == "新车间"
+    # 未命中行不建碎节点、不建账号
+    assert db.query(User).filter(User.username == "imp_frag").first() is None
+    assert db.query(Department).filter(Department.name == "查无此部门").first() is None
 
 
 # ────────────────────── 名册全员批量开通账号 ──────────────────────

@@ -48,3 +48,45 @@ def ensure_department_path(db: Session, path: str) -> Department | None:
         leaf = dept
 
     return leaf
+
+
+def find_existing_department_path(db: Session, path: str) -> Department | None:
+    """按 "-" 路径逐级匹配【已存在】的部门链，绝不创建。任一级缺失返回 None。
+
+    用于管理端新建/编辑用户与批量导入：部门树只保留部门管理（或名册重整）
+    维护的正规结构，杜绝任意文本把树建碎（2026-10-23 治理决策）。
+    SSO 自动建号等系统路径仍可用 ensure_department_path，不受此约束。
+    """
+    if not path or not path.strip():
+        return None
+    segments = [s.strip() for s in path.split("-") if s.strip()]
+    if not segments:
+        return None
+
+    parent_id: str | None = None
+    leaf: Department | None = None
+    for name in segments:
+        leaf = db.query(Department).filter(
+            Department.name == name,
+            Department.parent_id == parent_id,
+        ).first()
+        if leaf is None:
+            return None
+        parent_id = leaf.id
+    return leaf
+
+
+def dept_full_path(db: Session, dept: Department) -> str:
+    """自叶子向上拼完整部门路径（'-' 分隔），限深 20 防脏数据环。"""
+    parts: list[str] = []
+    cur: Department | None = dept
+    guard = 0
+    while cur is not None and guard < 20:
+        parts.insert(0, cur.name)
+        cur = (
+            db.query(Department).filter(Department.id == cur.parent_id).first()
+            if cur.parent_id
+            else None
+        )
+        guard += 1
+    return "-".join(parts)

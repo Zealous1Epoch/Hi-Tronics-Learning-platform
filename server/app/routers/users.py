@@ -10,7 +10,7 @@ from app.schemas.user import UserOut, UserUpdateRole, UserCreate, UserUpdate, Us
 from app.routers.auth import get_current_user, require_admin, invalidate_user_cache
 from app.services.auth_service import hash_password
 from app.services.log_service import write_log
-from app.services.department_sync import ensure_department_path
+from app.services.department_sync import dept_full_path, find_existing_department_path
 from app.models.department import Department
 import io
 import openpyxl
@@ -113,18 +113,19 @@ def create_user(
         dept = db.query(Department).filter(Department.id == department_id).first()
         if not dept:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="部门不存在")
-        # 从叶子节点向上构建完整路径
-        parts = []
-        cur = dept
-        while cur:
-            parts.insert(0, cur.name)
-            cur = db.query(Department).filter(Department.id == cur.parent_id).first() if cur.parent_id else None
-        department_text = "-".join(parts)
+        department_text = dept_full_path(db, dept)
     elif department_text and not department_id:
-        # 只有文本路径：自动同步到 Department 树
-        leaf = ensure_department_path(db, department_text)
-        if leaf:
-            department_id = leaf.id
+        # 文本路径必须逐级命中已有部门链，不允许借机新建节点
+        # （部门增减统一走「部门管理」，防止任意文本把部门树建碎）
+        leaf = find_existing_department_path(db, department_text)
+        if leaf is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"部门「{department_text.strip()}」不存在，请从已有部门中选择；"
+                       "如需新增部门请先到「部门管理」创建",
+            )
+        department_id = leaf.id
+        department_text = dept_full_path(db, leaf)
 
     user = User(
         username=data.username,
@@ -171,24 +172,24 @@ def update_user(
             dept = db.query(Department).filter(Department.id == data.department_id).first()
             if not dept:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="部门不存在")
-            # 从叶子节点向上构建完整路径
-            parts = []
-            cur = dept
-            while cur:
-                parts.insert(0, cur.name)
-                cur = db.query(Department).filter(Department.id == cur.parent_id).first() if cur.parent_id else None
-            user.department = "-".join(parts)
+            user.department = dept_full_path(db, dept)
             user.department_id = data.department_id
         else:
             # department_id 设为空 → 清除部门
             user.department = None
             user.department_id = None
     elif data.department is not None:
-        # 只有文本路径更新：自动同步 Department 树
+        # 文本路径更新：必须逐级命中已有部门链，不允许借机新建节点
         if data.department:
-            user.department = data.department
-            leaf = ensure_department_path(db, data.department)
-            user.department_id = leaf.id if leaf else None
+            leaf = find_existing_department_path(db, data.department)
+            if leaf is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"部门「{data.department.strip()}」不存在，请从已有部门中选择；"
+                           "如需新增部门请先到「部门管理」创建",
+                )
+            user.department = dept_full_path(db, leaf)
+            user.department_id = leaf.id
         else:
             user.department = None
             user.department_id = None
@@ -410,13 +411,17 @@ async def batch_import_users(
         if "部门" in col_map and row[col_map["部门"]]:
             department = str(row[col_map["部门"]]).strip()
 
-        # 部门路径自动 find-or-create 并回填 department_id
-        # （与 create_user 对齐；此前仅按名称精确校验、不存在即拒，且从不回填外键）
+        # 部门路径必须逐级命中已有部门链（不允许借导入新建节点，
+        # 防止任意文本把部门树建碎）；未命中 → 该行报错跳过
         department_id_row = None
         if department:
-            leaf = ensure_department_path(db, department)
-            if leaf:
-                department_id_row = leaf.id
+            leaf = find_existing_department_path(db, department)
+            if leaf is None:
+                errors.append(f"第 {row_idx} 行：部门「{department}」不存在，请从已有部门中选择")
+                skip_count += 1
+                continue
+            department = dept_full_path(db, leaf)  # 归一化为完整链路径
+            department_id_row = leaf.id
 
         # 角色
         role = "student"

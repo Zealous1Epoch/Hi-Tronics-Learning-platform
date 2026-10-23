@@ -141,7 +141,6 @@ export default function DepartmentUserManage() {
           m.name.toLowerCase().includes(term) ||
           (m.emp_id || "").toLowerCase().includes(term) ||
           (m.employee_id || "").toLowerCase().includes(term) ||
-          (m.position || "").toLowerCase().includes(term) ||
           (m.dept_path || "").toLowerCase().includes(term) ||
           (m.department || "").toLowerCase().includes(term)
       );
@@ -521,7 +520,7 @@ export default function DepartmentUserManage() {
               <Search size={14} />
               <input
                 type="text"
-                placeholder="搜索姓名/工号/职位/部门..."
+                placeholder="搜索姓名/工号/部门..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
@@ -545,7 +544,6 @@ export default function DepartmentUserManage() {
                 <tr>
                   <th className="text-center w-24">姓名</th>
                   <th className="text-center w-20">工号</th>
-                  <th className="text-center w-32">职位</th>
                   <th className="text-center">部门</th>
                   <th className="text-center w-44">平台账号</th>
                   <th className="text-center w-64">操作</th>
@@ -553,17 +551,17 @@ export default function DepartmentUserManage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={6} className="k-empty">加载中...</td></tr>
+                  <tr><td colSpan={5} className="k-empty">加载中...</td></tr>
                 ) : loadError ? (
                   <tr>
-                    <td colSpan={6} className="k-empty">
+                    <td colSpan={5} className="k-empty">
                       <p className="text-danger text-sm mb-2">名册加载失败：{loadError}</p>
                       <button onClick={fetchOrg} className="k-btn k-btn-default k-btn-sm">重试</button>
                     </td>
                   </tr>
                 ) : rows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="k-empty">
+                    <td colSpan={5} className="k-empty">
                       {!org?.meta ? (
                         SYNC_ENABLED ? (
                           <span>
@@ -587,7 +585,6 @@ export default function DepartmentUserManage() {
                     >
                       <td className="k-strong text-center truncate" title={row.name}>{row.name}</td>
                       <td className="k-muted text-center">{row.emp_id || row.employee_id || "-"}</td>
-                      <td className="text-center truncate" title={row.position || ""}>{row.position || "-"}</td>
                       <td className="k-muted text-center truncate" title={row.dept_path || row.department || ""}>
                         {row.dept_path || row.department || (row.unlinked ? "（不在名册）" : "-")}
                       </td>

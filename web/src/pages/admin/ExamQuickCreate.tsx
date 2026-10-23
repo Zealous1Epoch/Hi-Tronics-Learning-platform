@@ -279,10 +279,12 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
           <div className="flex items-center pb-1">
             {STEPS.map((label, i) => (
               <div key={label} className={`flex items-center min-w-0 ${i > 0 ? "flex-1" : ""}`}>
-                {i > 0 && <div className={`flex-1 h-[3px] mx-2 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border"}`} />}
-                <div className={`flex items-center gap-1.5 text-sm whitespace-nowrap ${i === step ? "text-primary font-bold" : i < step ? "text-primary" : "text-text-secondary"}`}>
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-colors ${
-                    i <= step ? "bg-primary text-white" : "bg-border text-text-secondary"
+                {i > 0 && <div className={`flex-1 h-0.5 mx-2.5 rounded-full transition-colors ${i <= step ? "bg-primary/60" : "bg-border"}`} />}
+                <div className={`flex items-center gap-1.5 text-[13px] whitespace-nowrap ${i === step ? "text-primary font-bold" : i < step ? "text-primary" : "text-text-meta"}`}>
+                  <span className={`w-[22px] h-[22px] rounded-full flex items-center justify-center text-xs shrink-0 transition-colors ${
+                    i === step ? "bg-primary text-bg-card font-medium"
+                      : i < step ? "bg-accent-fill text-primary"
+                        : "bg-bg-card border border-border text-text-meta"
                   }`}>{i < step ? "✓" : i + 1}</span>
                   <span>{label}</span>
                 </div>

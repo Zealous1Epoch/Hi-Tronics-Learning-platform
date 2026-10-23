@@ -24,7 +24,7 @@ import QuestionPickerPanel, { type PickedQuestion, TYPE_LABELS, DIFF_LABELS } fr
 import RandomRulesPanel, { type RandomRule } from "../exam/RandomRulesPanel";
 import AIGenerateModal from "../question/AIGenerateModal";
 import ImportQuestionsModal from "../question/ImportQuestionsModal";
-import DateField from "../ui/DateField";
+import DateField, { DateTimeField } from "../ui/DateField";
 import StatusTag from "../ui/StatusTag";
 import { useToast } from "../ui/Toast";
 import { useConfirm } from "../ui/Confirm";
@@ -595,37 +595,48 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
         role="dialog"
         aria-label={isEdit ? "编辑课程" : "新建课程"}
       >
-        {/* 标题栏 */}
-        <div className="shrink-0 flex items-center justify-between px-5 h-12 border-b border-border">
+        {/* 标题栏：衬线标题（与 k-card-title 同族，平台的「盖章」识别） */}
+        <div className="shrink-0 flex items-center justify-between px-6 h-12 border-b border-border">
           <div className="flex items-center gap-3 min-w-0">
-            <h3 className="text-sm font-medium shrink-0" style={{ color: "var(--color-primary)" }}>{isEdit ? "编辑课程" : "新建课程"}</h3>
+            <h3 className="k-card-title shrink-0">{isEdit ? "编辑课程" : "新建课程"}</h3>
             {isEdit && courseId && <StatusTag value={status} />}
           </div>
-          <button type="button" onClick={requestClose} className="text-text-secondary hover:text-text-base" aria-label="关闭">
+          <button type="button" onClick={requestClose}
+            className="p-1.5 -mr-1.5 rounded-md text-text-secondary hover:text-text-base hover:bg-bg-hover transition-colors" aria-label="关闭">
             <X size={16} />
           </button>
         </div>
 
-        {/* 步骤进度条（仅一键建考分步模式）：连接线随步骤填充，已到达步可点击回退 */}
+        {/* 步骤进度条（仅一键建考分步模式）：当前步实心藏青是全场唯一强点；
+            已完成浅蓝底可点回退，未到达细描边灰字；2px 细连接线随进度填充 */}
         {withExam && (
-          <div className="shrink-0 px-5 py-2.5 border-b border-border flex items-center">
-            {["课程", "出题", "试卷", "考试"].map((label, i) => (
-              <div key={label} className={`flex items-center min-w-0 ${i > 0 ? "flex-1" : ""}`}>
-                {i > 0 && <div className={`flex-1 h-[3px] mx-2 rounded-full transition-colors ${i <= examStep ? "bg-primary" : "bg-border"}`} />}
-                <div onClick={() => i <= examStep && setExamStep(i)}
-                  className={`flex items-center gap-1.5 text-sm whitespace-nowrap ${i === examStep ? "text-primary font-bold" : i < examStep ? "text-primary" : "text-text-secondary"} ${i < examStep ? "cursor-pointer" : ""}`}>
-                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${i <= examStep ? "bg-primary text-white" : "bg-border text-text-secondary"}`}>
-                    {i < examStep ? "✓" : i + 1}
-                  </span>
-                  <span>{label}</span>
+          <div className="shrink-0 px-6 py-3 border-b border-border bg-bg-layout/70 flex items-center">
+            {["课程", "出题", "试卷", "考试"].map((label, i) => {
+              const done = i < examStep;
+              const current = i === examStep;
+              return (
+                <div key={label} className={`flex items-center min-w-0 ${i > 0 ? "flex-1" : ""}`}>
+                  {i > 0 && <div className={`flex-1 h-0.5 mx-2.5 rounded-full transition-colors ${i <= examStep ? "bg-primary/60" : "bg-border"}`} />}
+                  <button type="button" onClick={() => done && setExamStep(i)} disabled={!done}
+                    title={done ? `返回「${label}」步修改` : undefined}
+                    className={`flex items-center gap-1.5 whitespace-nowrap text-[13px] transition-colors ${
+                      current ? "text-primary font-bold" : done ? "text-primary hover:text-primary-dark" : "text-text-meta"}`}>
+                    <span className={`w-[22px] h-[22px] rounded-full flex items-center justify-center text-xs shrink-0 transition-colors ${
+                      current ? "bg-primary text-bg-card font-medium"
+                        : done ? "bg-accent-fill text-primary"
+                          : "bg-bg-card border border-border text-text-meta"}`}>
+                      {done ? "✓" : i + 1}
+                    </span>
+                    <span>{label}</span>
+                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         {/* 单页表单：所有分区同屏展示，整页滚动 */}
-        <div className="flex-1 min-h-0 overflow-y-auto k-scroll px-5 py-4">
+        <div className="flex-1 min-h-0 overflow-y-auto k-scroll px-6 py-4">
           {!dataReady ? (
             <p className="text-sm text-text-secondary py-10 text-center">加载课程…</p>
           ) : loadError ? (
@@ -652,39 +663,55 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                 <RandomRulesPanel onChange={(banks, rules) => { setRandBanks(banks); setRandRules(rules); }} />
               )}
               {examTab === "bank_fixed" && picked.length > 0 && !allScoresSet && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-text-secondary">
-                  <span>{picked.filter(q => q.score <= 0).length} 题未设分值，将按目标总分自动平摊：</span>
+                <div className="k-note mt-3 flex items-center gap-2">
+                  <span>{picked.filter(q => q.score <= 0).length} 题未设分值，将按目标总分自动平摊为</span>
                   <input type="number" min={picked.length} value={splitTarget || ""}
                     onChange={e => setSplitTarget(parseInt(e.target.value) || 0)}
                     className="k-ctl w-16 text-center" />
-                  <span>分（不少于题数 {picked.length}）</span>
+                  <span className="text-text-meta">分（不少于题数 {picked.length}）</span>
                 </div>
               )}
             </div>
           ) : examStep === 2 ? (
-            /* 一键建考·步2 试卷：组卷结果摘要 + 试卷命名（提交后以已发布状态入库） */
+            /* 一键建考·步2 试卷：组卷结果摘要（总分=衬线大数字，全抽屉唯一强调）+ 试卷命名 */
             <div className="max-w-xl space-y-4">
-              <div className="k-card p-4">
-                <h4 className="text-sm font-medium mb-2">组卷结果（合计 {examTotal} 分）</h4>
-                {examTab === "bank_fixed" ? (
-                  <p className="text-sm text-text-secondary">
-                    固定 {picked.length} 题{!allScoresSet && "（未设分值项将按总分自动平摊）"}
-                  </p>
-                ) : (
-                  <div className="space-y-1">
-                    {randRules.map((r, i) => (
-                      <p key={i} className="text-sm text-text-secondary">
-                        {i + 1}. {TYPE_LABELS[r.type] || r.type} · {DIFF_LABELS[r.difficulty] || r.difficulty} · 抽 {r.count} 题 × {r.score} 分 = {r.count * r.score} 分
-                      </p>
-                    ))}
+              <div className="k-card">
+                <div className="k-card-head">
+                  <h4 className="k-card-title">组卷结果</h4>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-xs text-text-meta">合计</span>
+                    <span className="k-num text-2xl leading-none">{examTotal}</span>
+                    <span className="text-xs text-text-meta">分</span>
                   </div>
-                )}
+                </div>
+                <div className="k-card-body">
+                  {examTab === "bank_fixed" ? (
+                    <p className="text-sm text-text-secondary">
+                      固定 {picked.length} 题
+                      {!allScoresSet && <span className="text-text-meta">（未设分值项按总分自动平摊）</span>}
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {randRules.map((r, i) => (
+                        <div key={i} className="flex items-center gap-2 py-2 text-sm first:pt-0 last:pb-0">
+                          <span className="k-tag">{TYPE_LABELS[r.type] || r.type}</span>
+                          <span className="k-tag">{DIFF_LABELS[r.difficulty] || r.difficulty}</span>
+                          <span className="text-text-secondary">抽 {r.count} 题 × {r.score} 分</span>
+                          <span className="ml-auto font-medium tabular-nums">{r.count * r.score} 分</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="k-label">试卷名称 *</label>
                 <input type="text" value={paperName} onChange={e => setPaperName(e.target.value)}
                   className="k-input" placeholder={`${title.trim() || "新课程"}测试卷`} />
-                <p className="text-xs text-text-secondary mt-1">提交后自动以「已发布」状态存入试卷管理，之后可在考试管理「新增考试」直接复用这份试卷</p>
+                <p className="mt-2 flex items-center gap-2 text-xs text-text-meta">
+                  <span className="k-tag shrink-0">入库即「已发布」</span>
+                  之后可在考试管理「新增考试」直接复用这份试卷
+                </p>
               </div>
             </div>
           ) : examStep === 3 ? (
@@ -706,23 +733,26 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                 </div>
                 <div>
                   <label className="k-label">开放时间（留空=立即开放）</label>
-                  <input type="datetime-local" value={exStart} onChange={e => setExStart(e.target.value)} className="k-input min-w-0" />
+                  <DateTimeField value={exStart} onChange={setExStart} placeholder="选择开放日期时间" />
                 </div>
                 <div>
                   <label className="k-label">截止时间（留空=不限）</label>
-                  <input type="datetime-local" value={exEnd} onChange={e => setExEnd(e.target.value)} className="k-input min-w-0" />
+                  <DateTimeField value={exEnd} onChange={setExEnd} placeholder="选择截止日期时间" />
                 </div>
                 <div>
                   <label className="k-label">及格分</label>
                   <input type="number" min={1} max={examTotal || undefined} value={exPass} onChange={e => setExPass(e.target.value)}
                     placeholder={`默认 ${passDefault}`} className="k-input" />
                 </div>
-                <div className="border border-border rounded-md px-3 py-2 bg-bg-layout/50">
-                  <p className="text-xs text-text-secondary">总分 / 试卷</p>
-                  <p className="font-bold truncate">{examTotal} 分 · {paperName || "-"}</p>
+                <div className="rounded-md px-3 py-2 bg-accent-fill/60 border border-primary/15 flex flex-col justify-center min-w-0">
+                  <p className="text-[11px] text-text-meta leading-tight">总分 / 试卷</p>
+                  <p className="truncate leading-snug">
+                    <span className="k-num text-base">{examTotal}</span>
+                    <span className="text-xs text-text-secondary"> 分 · {paperName || "-"}</span>
+                  </p>
                 </div>
               </div>
-              <p className="text-xs text-text-secondary">考生 = 本课程已分配的学员（回「课程」步的分配区增减）。点「发布课程并开放考试」一次完成课程发布 + 试卷入库 + 考试发布。</p>
+              <div className="k-note">考生 = 本课程已分配的学员（回「课程」步的分配区增减）。点「发布课程并开放考试」一次完成课程发布 + 试卷入库 + 考试发布。</div>
             </div>
           ) : (
             <div className="space-y-7">
@@ -953,7 +983,9 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                 </button>
               )}
               {examStep >= 1 && (
-                <span className="text-xs text-text-secondary">当前合计 <b className="text-primary">{examTotal}</b> 分</span>
+                <span className="k-tag">
+                  {examTab === "bank_fixed" ? `已选 ${picked.length} 题 · ` : ""}合计 <b className="k-num text-sm leading-none">{examTotal}</b> 分
+                </span>
               )}
               {examStep === 0 && (
                 <button type="button" className="k-btn k-btn-primary" onClick={() => gotoExamStep(1)}>下一步：出题 →</button>

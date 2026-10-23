@@ -2,8 +2,8 @@
  * 题库选题面板（一键建考向导 / 组卷共用）
  *
  * 左：题库分类树（可搜索、可展开）
- * 中：题目列表（题型/难度/关键词筛选，勾选 + 「全选可见」）
- * 右：已选题面板（逐题分值、批量设分值、实时合计）
+ * 右：上下两区——题目列表（题型/难度/关键词筛选，勾选 + 「全选可见」可反选），
+ *     其下为「已选题·分值设置」（逐题分值、批量设分值、实时合计）
  *
  * score=0 表示「未设分值」，由后端按目标总分自动平摊。
  */
@@ -100,19 +100,29 @@ export default function QuestionPickerPanel({ onChange, refreshKey, initialBankI
     });
   };
 
-  const selectAllVisible = () => {
-    setSel((prev) => {
-      const next = new Map(prev);
-      const added: string[] = [];
-      for (const q of questions) {
-        if (!next.has(q.id)) {
+  // 「全选可见」双向切换：可见题未全选 → 补齐；已全选 → 取消这批的选择
+  const allVisibleSelected = questions.length > 0 && questions.every((q) => sel.has(q.id));
+  const toggleSelectAllVisible = () => {
+    if (questions.length === 0) return;
+    if (allVisibleSelected) {
+      const ids = new Set(questions.map((q) => q.id));
+      setSel((prev) => {
+        const next = new Map(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+      setOrder((o) => o.filter((id) => !ids.has(id)));
+    } else {
+      const missing = questions.filter((q) => !sel.has(q.id));
+      setSel((prev) => {
+        const next = new Map(prev);
+        for (const q of missing) {
           next.set(q.id, { question_id: q.id, stem: q.stem, type: q.type, difficulty: q.difficulty, score: 0 });
-          added.push(q.id);
         }
-      }
-      if (added.length) setOrder((o) => [...o, ...added]);
-      return next;
-    });
+        return next;
+      });
+      setOrder((o) => [...o, ...missing.map((q) => q.id)]);
+    }
   };
 
   const setScore = (qid: string, score: number) => {
@@ -161,10 +171,8 @@ export default function QuestionPickerPanel({ onChange, refreshKey, initialBankI
       return (
         <div key={node.id}>
           <div
-            className={`flex items-center gap-1 py-1.5 px-2 cursor-pointer hover:bg-bg-layout rounded text-sm ${
-              bankId === node.id ? "bg-primary/10 text-primary font-medium" : ""
-            }`}
-            style={{ paddingLeft: `${8 + depth * 14}px` }}
+            className={`k-tree-item ${bankId === node.id ? "is-active" : ""}`}
+            style={{ paddingLeft: `${10 + depth * 14}px` }}
             onClick={() => {
               setBankId(node.id);
               if (hasChildren) {
@@ -204,7 +212,7 @@ export default function QuestionPickerPanel({ onChange, refreshKey, initialBankI
             onChange={(e) => setTreeSearch(e.target.value)}
           />
         </div>
-        <div className="k-card k-scroll max-h-[42vh] overflow-y-auto py-1">
+        <div className="k-card k-scroll max-h-[66vh] overflow-y-auto py-1">
           {tree.length === 0 ? (
             <p className="text-xs text-text-secondary text-center py-6">题库为空，请先导入试题</p>
           ) : (
@@ -213,9 +221,9 @@ export default function QuestionPickerPanel({ onChange, refreshKey, initialBankI
         </div>
       </div>
 
-      {/* 中：题目列表 */}
-      <div className="flex-1 min-w-0">
-        <div className="k-filter-bar mb-2">
+      {/* 右：上=题目列表，下=已选题分值设置 */}
+      <div className="flex-1 min-w-0 flex flex-col gap-3">
+        <div className="k-filter-bar">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
             className="k-ctl">
             <option value="">全部题型</option>
@@ -232,9 +240,10 @@ export default function QuestionPickerPanel({ onChange, refreshKey, initialBankI
             type="text" placeholder="搜索题干..." value={kw} onChange={(e) => setKw(e.target.value)}
             className="k-ctl flex-1 min-w-0"
           />
-          <button onClick={selectAllVisible} disabled={questions.length === 0}
+          <button onClick={toggleSelectAllVisible} disabled={questions.length === 0}
+            title={allVisibleSelected ? "取消勾选当前筛选出的全部题目" : "勾选当前筛选出的全部题目"}
             className="k-btn k-btn-default k-btn-sm shrink-0 disabled:opacity-40">
-            全选可见
+            {allVisibleSelected ? "取消全选" : "全选可见"}
           </button>
         </div>
         <div className="k-card k-scroll max-h-[36vh] overflow-y-auto">
@@ -256,7 +265,7 @@ export default function QuestionPickerPanel({ onChange, refreshKey, initialBankI
               </thead>
               <tbody>
                 {questions.map((q) => (
-                  <tr key={q.id} className={`cursor-pointer ${sel.has(q.id) ? "bg-primary/5" : ""}`}
+                  <tr key={q.id} className={`cursor-pointer ${sel.has(q.id) ? "bg-accent-fill" : ""}`}
                     onClick={() => toggle(q)}>
                     <td>
                       <input type="checkbox" checked={sel.has(q.id)} onChange={() => toggle(q)} onClick={(e) => e.stopPropagation()} />
@@ -270,41 +279,51 @@ export default function QuestionPickerPanel({ onChange, refreshKey, initialBankI
             </table>
           )}
         </div>
-      </div>
 
-      {/* 右：已选题 */}
-      <div className="w-60 shrink-0">
-        <div className="k-card p-3 max-h-[42vh] flex flex-col">
+        {/* 已选题·分值设置：放在题目列表下方，全宽展开不拥挤 */}
+        <div className="k-card p-3 max-h-[32vh] flex flex-col">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-bold">已选 {picked.length} 题</span>
-            <span className="text-xs font-bold text-primary">{unsetCount > 0 ? `已定 ${sumScore} 分` : `合计 ${sumScore} 分`}</span>
+            <span className="k-card-title">已选 {picked.length} 题 · 分值设置</span>
+            <span className="text-xs font-bold text-primary tabular-nums">{unsetCount > 0 ? `已定 ${sumScore} 分` : `合计 ${sumScore} 分`}</span>
           </div>
           {picked.length > 0 && unsetCount > 0 && (
-            <div className="flex items-center gap-1.5 mb-2 text-xs">
+            <div className="flex items-center gap-2 mb-2 text-xs">
+              <span className="text-text-secondary shrink-0">批量分值</span>
               <input type="number" min={1} value={batchScore} onChange={(e) => setBatchScore(e.target.value)}
-                placeholder="分值" className="k-ctl w-14 text-center" />
+                placeholder="分值" className="k-ctl w-20 text-center" />
               <button onClick={applyBatchScore} className="k-btn k-btn-default k-btn-sm whitespace-nowrap">
                 全部设为
               </button>
-              <span className="text-text-secondary">（{unsetCount} 题未设，留空将按总分平摊）</span>
+              <span className="text-text-secondary">尚有 {unsetCount} 题未设分值；留空的题将按目标总分自动平摊。</span>
             </div>
           )}
-          <div className="space-y-1 overflow-y-auto k-scroll flex-1">
+          {picked.length > 0 && (
+            <div className="flex items-center gap-2 px-2 pb-1 text-[11px] text-text-secondary">
+              <span className="w-6 shrink-0 text-right">#</span>
+              <span className="flex-1 min-w-0">题干</span>
+              <span className="w-16 shrink-0 text-center">题型</span>
+              <span className="w-14 shrink-0 text-center">难度</span>
+              <span className="w-20 shrink-0 text-center">分值</span>
+              <span className="w-4 shrink-0" />
+            </div>
+          )}
+          <div className="space-y-1 overflow-y-auto k-scroll flex-1 min-h-0">
             {picked.length === 0 ? (
-              <p className="text-xs text-text-secondary text-center py-8">勾选题目后出现在这里</p>
+              <p className="text-xs text-text-secondary text-center py-8">在上方勾选题目（或点「全选可见」），即可在此逐题设置分值</p>
             ) : (
               picked.map((q, i) => (
-                <div key={q.question_id} className="flex items-center gap-1.5 py-1 px-2 bg-bg-layout rounded text-xs hover:bg-bg-layout">
-                  <span className="text-text-secondary w-4 shrink-0">{i + 1}.</span>
-                  <span className="flex-1 truncate" title={q.stem}>{q.stem}</span>
+                <div key={q.question_id} className="flex items-center gap-2 py-1.5 px-2 bg-bg-layout rounded text-xs">
+                  <span className="text-text-secondary w-6 shrink-0 text-right">{i + 1}</span>
+                  <span className="flex-1 min-w-0 truncate" title={q.stem}>{q.stem}</span>
+                  <span className="w-16 shrink-0 text-center text-text-secondary">{TYPE_LABELS[q.type] || q.type}</span>
+                  <span className="w-14 shrink-0 text-center text-text-secondary">{DIFF_LABELS[q.difficulty] || q.difficulty}</span>
                   <input
-                    type="number" min={0} value={q.score || ""} placeholder="—"
+                    type="number" min={0} value={q.score || ""} placeholder="未设"
                     onChange={(e) => setScore(q.question_id, parseInt(e.target.value) || 0)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="k-ctl w-11 text-center shrink-0"
+                    className="k-ctl w-20 shrink-0 text-center"
                   />
                   <button onClick={() => toggle({ id: q.question_id } as QuestionRow)}
-                    className="k-link k-link-danger shrink-0">&times;</button>
+                    title="移除" className="k-link k-link-danger shrink-0">&times;</button>
                 </div>
               ))
             )}

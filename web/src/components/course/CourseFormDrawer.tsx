@@ -909,12 +909,12 @@ export default function CourseFormDrawer({ editCourseId = null, onClose, onSaved
                     <div className="flex-1">
                       <label className="k-label">开始日期</label>
                       <DateField value={startDate} max={endDate || undefined}
-                        onChange={v => { setStartDate(v); touch(); }} placeholder="选择开始日期（可选）" />
+                        onChange={v => { setStartDate(v); touch(); }} placeholder={null} />
                     </div>
                     <div className="flex-1">
                       <label className="k-label">结束日期</label>
                       <DateField value={endDate} min={startDate || undefined}
-                        onChange={v => { setEndDate(v); touch(); }} placeholder="选择结束日期（可选）" />
+                        onChange={v => { setEndDate(v); touch(); }} placeholder={null} />
                     </div>
                   </div>
                 </div>

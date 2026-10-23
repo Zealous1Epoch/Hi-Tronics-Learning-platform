@@ -10,10 +10,12 @@ interface CourseOverview {
   course_title: string;
   video_completed: number;
   video_total: number;
+  material_total?: number; // 无视频课程（纯课件/纯考试）的课件数
   exam_passed: boolean;
   has_exam: boolean;
   exam_best_score: number | null;
   exam_attempts: number;
+  progress_pct: number; // 后端统一口径（有考试=完成项80%+过考20%；无视频课=按考试计）
 }
 interface UserProgressOverview {
   user_id: string;
@@ -150,15 +152,15 @@ export default function UserProgress() {
     return data;
   }, [overviewData, selectedDeptId, deptNameMap, courseFilter, studentSearch]);
 
-  // 计算单门课程的进度百分比
+  // 单门课程完成率：直接用后端统一口径（含「无视频课程按考试计」的规则）
   const getCoursePct = (c: CourseOverview) => {
+    if (typeof c.progress_pct === "number") return c.progress_pct;
+    // 兜底（理论不会走到）：旧响应缺 progress_pct 时按视频口径计算
     if (c.has_exam) {
       const videoPct = c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 80) : 0;
-      const examPct = c.exam_passed ? 20 : 0;
-      return videoPct + examPct;
-    } else {
-      return c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 100) : 0;
+      return videoPct + (c.exam_passed ? 20 : 0);
     }
+    return c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 100) : 0;
   };
 
   // 获取用户总体进度
@@ -272,9 +274,11 @@ export default function UserProgress() {
                 const overallPct = getUserOverallPct(user);
                 const isUserExpanded = expandedUserIds.has(user.user_id);
                 const totalCourses = user.courses.length;
-                const completedCourses = user.courses.filter(
-                  (c) => (c.video_total > 0 && c.video_completed >= c.video_total) && (!c.has_exam || c.exam_passed)
-                ).length;
+                const isCourseDone = (c: CourseOverview) =>
+                  c.video_total > 0
+                    ? c.video_completed >= c.video_total && (!c.has_exam || c.exam_passed)
+                    : c.has_exam && c.exam_passed; // 无视频课程：过考即完成
+                const completedCourses = user.courses.filter(isCourseDone).length;
 
                 return (
                   <div key={user.user_id} className="k-card">
@@ -316,23 +320,36 @@ export default function UserProgress() {
                       <div className="px-4 pb-1 border-t border-border">
                         {user.courses.map((c) => {
                           const isDetailOpen = expandedKey === `${user.user_id}|${c.course_id}`;
-                          const cVideoPct = c.has_exam
-                            ? (c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 80) : 0)
-                            : (c.video_total > 0 ? Math.round((c.video_completed / c.video_total) * 100) : 0);
-                          const cExamPct = c.has_exam && c.exam_passed ? 20 : 0;
-                          const cPct = cVideoPct + cExamPct;
-                          const isDone = (c.video_total > 0 && c.video_completed >= c.video_total) && (!c.has_exam || c.exam_passed);
+                          const isVideoCourse = c.video_total > 0;
+                          const cVideoPct = isVideoCourse
+                            ? Math.round((c.video_completed / c.video_total) * (c.has_exam ? 80 : 100))
+                            : 0;
+                          const cExamPct = c.has_exam && c.exam_passed ? (isVideoCourse ? 20 : 100) : 0;
+                          const cPct = getCoursePct(c);
+                          const isDone = isCourseDone(c);
 
                           let statusLabel = "";
                           let statusClass = "";
-                          if (isDone && c.exam_passed) {
+                          if (!isVideoCourse) {
+                            // 无视频课程（纯课件/纯考试）：完成与否看考试
+                            if (c.has_exam && c.exam_passed) {
+                              statusLabel = "考试已通过";
+                              statusClass = "text-primary";
+                            } else if (c.has_exam && c.exam_attempts > 0) {
+                              statusLabel = "考试未通过";
+                              statusClass = "text-danger";
+                            } else if (c.has_exam) {
+                              statusLabel = "待考试";
+                              statusClass = "text-text-secondary";
+                            } else {
+                              statusLabel = "无进度追踪";
+                              statusClass = "text-text-secondary";
+                            }
+                          } else if (isDone) {
                             statusLabel = "已完成";
                             statusClass = "text-primary";
                           } else if (c.video_completed >= c.video_total) {
                             statusLabel = "视频已完成";
-                            statusClass = "text-primary";
-                          } else if (c.exam_passed) {
-                            statusLabel = "考试已通过";
                             statusClass = "text-primary";
                           } else if (c.video_completed > 0) {
                             statusLabel = "进行中";
@@ -347,17 +364,21 @@ export default function UserProgress() {
                               <div className="flex items-center gap-3 py-2 border-t border-border/50">
                                 <span className="text-sm flex-1 min-w-0 truncate">{c.course_title}</span>
                                 <div className="flex items-center gap-2 shrink-0">
-                                  {c.has_exam ? (
+                                  {!isVideoCourse && !c.has_exam ? (
+                                    <span className="w-24 text-center text-xs text-text-secondary" title="纯课件课程不采集阅读进度">—</span>
+                                  ) : c.has_exam ? (
                                     <div className="flex w-24 bg-bg-layout rounded-full h-1.5 overflow-hidden">
                                       <div className="bg-primary transition-all" style={{ width: `${cVideoPct}%` }} />
-                                      {cExamPct > 0 && <div className="bg-success transition-all" style={{ width: `${cExamPct}%` }} />}
+                                      {cExamPct > 0 && <div className="bg-success transition-all" style={{ width: `${isVideoCourse ? cExamPct : 100}%` }} />}
                                     </div>
                                   ) : (
                                     <div className="w-24 bg-bg-layout rounded-full h-1.5">
                                       <div className="h-1.5 rounded-full bg-primary transition-all" style={{ width: `${cPct}%` }} />
                                     </div>
                                   )}
-                                  <span className="text-xs text-primary w-8 text-right">{cPct}%</span>
+                                  <span className="text-xs text-primary w-8 text-right">
+                                    {!isVideoCourse && !c.has_exam ? "—" : `${cPct}%`}
+                                  </span>
                                 </div>
                                 <span className={`text-xs shrink-0 w-20 text-right ${statusClass}`}>
                                   {statusLabel}

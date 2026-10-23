@@ -550,8 +550,13 @@ def _build_progress_overview(
 ) -> list[dict]:
     """学员进度概览的共享实现（/progress/overview 与 /progress/export 同源）。
 
-    统一口径：线上课程按视频节数、线下课程按签到场次数统计完成度，
-    因此两个接口不会再出现「一个按视频、一个按签到」的口径漂移。
+    口径修复（2026-10-23）：
+    1. **只列每个学员被分配的课程**。此前把全部课程套给所有学员，
+       导致「没分配的人也显示 0/1」、响应虚大（2800 人 × 全课程笛卡尔积）。
+    2. **纳入无视频的课程**（纯课件 / 纯考试课）。此前 `total_items>0` 只按视频数过滤，
+       纯课件课程永远不出现在进度页/导出里。无视频课程的完成判定与
+       progress_service 对齐：有考试 → 过考即完成；纯课件无考试 → 无进度信号，
+       完成率按「考试通过记满分」计。
     """
     # 部门过滤：一次性加载所有部门，在内存中收集子部门名称
     dept_ids: list[str] | None = None
@@ -575,30 +580,27 @@ def _build_progress_overview(
     if course_id:
         courses_query = courses_query.filter(Course.id == course_id)
     courses = courses_query.all()
-
-    # 课程完成项定义：统一按视频数（避免 N+1）
-    course_ids = [c.id for c in courses]
+    course_map = {c.id: c for c in courses}
+    course_ids = list(course_map.keys())
+    if not course_ids:
+        return []
 
     video_counts_raw = (
         db.query(Video.course_id, func.count(Video.id))
         .filter(Video.course_id.in_(course_ids))
         .group_by(Video.course_id)
         .all()
-    ) if course_ids else []
-    course_video_counts: dict[str, int] = {
-        cid: count for cid, count in video_counts_raw if count > 0
-    }
+    )
+    course_video_counts: dict[str, int] = dict(video_counts_raw)
+    material_counts_raw = (
+        db.query(CourseMaterial.course_id, func.count(CourseMaterial.id))
+        .filter(CourseMaterial.course_id.in_(course_ids))
+        .group_by(CourseMaterial.course_id)
+        .all()
+    )
+    course_material_counts: dict[str, int] = dict(material_counts_raw)
     sessions_by_course = session_ids_by_course(db, course_ids)
     attendance_cids = [cid for cid, ids in sessions_by_course.items() if ids]
-
-    def total_items(c: Course) -> int:
-        # 统一按视频统计
-        return course_video_counts.get(c.id, 0)
-
-    # 只保留有视频的课程
-    counted_courses = [c for c in courses if total_items(c) > 0]
-    if not counted_courses:
-        return []
 
     # 获取学员
     users_query = db.query(User).filter(User.role == "student", User.status == "active")
@@ -610,31 +612,74 @@ def _build_progress_overview(
             or_(User.department_id.in_(dept_ids), *name_conditions)
         )
     students = users_query.all()
-
     if not students:
         return []
-
     student_ids = [s.id for s in students]
 
-    # 统一按视频完成度统计
-    user_video_progress: dict[str, dict[str, int]] = defaultdict(dict)
-    if course_ids:
-        progress_rows = (
-            db.query(
-                LearningProgress.user_id,
-                LearningProgress.course_id,
-                func.count(LearningProgress.id).label("completed"),
-            )
-            .filter(
-                LearningProgress.completed == True,  # noqa: E712
-                LearningProgress.user_id.in_(student_ids),
-                LearningProgress.course_id.in_(course_ids),
-            )
-            .group_by(LearningProgress.user_id, LearningProgress.course_id)
-            .all()
+    # ── 分配关系：学员 → 其被分配的课程集合 ──
+    # 直接按人分配的部分
+    assigned_courses: dict[str, set[str]] = defaultdict(set)
+    direct_rows = (
+        db.query(CourseAssignment.user_id, CourseAssignment.course_id)
+        .filter(
+            CourseAssignment.user_id.in_(student_ids),
+            CourseAssignment.course_id.in_(course_ids),
         )
-        for row in progress_rows:
-            user_video_progress[row.user_id][row.course_id] = row.completed
+        .all()
+    )
+    for uid, cid in direct_rows:
+        assigned_courses[uid].add(cid)
+
+    # 按部门分配的部分：复用 department_scope 的整链判定（自身/祖先/后代）
+    dept_assign_rows = (
+        db.query(CourseAssignment.department_id, CourseAssignment.course_id)
+        .filter(
+            CourseAssignment.department_id.isnot(None),
+            CourseAssignment.course_id.in_(course_ids),
+        )
+        .distinct()
+        .all()
+    )
+    if dept_assign_rows:
+        from app.services.department_scope import get_department_chain_ids, _build_index
+
+        idx = _build_index(db)
+        chain_cache: dict[str, set[str]] = {}
+        for s in students:
+            if not s.department_id:
+                continue
+            chain = chain_cache.get(s.department_id)
+            if chain is None:
+                chain = get_department_chain_ids(db, s.department_id, idx)
+                chain_cache[s.department_id] = chain
+            for did, cid in dept_assign_rows:
+                if did in chain:
+                    assigned_courses[s.id].add(cid)
+
+    # 无任何分配信号的学员直接剔除（course_map 过滤后按人组装）
+    students = [s for s in students if assigned_courses.get(s.id)]
+    if not students:
+        return []
+    student_ids = [s.id for s in students]
+
+    # 统一按视频完成度统计（仅统计有分配关系的 (user, course) 涉及的课程）
+    user_video_progress: dict[str, dict[str, int]] = defaultdict(dict)
+    progress_rows = (
+        db.query(
+            LearningProgress.user_id,
+            LearningProgress.course_id,
+            func.count(LearningProgress.id).label("completed"),
+        )
+        .filter(
+            LearningProgress.completed == True,  # noqa: E712
+            LearningProgress.user_id.in_(student_ids),
+            LearningProgress.course_id.in_(course_ids),
+        )
+        .group_by(LearningProgress.user_id, LearningProgress.course_id)
+        .all()
+    )
+    for row in progress_rows:
+        user_video_progress[row.user_id][row.course_id] = row.completed
 
     # 有签到场次的课程：批量取每名学员的签到场次数（附加信息用）
     attendance_count: dict[tuple[str, str], int] = {}
@@ -698,15 +743,32 @@ def _build_progress_overview(
                 "attempts": 1,
             }
 
+    def row_pct(completed: int, total: int, has_exam: bool, exam_passed: bool) -> int:
+        """完成率：有考试时「完成项占 80% + 考试通过占 20%」，无考试时完成项占 100%。
+
+        无视频课程（total=0，纯课件/纯考试）没有完成项信号，有考试时通过率即 100%。
+        """
+        if total > 0:
+            base = round(completed / total * (80 if has_exam else 100))
+            return base + (20 if has_exam and exam_passed else 0)
+        if has_exam:
+            return 100 if exam_passed else 0
+        return 0
+
     # 组装结果
     result = []
     for student in students:
         course_progress = []
-        for c in counted_courses:
-            cid = c.id
+        for cid in sorted(
+            assigned_courses[student.id],
+            key=lambda x: (course_map[x].created_at or datetime.min),
+        ):
+            c = course_map[cid]
             completed = user_video_progress.get(student.id, {}).get(cid, 0)
-            total_count = total_items(c)
+            total_count = course_video_counts.get(cid, 0)
             exam_info = user_exam_info.get(student.id, {}).get(cid, {})
+            has_exam = c.exam_id is not None
+            exam_passed = exam_info.get("passed", False)
             att_required = len(sessions_by_course.get(cid, []))
             att_attended = attendance_count.get((student.id, cid), 0)
             course_progress.append({
@@ -721,11 +783,13 @@ def _build_progress_overview(
                 "total_count": total_count,
                 "video_completed": completed,
                 "video_total": total_count,
+                # 无视频课程展示课件数，前端据此显示「课件 N 份」而非「0/0 节」
+                "material_total": course_material_counts.get(cid, 0),
                 "attended_count": att_attended,
                 "required_count": att_required,
-                "progress_pct": round(completed / total_count * 100) if total_count else 0,
-                "exam_passed": exam_info.get("passed", False),
-                "has_exam": c.exam_id is not None,
+                "progress_pct": row_pct(completed, total_count, has_exam, exam_passed),
+                "exam_passed": exam_passed,
+                "has_exam": has_exam,
                 "exam_best_score": exam_info.get("best_score"),
                 "exam_attempts": exam_info.get("attempts", 0),
             })
@@ -800,13 +864,9 @@ def admin_progress_export(
         for c in student["courses"]:
             total = c.get("total_count") or 0
             completed = c.get("completed_count") or 0
-            has_exam = c.get("has_exam")
+            # 完成率直接复用 overview 的 row_pct（含「无视频课程按考试计」的口径）
+            pct = c.get("progress_pct", 0)
             exam_passed = c.get("exam_passed", False)
-            # 完成率：有考试时「完成项占 80% + 考试通过占 20%」，无考试时完成项占 100%
-            if has_exam:
-                pct = (round(completed / total * 80) if total else 0) + (20 if exam_passed else 0)
-            else:
-                pct = round(completed / total * 100) if total else (100 if exam_passed else 0)
 
             att_required = c.get("required_count") or 0
             att_attended = c.get("attended_count") or 0

@@ -180,9 +180,32 @@ class TestValidateFillBlank:
 
 class TestValidateEssay:
     def test_reference_dict(self):
-        raw = {"type": "essay", "stem": "简述三级安全教育的内容", "answer": {"reference": "厂级、车间级、班组级……"}}
+        raw = {
+            "type": "essay",
+            "stem": "简述三级安全教育的内容",
+            "answer": {"reference": "厂级、车间级、班组级……"},
+            "keywords": ["厂级", "车间级", "班组级"],
+        }
         draft, warnings = validate_item(raw)
         assert draft["answer"] == {"reference": "厂级、车间级、班组级……"}
+        assert warnings == []
+
+    def test_missing_keywords_warns_but_kept(self):
+        """essay 的自动打分完全依赖 keywords——缺失不丢弃但必须醒目告警"""
+        raw = {"type": "essay", "stem": "简述应急疏散流程", "answer": {"reference": "弯腰、捂口鼻、沿疏散标识撤离"}}
+        draft, warnings = validate_item(raw)
+        assert draft is not None
+        assert any("恒为 0" in w for w in warnings)
+
+    def test_with_keywords_no_warning(self):
+        raw = {
+            "type": "essay",
+            "stem": "简述应急疏散流程",
+            "answer": {"reference": "弯腰、捂口鼻、沿标识撤离"},
+            "keywords": "弯腰,捂口鼻,撤离",
+        }
+        draft, warnings = validate_item(raw)
+        assert draft["keywords"] == ["弯腰", "捂口鼻", "撤离"]
         assert warnings == []
 
     def test_bare_answer_coerced_to_reference(self):

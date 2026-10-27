@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.models.user import User
 from app.models.question import Question
+from app.models.question_category import QuestionCategory
 from app.models.paper import Paper
 from app.models.exam import ExamPaper
 from app.schemas.question import QuestionCreate, QuestionUpdate, QuestionOut, PaginatedResponse
@@ -352,6 +353,9 @@ async def import_questions(
     created = 0
     skipped = 0
     errors = []
+    # 查重口径与 AI 入库路径统一：归一化（去标点/空白/大小写）后比对，
+    # 一次性预载现有题干集合，避免每行一次 SELECT 的全表 N+1
+    existing_keys = {normalize_stem(s) for (s,) in db.query(Question.stem).all() if normalize_stem(s)}
 
     for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         if not row[0] or not row[1]:  # 题型和题干必填
@@ -366,9 +370,9 @@ async def import_questions(
 
             stem = str(row[1]).strip()
 
-            # 重复检测
-            existing = db.query(Question).filter(Question.stem == stem).first()
-            if existing:
+            # 重复检测（含与本批次前面已导入行的相互查重）
+            key = normalize_stem(stem)
+            if key and key in existing_keys:
                 skipped += 1
                 continue
 
@@ -414,6 +418,8 @@ async def import_questions(
                 created_by=current_user.id,
             )
             db.add(question)
+            if key:
+                existing_keys.add(key)  # 同文件内后续行与本行相互查重
             created += 1
 
         except Exception as e:
@@ -441,8 +447,21 @@ def bulk_create_questions(
     created = 0
     skipped = 0
     errors = []
+    ingest_warnings: list[str] = []
     seen_keys: set[str] = set()
     existing_keys = {normalize_stem(stem) for (stem,) in db.query(Question.stem).all()}
+
+    # 分类存在性预检：AI 生成到入库之间隔着几十秒人工审核，目标分类可能
+    # 已被删除。脏 category_id 会让题目从分类树视角失踪，宁缺勿错。
+    wanted_cats = {it.category_id for it in data.items if it.category_id}
+    valid_cats: set[str] = set()
+    if wanted_cats:
+        valid_cats = {
+            cid
+            for (cid,) in db.query(QuestionCategory.id)
+            .filter(QuestionCategory.id.in_(wanted_cats))
+            .all()
+        }
 
     for i, item in enumerate(data.items, start=1):
         draft, ws = validate_item(item.model_dump(), expected_type=item.type)
@@ -454,6 +473,10 @@ def bulk_create_questions(
             skipped += 1
             continue
         seen_keys.add(key)
+        category_id = item.category_id
+        if category_id and category_id not in valid_cats:
+            category_id = None
+            ingest_warnings.append(f"第{i}题：目标分类已不存在，已改为未分类入库")
         # 去重保序追加 AI 标签
         tags = list(dict.fromkeys([*(item.tags or []), AI_TAG]))
         question = Question(
@@ -466,13 +489,21 @@ def bulk_create_questions(
             difficulty=draft["difficulty"],
             tags=tags,
             section=item.section,
-            category_id=item.category_id,
+            category_id=category_id,
             created_by=current_user.id,
         )
         db.add(question)
         created += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        # 单条脏数据不配拖垮整批；显式回滚保证不出现半提交状态
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"批量入库失败，本批已整体回滚未写入任何题目（{type(e).__name__}），请检查分类/数据后重试",
+        )
 
     write_log(
         db=db, operator=current_user.name, operator_id=current_user.id,
@@ -480,7 +511,7 @@ def bulk_create_questions(
         description=f"{current_user.name} 批量入库了 {created} 道试题（跳过重复 {skipped}，失败 {len(errors)}）",
         level="info",
     )
-    return {"created": created, "skipped": skipped, "errors": errors}
+    return {"created": created, "skipped": skipped, "errors": errors, "warnings": ingest_warnings}
 
 
 # ========== 单题操作 ==========

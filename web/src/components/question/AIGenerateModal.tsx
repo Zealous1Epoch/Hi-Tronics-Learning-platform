@@ -27,6 +27,8 @@ interface BulkResult {
   created: number;
   skipped: number;
   errors: string[];
+  /** 入库时的非致命提醒（如目标分类已失效被置为未分类） */
+  warnings?: string[];
 }
 
 interface ParseResult {
@@ -614,6 +616,10 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
               {drafts.map((d, idx) => {
                 const uid = d._uid as string;
                 const isChecked = checked.has(uid);
+                // 质量提示（纯派生，不新增状态）：选项长短悬殊可被「选最长」蒙对
+                const optLens = d.options ? Object.values(d.options).map(s => String(s).length) : [];
+                const optSpread = optLens.length >= 2 ? Math.max(...optLens) - Math.min(...optLens) : 0;
+                const essayNoKw = d.type === "essay" && (!d.keywords || d.keywords.length === 0);
                 return (
                   <div key={uid}
                     className={`rounded-lg border p-3 ${
@@ -626,6 +632,12 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
                           <span className="k-tag k-tag-primary">{TYPE_LABELS[d.type] || d.type} {idx + 1}</span>
                           {d.dup_existing && (
                             <span className="k-tag k-tag-warning">疑似与题库重复</span>
+                          )}
+                          {optSpread > 15 && (
+                            <span className="k-tag k-tag-warning" title="选项长短悬殊，存在「选最长」提示效应，建议人工核对">选项长短悬殊</span>
+                          )}
+                          {essayNoKw && (
+                            <span className="k-tag k-tag-danger" title="系统按关键词命中自动给分，缺关键词的问答题全员 0 分">缺评分关键词</span>
                           )}
                           <select value={d.difficulty} onChange={e => changeDifficulty(uid, e.target.value)}
                             className="k-ctl">
@@ -698,6 +710,11 @@ export default function AIGenerateModal({ onClose, onDone, defaultCategoryId, ca
                 {result.skipped > 0 && <span className="text-text-secondary font-normal">，跳过重复 {result.skipped} 题</span>}
                 {result.errors.length > 0 && <span className="text-red-500 font-normal">，失败 {result.errors.length} 题</span>}
               </p>
+              {result.warnings && result.warnings.length > 0 && (
+                <ul className="text-xs text-amber-600 list-disc pl-4 text-left max-h-24 overflow-y-auto">
+                  {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              )}
               {result.errors.length > 0 && (
                 <ul className="text-xs text-red-500 list-disc pl-4 text-left max-h-32 overflow-y-auto">
                   {result.errors.map((e, i) => <li key={i}>{e}</li>)}

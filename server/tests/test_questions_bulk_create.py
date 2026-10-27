@@ -48,21 +48,29 @@ class TestBulkCreate:
             json={"items": [_item(" 灭火的基本方法 有哪些？！ ")]},
             headers=admin_headers,
         )
-        assert res.json() == {"created": 0, "skipped": 1, "errors": []}
+        assert res.json() == {"created": 0, "skipped": 1, "errors": [], "warnings": []}
 
     def test_category_and_section_passthrough(self, client, admin_headers, db):
+        import uuid
+
+        from app.models.question_category import QuestionCategory
+
+        cat = QuestionCategory(id=str(uuid.uuid4()), name="章节分类", sort_order=0)
+        db.add(cat)
+        db.commit()
+
         res = client.post(
             "/api/questions/bulk-create",
             json={
                 "items": [
-                    _item("新题目一？", category_id="cat-9", section="第二章", type="true_false", answer={"correct": True}, options=None)
+                    _item("新题目一？", category_id=cat.id, section="第二章", type="true_false", answer={"correct": True}, options=None)
                 ]
             },
             headers=admin_headers,
         )
         assert res.json()["created"] == 1
         q = db.query(Question).filter(Question.stem == "新题目一？").first()
-        assert q.category_id == "cat-9"
+        assert q.category_id == cat.id
         assert q.section == "第二章"
         assert q.type == "true_false"
 
@@ -75,3 +83,40 @@ class TestBulkCreate:
             "/api/questions/bulk-create", json={"items": [_item("x？")]}, headers=student_headers
         )
         assert res.status_code == 403
+
+
+class TestCategoryValidation:
+    """生成→审核→入库之间分类可能被删，脏 category_id 不允许造成 500 或孤儿题"""
+
+    def test_invalid_category_nullified_with_warning(self, client, admin_headers, db):
+        res = client.post(
+            "/api/questions/bulk-create",
+            json={"items": [_item("分类已失效题？", category_id="ghost-cat")]},
+            headers=admin_headers,
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["created"] == 1
+        assert any("分类" in w for w in body["warnings"])
+        q = db.query(Question).filter(Question.stem == "分类已失效题？").first()
+        assert q.category_id is None
+
+    def test_valid_category_kept_and_no_warnings_field_noise(self, client, admin_headers, db):
+        import uuid
+
+        from app.models.question_category import QuestionCategory
+
+        cat = QuestionCategory(id=str(uuid.uuid4()), name="消防专区", sort_order=0)
+        db.add(cat)
+        db.commit()
+
+        res = client.post(
+            "/api/questions/bulk-create",
+            json={"items": [_item("有效分类题？", category_id=cat.id)]},
+            headers=admin_headers,
+        )
+        body = res.json()
+        assert body["created"] == 1
+        assert body["warnings"] == []
+        q = db.query(Question).filter(Question.stem == "有效分类题？").first()
+        assert q.category_id == cat.id

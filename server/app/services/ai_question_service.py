@@ -9,6 +9,7 @@
 """
 
 import logging
+import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -184,6 +185,10 @@ def validate_item(raw, expected_type: str | None = None) -> tuple[dict | None, l
 
     keywords = _coerce_str_list(raw.get("keywords"))
 
+    # essay 的自动打分完全依赖 keywords 命中（grade_question），缺失=全员 0 分
+    if qtype == "essay" and not keywords:
+        warnings.append("问答题缺少评分关键词，自动评分将恒为 0，建议补充 2~5 个关键词后入库")
+
     return {
         "type": qtype,
         "stem": stem,
@@ -192,6 +197,32 @@ def validate_item(raw, expected_type: str | None = None) -> tuple[dict | None, l
         "keywords": keywords,
         "difficulty": difficulty,
     }, warnings
+
+
+def shuffle_choice_options(draft: dict) -> None:
+    """把选择题选项随机重排并同步重映射正确字母（原地修改）。
+
+    LLM 强烈倾向把正确项放在 A（实测单选 55% 答案为 A），会严重削弱考试
+    区分度。洗牌放在生成链路 validate 之后、返回草稿之前，一次性确定结果；
+    bulk-create 复验路径**不**再洗牌，保证人工审核所见与最终入库一致。
+    """
+    if draft.get("type") not in ("single_choice", "multi_choice"):
+        return
+    opts = draft.get("options")
+    if not isinstance(opts, dict) or len(opts) < 2:
+        return
+    letters = sorted(opts.keys())
+    perm = list(range(len(letters)))
+    random.shuffle(perm)
+    # 新位置 i（字母 letters[i]）放原第 perm[i] 项 → 旧字母→新字母映射
+    remap = {letters[old_i]: letters[new_i] for new_i, old_i in enumerate(perm)}
+    draft["options"] = {letters[i]: opts[letters[perm[i]]] for i in range(len(letters))}
+    ans = draft.get("answer") or {}
+    correct = ans.get("correct")
+    if draft["type"] == "single_choice" and isinstance(correct, str) and correct in remap:
+        ans["correct"] = remap[correct]
+    elif draft["type"] == "multi_choice" and isinstance(correct, list):
+        ans["correct"] = sorted(remap.get(c, c) for c in correct if isinstance(c, str))
 
 
 def _coerce_str_list(val) -> list[str] | None:
@@ -284,7 +315,10 @@ _TYPE_SPECS = {
             '班组级：岗位操作规程与应急演练。"},"keywords":["厂级","车间级","班组级"],'
             '"difficulty":"medium"}]}'
         ),
-        "rules": "- 题目为开放式简答题；answer.reference 是 100~200 字的参考答案要点\n- keywords 可选，给出 2~5 个评分关键词",
+        "rules": (
+            "- 题目为开放式简答题；answer.reference 是 100~200 字的参考答案要点\n"
+            "- keywords 必填，给出 2~5 个评分关键词（系统按关键词命中自动给分，缺关键词的题自动分为 0）"
+        ),
     },
 }
 
@@ -351,8 +385,15 @@ def build_type_prompt(req, qtype: str, count: int) -> str:
 _MAX_ATTEMPTS_PER_TYPE = 3
 
 
-def _generate_one_type(req, qtype: str, count: int) -> tuple[list[dict], list[str], dict]:
-    """单题型生成（最多 3 轮，缺口补出）。永不抛异常，失败转为 warning。"""
+def _generate_one_type(
+    req, qtype: str, count: int, deadline: float | None = None
+) -> tuple[list[dict], list[str], dict]:
+    """单题型生成（最多 3 轮，缺口补出）。永不抛异常，失败转为 warning。
+
+    deadline 为 time.monotonic() 基准的绝对时刻：到点放弃剩余轮次，
+    并把每轮调用超时收敛到剩余预算内，防止 LLM 挂起时层层重试烧满
+    数分钟（网关早已断开、后端还在默默烧 token）。
+    """
     warnings: list[str] = []
     got: list[dict] = []
     usage_total = {"prompt_tokens": 0, "completion_tokens": 0}
@@ -361,11 +402,26 @@ def _generate_one_type(req, qtype: str, count: int) -> tuple[list[dict], list[st
         remaining = count - len(got)
         if remaining <= 0:
             break
+        call_timeout: float | None = None
+        if deadline is not None:
+            left = deadline - time.monotonic()
+            if left < 5:
+                warnings.append(
+                    f"{TYPE_CN[qtype]}：时间预算（{settings.LLM_TOTAL_DEADLINE}s）已用完，"
+                    f"放弃剩余 {remaining} 题的补出"
+                )
+                break
+            call_timeout = min(float(settings.LLM_TIMEOUT), left)
         prompt = build_type_prompt(req, qtype, remaining)
         try:
-            content, usage = chat_completion_json(prompt)
+            content, usage = chat_completion_json(prompt, timeout=call_timeout)
         except Exception as e:  # 网络/鉴权/超时等一律降级为 warning，不崩整批
             warnings.append(f"{TYPE_CN[qtype]}：第{attempt}次调用失败（{type(e).__name__}: {e}）")
+            # 401/403 是鉴权/网络出口类错误，重试必然同果：该题型立即止损，
+            # 防止网关策略变更时 5 题型 × 3 轮全数白烧（2026-10-27 事故）
+            if getattr(e, "status_code", None) in (401, 403):
+                warnings.append(f"{TYPE_CN[qtype]}：疑似鉴权或网络出口被拒，放弃该题型剩余重试（请检查 LLM_API_KEY 与出口策略）")
+                break
             continue
         usage_total["prompt_tokens"] += usage.get("prompt_tokens", 0)
         usage_total["completion_tokens"] += usage.get("completion_tokens", 0)
@@ -392,6 +448,8 @@ def _generate_one_type(req, qtype: str, count: int) -> tuple[list[dict], list[st
                 if not ws:
                     warnings.append(f"{TYPE_CN[qtype]}第{i}题：校验未通过，已丢弃")
                 continue
+            # 修偏：LLM 正确项重仓 A/B，出稿前洗牌打散（此后草稿定稿不再变动）
+            shuffle_choice_options(draft)
             got.append(draft)
 
     if len(got) < count:
@@ -404,13 +462,18 @@ def generate_drafts(db: Session, req) -> tuple[list[dict], list[str], dict]:
     t0 = time.time()
     tasks = [(t, getattr(req.counts, t)) for t in ALL_QTYPES if getattr(req.counts, t) > 0]
 
+    # 全请求总时限：网关（nginx proxy_read_timeout）断开之前必须返回
+    deadline = time.monotonic() + settings.LLM_TOTAL_DEADLINE
+
     items_by_type: dict[str, list[dict]] = {}
     warns_by_type: dict[str, list[str]] = {}
     usage_total = {"prompt_tokens": 0, "completion_tokens": 0}
 
     # 单线程内不碰 db（SQLAlchemy session 非线程安全），db 只在下方主线程使用
     with ThreadPoolExecutor(max_workers=min(5, max(1, len(tasks)))) as pool:
-        futures = {pool.submit(_generate_one_type, req, t, c): t for t, c in tasks}
+        futures = {
+            pool.submit(_generate_one_type, req, t, c, deadline): t for t, c in tasks
+        }
         for fut in as_completed(futures):
             t = futures[fut]
             try:

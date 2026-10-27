@@ -43,15 +43,22 @@ def get_client():
                     api_key=settings.LLM_API_KEY,
                     base_url=settings.LLM_BASE_URL,
                     timeout=settings.LLM_TIMEOUT,
+                    # 显式关闭 SDK 内部重试（默认 2 次）：重试主权收回服务层。
+                    # 否则 SDK 重试 × 服务层轮次 × 单次超时层层相乘，单个题型
+                    # 最坏可达 3×3×75s≈11 分钟，网络抖动时静默双倍计费。
+                    max_retries=0,
                 )
     return _client
 
 
-def chat_completion_json(prompt: str, max_tokens: int | None = None) -> tuple[str, dict]:
+def chat_completion_json(
+    prompt: str, max_tokens: int | None = None, timeout: float | None = None
+) -> tuple[str, dict]:
     """单轮 JSON 输出调用，返回 (content, usage)。
 
     失败抛 openai 异常（APIConnectionError/APITimeoutError/APIStatusError 等），
     由服务层决定是否重试；本函数只负责一次调用 + 供应商兼容性降级重试。
+    timeout 显式传入时覆盖客户端默认超时（服务层按总时限收敛剩余预算用）。
     """
     client = get_client()
     kwargs: dict = {
@@ -64,6 +71,8 @@ def chat_completion_json(prompt: str, max_tokens: int | None = None) -> tuple[st
         "max_tokens": max_tokens or settings.LLM_MAX_OUTPUT_TOKENS,
         "response_format": {"type": "json_object"},
     }
+    if timeout:
+        kwargs["timeout"] = timeout
     if settings.LLM_DISABLE_THINKING:
         # vLLM 只认 chat_template_kwargs 嵌套写法；平铺 enable_thinking 会被忽略
         kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}

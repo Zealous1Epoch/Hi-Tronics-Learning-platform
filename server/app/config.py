@@ -93,6 +93,10 @@ class Settings:
     LLM_VISION_MODEL: str = os.getenv("LLM_VISION_MODEL", "")
     # 单次调用超时（秒）。生成按题型拆分调用，单次典型 10-60s
     LLM_TIMEOUT: int = int(os.getenv("LLM_TIMEOUT", "75"))
+    # 一次 /ai/generate 请求的总时间预算（秒）：跨题型/轮次的硬上限，
+    # 到点放弃剩余补出、返回部分草稿。须小于 nginx proxy_read_timeout（建议 ≥120s），
+    # 保证服务端永远先于网关返回，避免前端断开后后端继续烧 token
+    LLM_TOTAL_DEADLINE: int = int(os.getenv("LLM_TOTAL_DEADLINE", "100"))
     # 单次输出 token 上限（DeepSeek 上限 8192，留余量防推理/格式开销截断）
     LLM_MAX_OUTPUT_TOKENS: int = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "6000"))
     # 仅 vLLM 自托管需要（官方 API 会忽略该参数）：关闭推理模型 thinking，

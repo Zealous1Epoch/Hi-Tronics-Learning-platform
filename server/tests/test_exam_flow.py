@@ -182,6 +182,68 @@ def test_exam_max_attempts(client, student_headers, admin_headers, course_id, db
     assert "最大重考次数" in res.json()["detail"]
 
 
+def test_in_progress_result_does_not_break_profile_and_detail(
+    client, student_headers, admin_headers, course_id, db
+):
+    """作答中（submitted_at=NULL）的答卷不得打挂学员档案 / 管理员学员详情。
+
+    回归：get_student_profile 与 admin_progress_detail 曾直接
+    r.submitted_at.isoformat()，学员开考未交卷后访问这两个端点必 500
+    （AttributeError: 'NoneType' object has no attribute 'isoformat'）。
+    口径与 exams.py 一致：历史列表只认已交卷的答卷。
+    """
+    from app.models.course import Course
+
+    exam_id = setup_exam(db, course_id)
+    user_id = _get_student_id(client, admin_headers, db)
+    _assign_course(client, admin_headers, course_id, user_id)
+
+    # 考试挂到课程（admin_progress_detail 按 Course.exam_id 查考试记录）
+    course = db.query(Course).filter(Course.id == course_id).first()
+    course.exam_id = exam_id
+    db.commit()
+
+    # 开考不交卷 → 产生 submitted_at=NULL 的作答中答卷
+    res = client.get(f"/api/student/exams/{exam_id}/start", headers=student_headers)
+    assert res.status_code == 200
+
+    # 1) 学员档案：200 且历史不含未交卷记录
+    res = client.get("/api/student/profile", headers=student_headers)
+    assert res.status_code == 200
+    assert res.json()["exam_history"] == []
+
+    # 2) 管理员学员详情：200 且考试记录不含未交卷记录
+    res = client.get(
+        f"/api/admin/progress/detail/{user_id}/{course_id}", headers=admin_headers
+    )
+    assert res.status_code == 200
+    assert res.json()["exams"] == []
+
+    # 3) 交卷后两处应正常展示该记录
+    started = client.get(
+        f"/api/student/exams/{exam_id}/start", headers=student_headers
+    ).json()
+    answers = [{"question_id": q["id"], "answer": "A"} for q in started["questions"]]
+    res = client.post(
+        f"/api/student/exams/{exam_id}/submit",
+        json={"answers": answers},
+        headers=student_headers,
+    )
+    assert res.status_code == 200
+
+    res = client.get("/api/student/profile", headers=student_headers)
+    assert res.status_code == 200
+    hist = res.json()["exam_history"]
+    assert len(hist) == 1 and hist[0]["exam_id"] == exam_id
+    assert hist[0]["submitted_at"]
+
+    res = client.get(
+        f"/api/admin/progress/detail/{user_id}/{course_id}", headers=admin_headers
+    )
+    assert res.status_code == 200
+    assert len(res.json()["exams"]) == 1
+
+
 def _get_student_id(client, admin_headers, db):
     """从数据库获取学员 user_id"""
     res = client.get("/api/auth/me", headers={"Authorization": f"Bearer {_get_student_token_from_db(db)}"})

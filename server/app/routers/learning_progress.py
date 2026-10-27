@@ -388,10 +388,14 @@ def get_student_profile(
         "sessions": len(att_progress_rows),
     }
 
-    # 考试记录
+    # 考试记录（仅已交卷——作答中的卷 submitted_at 为 NULL，直接 isoformat 会 500，
+    # 且没有分数，列入历史反而误导）
     exam_results = (
         db.query(ExamResult)
-        .filter(ExamResult.user_id == current_user.id)
+        .filter(
+            ExamResult.user_id == current_user.id,
+            ExamResult.submitted_at.isnot(None),
+        )
         .order_by(ExamResult.submitted_at.desc())
         .limit(10)
         .all()
@@ -959,6 +963,7 @@ def admin_progress_detail(
             .filter(
                 ExamResult.exam_id == course.exam_id,
                 ExamResult.user_id == user_id,
+                ExamResult.submitted_at.isnot(None),
             )
             .order_by(ExamResult.submitted_at.desc())
             .all()

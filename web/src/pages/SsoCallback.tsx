@@ -36,6 +36,9 @@ export default function SsoCallback() {
       .then((user) => {
         localStorage.setItem("lp_user", JSON.stringify(user));
         setUser(user);
+        // 登录成功 → 清除企微自动登录冷却标记（Login.tsx 写入），
+        // 保证下次 token 过期回到登录页时仍能自动发起 OAuth
+        sessionStorage.removeItem("lp_wx_auto_ts");
         navigate(user.role === "admin" ? "/admin" : "/student", { replace: true });
       })
       .catch(() => {

@@ -1,16 +1,35 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { login } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
+
+// 企微内置浏览器自动登录：检测到 wxwork UA 且未登录时，直接发起 OAuth，
+// 免去在登录页手动点「企业微信登录」按钮的一步。
+// 防死循环：授权失败会被后端 302 回本页，若无节流会再次自动跳转形成循环，
+// 故用 sessionStorage 记录最近一次自动跳转时间，冷却期内不再自动跳（回退为手动按钮）。
+const WX_AUTO_KEY = "lp_wx_auto_ts";
+const WX_AUTO_COOLDOWN_MS = 60_000;
 
 export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [autoRedirecting, setAutoRedirecting] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { setUser } = useAuth();
+
+  useEffect(() => {
+    if (!/wxwork/i.test(navigator.userAgent)) return;
+    if (localStorage.getItem("lp_token")) return; // 已有登录态，交给路由守卫处理
+    const last = Number(sessionStorage.getItem(WX_AUTO_KEY) || 0);
+    if (Date.now() - last < WX_AUTO_COOLDOWN_MS) return; // 刚自动跳过一次又回到登录页 = 授权失败，别再循环
+    sessionStorage.setItem(WX_AUTO_KEY, String(Date.now()));
+    setAutoRedirecting(true);
+    // 与「企业微信登录」按钮同一入口：后端生成 state 后跳企微授权页
+    window.location.replace("/learning-platform/sso/wechat/login");
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +48,17 @@ export default function Login() {
       setLoading(false);
     }
   };
+
+  if (autoRedirecting) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-bg-layout">
+        <div className="text-center">
+          <div className="animate-spin w-10 h-10 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+          <p className="text-text-secondary">正在通过企业微信登录...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-layout">

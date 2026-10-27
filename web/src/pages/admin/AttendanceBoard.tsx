@@ -9,7 +9,6 @@ interface ProjectorCode {
   session_title: string;
   course_title: string;
   location_name: string | null;
-  code: string;
   server_time: string;
   state: "upcoming" | "open" | "closed";
   checked_in_count: number;
@@ -21,7 +20,7 @@ interface ProjectorCode {
  * 投屏二维码页（投影仪/大屏用）。
  *
  * 设计要点：
- * - 签到码轮换功能已废除（2026-10-19）：二维码与签到码在本场次内固定不变。
+ * - 签到码展示已废除（2026-10-27）：大屏只放二维码，学员扫码后输入工号+姓名签到。
  * - 每 5 秒轮询 `/attendance/sessions/{id}/code`（只读接口）刷新签到人数与状态。
  */
 export default function AttendanceBoard() {
@@ -108,7 +107,7 @@ export default function AttendanceBoard() {
         {data.state === "upcoming" && (
           <>
             <p className="text-4xl font-bold text-primary mb-4">签到尚未开始</p>
-            <p className="text-xl text-text-secondary">请等管理员宣布开始后再输入签到码</p>
+            <p className="text-xl text-text-secondary">请等管理员宣布开始后再扫码签到</p>
           </>
         )}
 
@@ -121,26 +120,15 @@ export default function AttendanceBoard() {
 
         {data.state === "open" && (
           <>
-            <p className="text-xl text-text-secondary mb-6">
-              请学员用手机扫码，输入<strong className="text-primary">工号+姓名</strong>签到；
-              或登录平台输入下方签到码
+            <p className="text-2xl text-text-secondary mb-8">
+              请学员用手机扫码，输入<strong className="text-primary">工号+姓名</strong>签到
             </p>
-            <div className="flex items-center justify-center gap-14">
-              {/* 扫码输工号签到（HTTP 即可用，无须企微/无登录） */}
-              <div className="flex flex-col items-center">
-                <div className="bg-white p-3 rounded-xl border border-border">
-                  <QRCodeSVG value={checkInUrl} size={240} level="M" marginSize={0} />
-                </div>
-                <p className="text-sm text-text-secondary mt-2.5">扫码输入工号签到</p>
+            {/* 扫码输工号签到（HTTP 即可用，无须企微/无登录） */}
+            <div className="flex flex-col items-center">
+              <div className="bg-white p-4 rounded-2xl border border-border">
+                <QRCodeSVG value={checkInUrl} size={360} level="M" marginSize={0} />
               </div>
-
-              {/* 签到码（本场次内固定不变） */}
-              <div className="flex flex-col items-center">
-                <div className="text-[150px] leading-none font-bold text-primary tracking-[0.15em] tabular-nums">
-                  {data.code}
-                </div>
-                <p className="text-center text-base text-text-secondary mt-4">签到码本场次内有效，无需等待刷新</p>
-              </div>
+              <p className="text-base text-text-secondary mt-4">微信扫一扫 · 输入工号姓名即可签到</p>
             </div>
           </>
         )}

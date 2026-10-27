@@ -1,7 +1,5 @@
-import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { CalendarCheck, MapPin, RefreshCw } from "lucide-react";
-import { api } from "../../lib/api";
-import { getDeviceId } from "../../lib/device";
 
 /* ── 类型（与后端 schemas/attendance.py 学员端模型对应） ── */
 export interface MySessionState {
@@ -58,8 +56,9 @@ function fmt(iso: string): string {
 /**
  * 学员端线下课程签到卡片。
  *
- * 展示本场课程所有签到场次与个人签到状态；「签到中」的场次可输入投屏大屏上的
- * 动态签到码完成签到。若场次开启定位校验，会先请求浏览器定位再一并提交。
+ * 展示本场课程所有签到场次与个人签到状态。「签到码」签到已废除（2026-10-27），
+ * 学员统一扫现场投屏二维码 → 输入工号+姓名签到；卡片上的「去签到」按钮直达
+ * 同一个扫码签到落地页（同设备无需换手机扫码）。
  */
 export default function StudentCheckInCard({
   attendance,
@@ -68,76 +67,9 @@ export default function StudentCheckInCard({
   attendance: MyAttendance;
   onChanged: () => void;
 }) {
-  const [codeOpenId, setCodeOpenId] = useState<string | null>(null);
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const [locating, setLocating] = useState(false);
+  const navigate = useNavigate();
 
   const effective = attendance.sessions.filter((s) => s.checked_in && s.status !== "revoked").length;
-
-  const refresh = () => {
-    setMessage(null);
-    onChanged();
-  };
-
-  const submitCheckIn = async (session: MySessionState) => {
-    const trimmed = code.trim();
-    if (!trimmed) {
-      setMessage({ ok: false, text: "请输入投屏大屏上的签到码" });
-      return;
-    }
-    setBusy(true);
-    setMessage(null);
-    try {
-      // 场次要求定位时先取坐标（失败则不带坐标提交，由后端判定并打标）
-      let latitude: number | undefined;
-      let longitude: number | undefined;
-      if (session.require_geofence) {
-        setLocating(true);
-        try {
-          const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 8000,
-              maximumAge: 30000,
-            });
-          });
-          latitude = pos.coords.latitude;
-          longitude = pos.coords.longitude;
-        } catch {
-          /* 未授权/失败时不携带坐标，后端会按策略拒绝或软放行并打标 */
-        } finally {
-          setLocating(false);
-        }
-      }
-      const res = await api<{ ok: boolean; status: string; message: string; risk_flags: string[] }>(
-        `/student/attendance/${session.id}/checkin`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            code: trimmed,
-            latitude: latitude ?? null,
-            longitude: longitude ?? null,
-            device_id: getDeviceId(),
-          }),
-        },
-      );
-      setMessage({
-        ok: true,
-        text:
-          `${res.message || "签到成功"}（${STATUS_LABEL[res.status] || res.status}）` +
-          (res.risk_flags?.length ? ` · 有异常标记：${res.risk_flags.join("、")}` : ""),
-      });
-      setCode("");
-      setCodeOpenId(null);
-      onChanged();
-    } catch (e) {
-      setMessage({ ok: false, text: e instanceof Error ? e.message : "签到失败" });
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <div className="bg-bg-base rounded-lg border border-border p-4 mt-4">
@@ -149,7 +81,7 @@ export default function StudentCheckInCard({
           <span className="text-text-secondary">
             已完成 <span className="text-primary font-medium">{effective}</span> / {attendance.required_count} 场
           </span>
-          <button onClick={refresh} className="text-primary hover:underline flex items-center gap-0.5">
+          <button onClick={onChanged} className="text-primary hover:underline flex items-center gap-0.5">
             <RefreshCw size={11} /> 刷新
           </button>
         </div>
@@ -176,17 +108,6 @@ export default function StudentCheckInCard({
       {attendance.satisfied && (
         <div className="bg-emerald-50 text-emerald-600 text-xs rounded-md px-3 py-2 mb-3">
           签到已全部完成，可以参加考试了
-        </div>
-      )}
-
-      {/* 签到结果提示 */}
-      {message && (
-        <div
-          className={`text-xs rounded-md px-3 py-2 mb-3 ${
-            message.ok ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-500"
-          }`}
-        >
-          {message.text}
         </div>
       )}
 
@@ -228,54 +149,20 @@ export default function StudentCheckInCard({
                   {effectiveCheckIn && s.checked_in_at && <span>签到于 {fmt(s.checked_in_at)}</span>}
                 </div>
 
-                {/* 签到操作 */}
+                {/* 签到操作：扫现场投屏二维码（或直接进入扫码签到页）输工号姓名签到 */}
                 {!effectiveCheckIn && s.state === "open" && (
-                  <div className="mt-2">
-                    {codeOpenId === s.id ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          value={code}
-                          onChange={(e) => setCode(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && submitCheckIn(s)}
-                          placeholder="输入签到码"
-                          maxLength={16}
-                          autoFocus
-                          className="w-36 border border-border rounded-md px-2.5 py-1.5 text-sm tracking-widest uppercase"
-                        />
-                        <button
-                          onClick={() => submitCheckIn(s)}
-                          disabled={busy || locating}
-                          className="bg-primary text-white rounded-md px-3 py-1.5 text-xs disabled:opacity-50"
-                        >
-                          {locating ? "定位中..." : busy ? "提交中..." : "签到"}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setCodeOpenId(null);
-                            setCode("");
-                            setMessage(null);
-                          }}
-                          className="text-xs text-text-secondary hover:text-text-base"
-                        >
-                          取消
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setCodeOpenId(s.id);
-                          setCode("");
-                          setMessage(null);
-                        }}
-                        className="bg-primary text-white rounded-md px-4 py-1.5 text-xs hover:bg-primary-light"
-                      >
-                        输入签到码签到
-                      </button>
-                    )}
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      onClick={() => navigate(`/checkin/${s.id}`)}
+                      className="bg-primary text-white rounded-md px-4 py-1.5 text-xs hover:bg-primary-light"
+                    >
+                      去签到
+                    </button>
+                    <span className="text-xs text-text-secondary">或用手机扫现场投屏二维码签到</span>
                   </div>
                 )}
                 {!effectiveCheckIn && s.state === "upcoming" && (
-                  <p className="text-xs text-text-secondary/60 mt-1.5">签到尚未开始，开始后可在此输入签到码</p>
+                  <p className="text-xs text-text-secondary/60 mt-1.5">签到尚未开始，开始后可扫码签到</p>
                 )}
                 {!effectiveCheckIn && s.state === "closed" && (
                   <p className="text-xs text-amber-600 mt-1.5">本场签到已结束，如未签到请联系管理员补签</p>

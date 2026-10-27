@@ -124,6 +124,7 @@ def create_exam(
         start_time=start_time,
         end_time=end_time,
         status=data.status,
+        review_policy=data.review_policy,
         created_by=current_user.id,
     )
     db.add(exam)
@@ -599,6 +600,7 @@ def quick_create_exam(
         start_time=start_time,
         end_time=end_time,
         status="published" if data.publish else "draft",
+        review_policy=data.review_policy,
         created_by=current_user.id,
     )
     db.add(exam)

@@ -12,6 +12,7 @@
 """
 
 import secrets
+from datetime import datetime
 from typing import Any
 from sqlalchemy.orm import Session
 
@@ -184,9 +185,41 @@ def grade_question(question: Question, student_answer: str | list[str] | bool | 
     return (0, full_score)
 
 
+def review_available(exam, result, attempts_used: int, now: datetime | None = None) -> tuple[bool, str]:
+    """按 exam.review_policy 判定这份答卷的错题回顾是否对学员开放。
+
+    背景：review 原本交卷即无条件返回每题正确答案——第一次没过的学员看完错题
+    答案后重考（固定卷同题同序、随机卷也不排除已见题），等于开卷送分。
+    三档策略见 schemas/exam.ReviewPolicy；「条件永不满足」的情形兜底放行，
+    避免学员永远无法回顾：
+    - after_exhausted：不限重考次数（max_attempts 空）→ 退化为可看；已及格 → 可看
+      （成绩口径是按最高分及格，及格后重考刷分不改变结果，回顾无作弊收益）
+    - after_window：未设截止时间（end_time 空）→ 退化为可看
+
+    返回 (是否可看, 不可看时给学员的提示文案)。
+    """
+    policy = getattr(exam, "review_policy", None) or "always"
+    if policy == "after_exhausted":
+        if result.passed or not exam.max_attempts:
+            return True, ""
+        if attempts_used >= exam.max_attempts:
+            return True, ""
+        left = exam.max_attempts - attempts_used
+        return False, f"错题回顾将在重考机会用完后开放（还剩 {left} 次机会）"
+    if policy == "after_window":
+        if not exam.end_time:
+            return True, ""
+        if (now or datetime.now()) >= exam.end_time:
+            return True, ""
+        return False, f"错题回顾将在考试截止（{exam.end_time:%Y-%m-%d %H:%M}）后开放"
+    return True, ""
+
+
 def build_result_review(db: Session, exam, result) -> dict:
     """按题目快照逐题比对，构建答卷回顾数据（学员端 review 与管理端答卷详情共用）。
 
+    注意：本函数只负责组装数据，「能不能看」的闸门由调用方先走 review_available()
+    （学员端），管理端不受策略限制。
     调用方负责校验：result 属于 exam、已交卷（submitted_at 非空）、有题目快照。
     """
     question_ids = [q["question_id"] for q in result.questions]

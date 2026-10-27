@@ -1,7 +1,14 @@
 """考试相关 Pydantic 模型"""
 
 from datetime import datetime
+from typing import Literal
 from pydantic import BaseModel, Field
+
+# 错题回顾时机：
+# always          交卷即可查看（默认，兼容存量考试与培训型「看错题再学」场景）
+# after_exhausted 重考机会用完或已及格后才能看（防止看过答案后重考送分）
+# after_window    考试开放时间截止（end_time）后才能看
+ReviewPolicy = Literal["always", "after_exhausted", "after_window"]
 
 
 class ExamCreate(BaseModel):
@@ -16,6 +23,7 @@ class ExamCreate(BaseModel):
     start_time: str | None = Field(None, description="开放时间 ISO 格式")
     end_time: str | None = Field(None, description="截止时间 ISO 格式")
     status: str = Field("published", description="draft / published / ended")
+    review_policy: ReviewPolicy = Field("always", description="错题回顾时机")
 
 
 class ExamUpdate(BaseModel):
@@ -29,6 +37,7 @@ class ExamUpdate(BaseModel):
     start_time: str | None = None
     end_time: str | None = None
     status: str | None = None
+    review_policy: ReviewPolicy | None = None
 
 
 class ExamOut(BaseModel):
@@ -44,6 +53,7 @@ class ExamOut(BaseModel):
     start_time: datetime | None = None
     end_time: datetime | None = None
     status: str
+    review_policy: str = "always"
     created_by: str | None = None
     created_at: datetime
     # 仅列表接口返回（聚合统计），单查/创建响应为 None
@@ -114,6 +124,7 @@ class ExamQuickCreate(BaseModel):
     max_attempts: int | None = Field(None, ge=1)
     start_time: str | None = None
     end_time: str | None = None
+    review_policy: ReviewPolicy = Field("always", description="错题回顾时机")
     publish: bool = Field(True, description="true=创建即发布；false=存草稿")
     save_paper_as: str | None = Field(None, max_length=200, description="传入则顺手把本次选题存为可复用试卷")
     assign_user_ids: list[str] | None = Field(None, description="建考同时把这些学员分配到课程（幂等，已分配的跳过）")

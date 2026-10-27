@@ -15,6 +15,8 @@ interface GradingResult {
   score: number; total_score: number; passed: boolean; pass_score: number;
   timed_out?: boolean; paper_total_score?: number;
   grading_details: { question_id: string; score: number; max_score: number }[];
+  // 错题回顾时机闸门（exam.review_policy）：false 时不拉 review，展示 review_hint
+  review_available?: boolean; review_hint?: string | null;
 }
 interface ReviewQuestion {
   id: string; type: string; stem: string; options: Record<string, string> | null;
@@ -124,14 +126,15 @@ export default function ExamPage() {
     };
   }, [examData, submitted]);
 
-  // 交卷后拉取错题回顾
+  // 交卷后拉取错题回顾（受考试设置的「回顾时机」闸门控制，未开放时只展示提示）
   useEffect(() => {
     if (submitted && examData) {
+      if (result && result.review_available === false) return;
       api<ReviewData>(`/student/exams/${id}/review/${examData.result_id}`)
         .then(setReviewData)
         .catch(() => {});
     }
-  }, [submitted, id, examData]);
+  }, [submitted, id, examData, result]);
 
   const handleSingleChoice = (qid: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [qid]: value }));
@@ -292,6 +295,13 @@ export default function ExamPage() {
             返回课程
           </button>
         </div>
+
+        {/* 回顾时机闸门未开放：只提示，不展示答案 */}
+        {!reviewData && result.review_available === false && (
+          <div className="bg-bg-base rounded-lg border border-border px-4 py-3 text-sm text-text-secondary">
+            {result.review_hint || "错题回顾稍后开放，届时可在此查看每题的正确答案。"}
+          </div>
+        )}
 
         {/* 答题回顾（折叠式） */}
         {reviewData && (

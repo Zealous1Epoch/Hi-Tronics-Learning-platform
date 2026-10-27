@@ -12,9 +12,12 @@ interface ExamItem {
   duration: number; total_score: number; pass_score: number;
   max_attempts: number | null; start_time: string | null; end_time: string | null;
   status: string; created_at: string;
+  review_policy: string;
   // 列表接口附带的聚合统计
   assigned_count: number | null; submitted_user_count: number | null;
 }
+// 错题回顾时机选项复用共享常量（lib/examPolicy，与向导共用，避免循环依赖）
+import { REVIEW_POLICIES } from "../../lib/examPolicy";
 interface CourseItem {
   id: string; title: string; category_id: string | null;
 }
@@ -58,6 +61,7 @@ export default function ExamManage() {
   const [editDuration, setEditDuration] = useState(60);
   const [editPassScore, setEditPassScore] = useState(60);
   const [editMaxAttempts, setEditMaxAttempts] = useState("");
+  const [editReviewPolicy, setEditReviewPolicy] = useState<string>("always");
   const [editStatus, setEditStatus] = useState("");
   const [editStartTime, setEditStartTime] = useState("");
   const [editEndTime, setEditEndTime] = useState("");
@@ -207,6 +211,7 @@ export default function ExamManage() {
     setEditDuration(e.duration);
     setEditPassScore(e.pass_score);
     setEditMaxAttempts(e.max_attempts?.toString() || "");
+    setEditReviewPolicy(e.review_policy || "always");
     setEditStatus(e.status);
     setEditStartTime(toLocalInput(e.start_time));
     setEditEndTime(toLocalInput(e.end_time));
@@ -238,6 +243,7 @@ export default function ExamManage() {
         duration: e.duration,
         pass_score: e.pass_score,
         max_attempts: e.max_attempts,
+        review_policy: e.review_policy || "always",
         paper_type: e.paper_type === "random" ? "random" : "fixed",
         fixed_questions: e.paper_type === "random" ? null : picked,
         random_rules: e.paper_type === "random" ? (paper.random_rules || []) : null,
@@ -266,6 +272,7 @@ export default function ExamManage() {
           duration: editDuration,
           pass_score: editPassScore,
           max_attempts: editMaxAttempts ? parseInt(editMaxAttempts) : null,
+          review_policy: editReviewPolicy,
           status: editStatus,
           // 显式传 null 可清空时间窗（PUT 为 exclude_unset 语义）
           start_time: editStartTime || null,
@@ -592,6 +599,22 @@ export default function ExamManage() {
                     <option value="published">已发布</option>
                     <option value="ended">已结束</option>
                   </select>
+                </div>
+              </div>
+              <div>
+                <label className="k-label">错题回顾（正确答案）何时对学员可见</label>
+                <div className="flex flex-col gap-1.5 mt-1">
+                  {REVIEW_POLICIES.map((p) => (
+                    <label key={p.value} className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input type="radio" name="editReviewPolicy" value={p.value}
+                        checked={editReviewPolicy === p.value}
+                        onChange={() => setEditReviewPolicy(p.value)} className="mt-1" />
+                      <span>
+                        <span className="text-text-base">{p.label}</span>
+                        <span className="block text-xs text-text-secondary">{p.hint}</span>
+                      </span>
+                    </label>
+                  ))}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">

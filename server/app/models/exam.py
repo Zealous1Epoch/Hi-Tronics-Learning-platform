@@ -40,6 +40,13 @@ class Exam(Base):
         nullable=False,
         comment="draft / published / ended",
     )
+    review_policy: Mapped[str] = mapped_column(
+        String(20),
+        default="always",
+        server_default="always",
+        nullable=False,
+        comment="错题回顾时机: always=交卷即可看 / after_exhausted=重考机会用完或及格后可看 / after_window=考试截止后可看",
+    )
     paper_id: Mapped[str | None] = mapped_column(
         String(36), nullable=True, comment="关联试卷（papers 表）"
     )

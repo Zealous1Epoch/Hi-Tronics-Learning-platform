@@ -42,6 +42,8 @@ interface CourseProgress {
 interface ExamResultItem {
   id: string; score: number; passed: boolean;
   attempt_number: number; submitted_at: string | null;
+  // 错题回顾时机闸门（exam.review_policy），false 时隐藏「查看详情」入口
+  review_available?: boolean; review_hint?: string | null;
 }
 
 export default function CourseDetail() {
@@ -379,12 +381,18 @@ export default function CourseDetail() {
                               {r.score} 分 {r.passed ? "(通过)" : "(未通过)"}
                             </span>
                           </div>
-                          <Link
-                            to={`/student/exams/${course.exam_id}?courseId=${course.id}&review=${r.id}`}
-                            className="text-sm text-primary hover:underline"
-                          >
-                            查看详情
-                          </Link>
+                          {r.review_available === false ? (
+                            <span className="text-xs text-text-secondary max-w-[220px] text-right" title={r.review_hint || ""}>
+                              {r.review_hint || "错题回顾尚未开放"}
+                            </span>
+                          ) : (
+                            <Link
+                              to={`/student/exams/${course.exam_id}?courseId=${course.id}&review=${r.id}`}
+                              className="text-sm text-primary hover:underline"
+                            >
+                              查看详情
+                            </Link>
+                          )}
                         </div>
                       ))}
                     </div>

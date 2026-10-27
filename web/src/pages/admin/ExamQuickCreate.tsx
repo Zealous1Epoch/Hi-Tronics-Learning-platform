@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Search } from "lucide-react";
 import { api, type OrgMemberRow, type OrgMembersResponse } from "../../lib/api";
+import { REVIEW_POLICIES, type ReviewPolicy } from "../../lib/examPolicy";
 import { notify } from "../../components/ui/Toast";
 import QuestionPickerPanel, { type PickedQuestion } from "../../components/exam/QuestionPickerPanel";
 import RandomRulesPanel, { type RandomRule } from "../../components/exam/RandomRulesPanel";
@@ -32,6 +33,7 @@ export interface CopySource {
   duration: number;
   pass_score: number;
   max_attempts: number | null;
+  review_policy?: ReviewPolicy | string;
   paper_type: "fixed" | "random";
   fixed_questions: PickedQuestion[] | null;
   random_rules: RandomRule[] | null;
@@ -75,6 +77,8 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
   const [duration, setDuration] = useState(copyFrom?.duration || 60);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+  // 错题回顾时机（默认交卷即可看；防送分场景可选重考用完/考试截止后）
+  const [reviewPolicy, setReviewPolicy] = useState<string>(copyFrom?.review_policy || "always");
 
   // ② 内容（复制模式：预填选题/规则，入库题目可能已被删除——面板照常展示，创建时后端会再校验）
   const [tab, setTab] = useState<TabKey>(copyFrom?.paper_type === "random" ? "bank_random" : "bank_fixed");
@@ -225,6 +229,7 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
     if (maxAttempts.trim()) body.max_attempts = parseInt(maxAttempts);
     if (startTime) body.start_time = startTime;
     if (endTime) body.end_time = endTime;
+    body.review_policy = reviewPolicy;
     if (saveTemplate) body.save_paper_as = templateName.trim() || title.trim();
     if (pickUsers.size) body.assign_user_ids = [...pickUsers];
 
@@ -324,6 +329,22 @@ export default function ExamQuickCreate({ onClose, onDone, copyFrom }: Props) {
                   <label className="k-label">截止时间（留空=不限）</label>
                   <input type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)}
                     className="k-input min-w-0" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <label className="k-label">错题回顾（正确答案）何时对学员可见</label>
+                <div className="grid grid-cols-3 gap-2 mt-1">
+                  {REVIEW_POLICIES.map((p) => (
+                    <label key={p.value} className={`k-card flex items-start gap-2 p-2.5 text-sm cursor-pointer border ${reviewPolicy === p.value ? "border-primary" : "border-border"}`}>
+                      <input type="radio" name="wizReviewPolicy" value={p.value}
+                        checked={reviewPolicy === p.value}
+                        onChange={() => setReviewPolicy(p.value)} className="mt-1" />
+                      <span>
+                        <span className="font-medium text-text-base">{p.label}</span>
+                        <span className="block text-xs text-text-secondary mt-0.5 leading-relaxed">{p.hint}</span>
+                      </span>
+                    </label>
+                  ))}
                 </div>
               </div>
               <p className="text-xs text-text-secondary">

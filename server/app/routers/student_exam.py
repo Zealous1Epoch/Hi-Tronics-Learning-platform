@@ -13,7 +13,7 @@ from app.models.exam import Exam, ExamPaper, ExamResult
 from app.models.question import Question
 from app.routers.auth import get_current_user
 from app.services.department_scope import check_course_assignment
-from app.services.exam_service import build_result_review, grade_question
+from app.services.exam_service import build_result_review, grade_question, review_available
 
 router = APIRouter(prefix="/api/student", tags=["学员考试"])
 
@@ -384,6 +384,14 @@ def submit_exam(
     result.submitted_at = now
     db.commit()
 
+    # 回顾时机闸门：本次记录是否已可看错题（前端据此决定要不要拉 review）
+    attempts_used = (
+        db.query(ExamResult)
+        .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+        .count()
+    )
+    rv_available, rv_hint = review_available(exam, result, attempts_used, now=now)
+
     return {
         "score": final_score,
         "total_score": exam.total_score,
@@ -392,6 +400,8 @@ def submit_exam(
         "timed_out": timed_out,
         "paper_total_score": expected_max,
         "grading_details": grading_details,
+        "review_available": rv_available,
+        "review_hint": rv_hint or None,
     }
 
 
@@ -401,15 +411,19 @@ def get_results(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取当前用户的考试记录"""
+    """获取当前用户的考试记录（含每条记录错题回顾是否已开放，前端据此置灰入口）"""
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
     results = (
         db.query(ExamResult)
         .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
         .order_by(ExamResult.submitted_at.desc())
         .all()
     )
-    return [
-        {
+    # 与 status/start 接口同口径：全部作答记录数（含未交卷的进行中记录）
+    attempts_used = len(results)
+    out = []
+    for r in results:
+        item = {
             "id": r.id,
             "score": r.score,
             "passed": r.passed,
@@ -417,8 +431,15 @@ def get_results(
             "started_at": r.started_at.isoformat() if r.started_at else None,
             "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
         }
-        for r in results
-    ]
+        if exam and r.submitted_at:
+            available, hint = review_available(exam, r, attempts_used)
+            item["review_available"] = available
+            if not available and hint:
+                item["review_hint"] = hint
+        else:
+            item["review_available"] = bool(r.submitted_at)
+        out.append(item)
+    return out
 
 
 @router.get("/exams/{exam_id}/review/{result_id}")
@@ -435,7 +456,7 @@ def review_exam(
 
     result = (
         db.query(ExamResult)
-        .filter(ExamResult.id == result_id, ExamResult.user_id == current_user.id)
+        .filter(ExamResult.id == result_id, ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
         .first()
     )
     if not result:
@@ -446,5 +467,15 @@ def review_exam(
 
     if not result.questions:
         raise HTTPException(status_code=400, detail="该考试记录缺少题目快照，无法查看回顾")
+
+    # 回顾时机闸门（exam.review_policy）：防止看完错题答案后重考同一批题送分
+    attempts_used = (
+        db.query(ExamResult)
+        .filter(ExamResult.exam_id == exam_id, ExamResult.user_id == current_user.id)
+        .count()
+    )
+    available, hint = review_available(exam, result, attempts_used)
+    if not available:
+        raise HTTPException(status_code=403, detail=hint or "错题回顾尚未开放")
 
     return build_result_review(db, exam, result)

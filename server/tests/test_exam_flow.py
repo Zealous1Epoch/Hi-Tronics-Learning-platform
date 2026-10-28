@@ -71,13 +71,20 @@ def test_full_exam_flow(client, student_headers, admin_headers, course_id, db):
     assert data["exam_title"] == "摸底测试"
     assert data["duration"] == 60
     assert len(data["questions"]) == 3
+    # 回归：固定组卷按题型排序（单选→多选→判断→填空→问答），
+    # 同题型内保持配置顺序 → 判断题应排到最后
+    assert [q["type"] for q in data["questions"]] == [
+        "single_choice", "single_choice", "true_false",
+    ]
     result_id = data["result_id"]
 
-    # 2. 提交答案（全对）
+    # 2. 提交答案（全对，按题干匹配，不依赖题目位置）
     answers = [
-        {"question_id": data["questions"][0]["id"], "answer": "A"},
-        {"question_id": data["questions"][1]["id"], "answer": True},
-        {"question_id": data["questions"][2]["id"], "answer": "C"},
+        {
+            "question_id": q["id"],
+            "answer": {"1+1=?": "A", "地球是圆的": True, "水的化学式是?": "C"}[q["stem"]],
+        }
+        for q in data["questions"]
     ]
     res = client.post(
         f"/api/student/exams/{exam_id}/submit",
@@ -109,11 +116,18 @@ def test_exam_partial_score(client, student_headers, admin_headers, course_id, d
     res = client.get(f"/api/student/exams/{exam_id}/start", headers=student_headers)
     data = res.json()
 
-    # 只答对第一题（30分），第二题答错（0分），第三题答错（0分）
+    # 只答对「1+1=?」（30分），其余答错（各 0 分）
+    # 按题干匹配：排序后题序为 单选30 / 单选40 / 判断30，不能按位置写死
     answers = [
-        {"question_id": data["questions"][0]["id"], "answer": "A"},  # 正确
-        {"question_id": data["questions"][1]["id"], "answer": False},  # 错误
-        {"question_id": data["questions"][2]["id"], "answer": "A"},  # 错误
+        {
+            "question_id": q["id"],
+            "answer": {
+                "1+1=?": "A",           # 正确
+                "水的化学式是?": "A",    # 错误
+                "地球是圆的": False,     # 错误
+            }[q["stem"]],
+        }
+        for q in data["questions"]
     ]
     res = client.post(
         f"/api/student/exams/{exam_id}/submit",

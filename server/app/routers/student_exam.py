@@ -141,14 +141,20 @@ def _draw_random_questions(db: Session, paper: ExamPaper, exam: Exam) -> list[di
 
 
 def _draw_fixed_questions(db: Session, paper: ExamPaper) -> list[dict]:
-    """固定组卷：按配置顺序取题。"""
+    """固定组卷：按题型顺序取题（单选→多选→判断→填空→问答）。
+
+    与随机组卷（draw_random_questions）的排序口径一致：Python sort 稳定，
+    同一题型内部仍保持管理员的配置顺序。
+    """
+    from app.services.exam_service import TYPE_ORDER
+
     configs = paper.questions or []
     question_ids = [c["question_id"] for c in configs]
     score_map = {c["question_id"]: c.get("score", 0) for c in configs}
     questions = db.query(Question).filter(Question.id.in_(question_ids)).all()
     qmap = {q.id: q for q in questions}
     out: list[dict] = []
-    for cid in question_ids:  # 保持配置顺序
+    for cid in question_ids:
         q = qmap.get(cid)
         if not q:
             continue
@@ -160,6 +166,7 @@ def _draw_fixed_questions(db: Session, paper: ExamPaper) -> list[dict]:
             "score": score_map.get(q.id, 0),
             # 不返回正确答案
         })
+    out.sort(key=lambda q: TYPE_ORDER.get(q["type"], 99))
     return out
 
 

@@ -10,6 +10,16 @@ import { useAuth } from "../hooks/useAuth";
 const WX_AUTO_KEY = "lp_wx_auto_ts";
 const WX_AUTO_COOLDOWN_MS = 60_000;
 
+// 清洗 redirect 查询参数：api.ts 的 401 处理器写入的 redirect 是
+// window.location.pathname，自带 /learning-platform 部署前缀；直接交给
+// react-router 的 navigate 会二次拼接 basename 落到兜底路由、再被弹回
+// 登录页形成循环。只接受站内绝对路径并剥掉部署前缀（顺带防开放重定向）。
+function safeRedirect(raw: string | null): string | undefined {
+  if (!raw || !raw.startsWith("/")) return undefined;
+  const stripped = raw.replace(/^\/learning-platform(?=\/|$)/, "");
+  return stripped.startsWith("/") ? stripped : undefined;
+}
+
 export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -18,18 +28,28 @@ export default function Login() {
   const [autoRedirecting, setAutoRedirecting] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { setUser } = useAuth();
+  const { user, loading: authLoading, setUser } = useAuth();
+
+  // 登录态有效（典型场景：企微自动 OAuth 已完成、但被过期旧 token 的迟到
+  // 401 弹回了登录页）→ 直接进对应首页，不给已登录用户展示登录表单。
+  useEffect(() => {
+    if (authLoading || !user) return;
+    const redirect = safeRedirect(searchParams.get("redirect"));
+    navigate(redirect || (user.role === "admin" ? "/admin" : "/student"), { replace: true });
+  }, [authLoading, user, navigate, searchParams]);
 
   useEffect(() => {
+    // 先等 AuthProvider 校验完：避免把残留的过期 token 误当登录态跳过自动登录，
+    // 也避免给其实已持有有效 token 的用户白闪一次 OAuth。
+    if (authLoading || user) return;
     if (!/wxwork/i.test(navigator.userAgent)) return;
-    if (localStorage.getItem("lp_token")) return; // 已有登录态，交给路由守卫处理
     const last = Number(sessionStorage.getItem(WX_AUTO_KEY) || 0);
     if (Date.now() - last < WX_AUTO_COOLDOWN_MS) return; // 刚自动跳过一次又回到登录页 = 授权失败，别再循环
     sessionStorage.setItem(WX_AUTO_KEY, String(Date.now()));
     setAutoRedirecting(true);
     // 与「企业微信登录」按钮同一入口：后端生成 state 后跳企微授权页
     window.location.replace("/learning-platform/sso/wechat/login");
-  }, []);
+  }, [authLoading, user]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +60,7 @@ export default function Login() {
       localStorage.setItem("lp_token", res.access_token);
       localStorage.setItem("lp_user", JSON.stringify(res.user));
       setUser(res.user);
-      const redirect = searchParams.get("redirect");
+      const redirect = safeRedirect(searchParams.get("redirect"));
       navigate(redirect || (res.user.role === "admin" ? "/admin" : "/student"), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");

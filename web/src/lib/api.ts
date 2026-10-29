@@ -23,6 +23,23 @@ function getToken(): string | null {
   return localStorage.getItem("lp_token");
 }
 
+/** 收到 401 后的统一处理：
+ * 1. 仅当「存储里的 token 仍是本次失败请求所用的那一个」时才清除登录态——
+ *    防止 SSO 回调竞态中，过期旧 token 的请求结果迟到，误删刚换取到的新 token。
+ * 2. SSO 回调页（/sso/callback）正在进行时不硬跳登录页——
+ *    该页面的 Promise 链自己会完成登录；此前一次迟到的 401 硬跳转会把
+ *    刚刚登录成功的用户重新甩回登录页，导致企微登录每次要多点一次按钮。
+ */
+function handleUnauthorized(requestToken: string | null): void {
+  if (requestToken && getToken() === requestToken) {
+    localStorage.removeItem("lp_token");
+    localStorage.removeItem("lp_user");
+  }
+  if (window.location.pathname.includes("/sso/callback")) return;
+  const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.href = `${BASE_URL}login?redirect=${redirect}`;
+}
+
 export async function api<T extends object = Record<string, unknown>>(
   path: string,
   options: RequestInit = {}
@@ -39,10 +56,7 @@ export async function api<T extends object = Record<string, unknown>>(
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    localStorage.removeItem("lp_token");
-    localStorage.removeItem("lp_user");
-    const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-    window.location.href = `${BASE_URL}login?redirect=${redirect}`;
+    handleUnauthorized(token);
     throw new Error("认证已过期");
   }
 
@@ -152,10 +166,7 @@ export async function uploadFile<T extends object = Record<string, unknown>>(pat
   });
 
   if (res.status === 401) {
-    localStorage.removeItem("lp_token");
-    localStorage.removeItem("lp_user");
-    const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-    window.location.href = `${BASE_URL}login?redirect=${redirect}`;
+    handleUnauthorized(token);
     throw new Error("认证已过期");
   }
 
@@ -179,10 +190,7 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   });
 
   if (res.status === 401) {
-    localStorage.removeItem("lp_token");
-    localStorage.removeItem("lp_user");
-    const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-    window.location.href = `${BASE_URL}login?redirect=${redirect}`;
+    handleUnauthorized(token);
     throw new Error("认证已过期");
   }
 
@@ -229,9 +237,7 @@ export async function uploadFileWithProgress<T extends object = Record<string, u
 
     xhr.onload = () => {
       if (xhr.status === 401) {
-        localStorage.removeItem("lp_token");
-        localStorage.removeItem("lp_user");
-        window.location.href = `${BASE_URL}login`;
+        handleUnauthorized(token);
         reject(new Error("认证已过期"));
         return;
       }

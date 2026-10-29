@@ -26,8 +26,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       getMe()
         .then((u) => setUser(u))
         .catch(() => {
-          localStorage.removeItem("lp_token");
-          localStorage.removeItem("lp_user");
+          // 仅清除本次校验用的那个旧 token；若存储里已经是别的新 token
+          // （SSO 回调刚刚写入），绝不能动它，否则会清掉一次成功的登录。
+          if (localStorage.getItem("lp_token") === token) {
+            localStorage.removeItem("lp_token");
+            localStorage.removeItem("lp_user");
+          }
         })
         .finally(() => setLoading(false));
     } else {

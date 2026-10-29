@@ -68,9 +68,9 @@ export default function QuestionBank() {
         </div>
       </div>
 
-      {/* 下半区：左=题库树（超长内部滚动） 右=试题列表，两栏顶部齐平 */}
-      <div className="flex gap-4 flex-1 min-h-0">
-        <div className="w-56 shrink-0 overflow-y-auto min-h-0">
+      {/* 下半区：左=题库树（超长内部滚动） 右=试题列表；小屏上下堆叠 */}
+      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
+        <div className="w-full lg:w-56 shrink-0 overflow-y-auto min-h-0 max-h-[38vh] lg:max-h-none">
           <CourseTree
             tree={tree}
             flatCategories={[]}

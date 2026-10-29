@@ -143,11 +143,11 @@ export default function CoursePreview() {
         <h2 className="k-title text-[22px] text-primary">{course.title}</h2>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* 播放器 */}
         <div className="flex-1 min-w-0">
           {/* 课件模式：卡片撑到视口底部，阅读器吃满高度（视频模式保持自适应） */}
-          <div className={`k-card overflow-hidden ${activeMaterial ? "h-[calc(100vh-160px)]" : ""}`}>
+          <div className={`k-card overflow-hidden ${activeMaterial ? "h-[70vh] lg:h-[calc(100vh-160px)]" : ""}`}>
             {activeMaterial ? (
               <MaterialViewer key={activeMaterial.id} material={activeMaterial} />
             ) : activeVideo && playUrl ? (
@@ -196,7 +196,7 @@ export default function CoursePreview() {
         </div>
 
         {/* 章节列表 */}
-        <div className="w-64 flex-shrink-0">
+        <div className="w-full lg:w-64 flex-shrink-0">
           <div className="k-card" ref={chapterListRef}>
             <div className="px-4 py-3 text-sm font-bold text-primary/80">章节列表</div>
             <div className="overflow-y-auto max-h-[calc(100vh-360px)]">

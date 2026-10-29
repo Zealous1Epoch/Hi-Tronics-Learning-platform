@@ -66,7 +66,8 @@ export default function StudentProfile() {
         {profile.exam_history.length === 0 ? (
           <div className="p-8 text-center text-text-secondary text-sm">暂无考试记录</div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
             <thead className="bg-bg-layout/50 border-b border-border">
               <tr>
                 <th className="text-left px-4 py-2.5 text-text-secondary font-normal">考试名称</th>
@@ -94,6 +95,7 @@ export default function StudentProfile() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

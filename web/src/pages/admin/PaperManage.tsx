@@ -78,9 +78,9 @@ export default function PaperManage() {
     <div>
       <h2 className="k-title text-[22px] text-primary mb-4">试卷管理</h2>
 
-      <div className="flex gap-4 min-h-[calc(100vh-180px)]">
+      <div className="flex flex-col lg:flex-row gap-4 min-h-[calc(100vh-180px)]">
         {/* 左侧分类树 */}
-        <div className="w-56 shrink-0 pr-5">
+        <div className="w-full lg:w-56 shrink-0 lg:pr-5">
           <CourseTree
             tree={tree}
             flatCategories={flatCategories}

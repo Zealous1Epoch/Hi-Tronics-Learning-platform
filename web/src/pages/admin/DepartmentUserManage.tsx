@@ -459,9 +459,9 @@ export default function DepartmentUserManage() {
         </div>
       </div>
 
-      <div className="flex gap-4 flex-1 min-h-0">
-        {/* 左侧：全员部门树 */}
-        <div className="w-60 shrink-0 pr-4 border-r border-border flex flex-col min-h-0">
+      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
+        {/* 左侧：全员部门树（小屏限高堆在表格上方） */}
+        <div className="w-full lg:w-60 shrink-0 lg:pr-4 lg:border-r border-border flex flex-col min-h-0 max-h-[38vh] lg:max-h-none">
           <div className="flex-1 min-h-0">
             <OrgDeptTree tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} />
           </div>

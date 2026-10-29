@@ -5,9 +5,23 @@ import { api } from "../lib/api";
 import {
   BookOpen, Library, Pencil, ClipboardList, ScrollText,
   Users, BarChart3, LayoutDashboard, FileText,
-  ChevronsLeft, ChevronsRight, ChevronDown, Search, Bell, LogOut, UserCog,
+  ChevronsLeft, ChevronsRight, ChevronDown, Search, Bell, LogOut, UserCog, Menu,
 } from "lucide-react";
 import logoImg from "../assets/logo.png";
+
+/** 桌面判定（≥1024px）：手机/平板上侧边栏走离屏抽屉，收起功能只在桌面生效 */
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(
+    () => window.matchMedia("(min-width: 1024px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return isDesktop;
+}
 
 // 路由级按需加载：各页面及其重型依赖（播放器 / 课件预览 / 知识地图画布等）
 // 仅在访问对应路由时才下载，避免全部页面代码进入首屏。
@@ -91,6 +105,10 @@ export default function AdminLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [bellOpen, setBellOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const isDesktop = useIsDesktop();
+  // 手机抽屉里永远展示完整菜单（收起态仅是桌面偏好）
+  const effCollapsed = collapsed && isDesktop;
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [unread, setUnread] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -125,6 +143,11 @@ export default function AdminLayout() {
       .catch(() => {});
   }, [location.pathname]);
 
+  // 路由切换后自动收起手机抽屉导航
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
   if (loading) return null;
   if (!user || user.role !== "admin") return <Navigate to="/student" replace />;
 
@@ -151,29 +174,38 @@ export default function AdminLayout() {
 
   return (
     <div ref={rootRef} className="min-h-screen flex" style={{ background: "var(--color-bg-layout)" }}>
+      {/* 手机抽屉遮罩 */}
+      {navOpen && !isDesktop && (
+        <div
+          className="fixed inset-0 z-40 bg-black/30 lg:hidden"
+          onClick={() => setNavOpen(false)}
+          aria-hidden
+        />
+      )}
       <aside
-        className="shrink-0 flex flex-col"
+        className={
+          // 手机：离屏抽屉（translate-x 控制滑入滑出）；桌面：恢复 sticky 常驻
+          "shrink-0 flex flex-col fixed inset-y-0 left-0 z-50 lg:sticky lg:top-0 " +
+          (navOpen ? "translate-x-0" : "-translate-x-full") + " lg:translate-x-0"
+        }
         style={{
-          width: collapsed ? 60 : 200,
+          width: effCollapsed ? 60 : 200,
+          height: "100vh",
           background: "var(--color-bg-card)",
           borderRight: "1px solid var(--color-border)",
-          transition: "width 180ms ease",
-          // 钉在视口：内容再长侧边栏也不跟随滚动，收起按钮始终在视口底部
-          position: "sticky",
-          top: 0,
-          height: "100vh",
+          transition: "transform 200ms ease, width 180ms ease",
         }}
       >
         <div
           className="flex items-center gap-2"
           style={{
             height: 52,
-            padding: collapsed ? "0 12px" : "0 14px",
+            padding: effCollapsed ? "0 12px" : "0 14px",
             borderBottom: "1px solid var(--color-border)",
             justifyContent: "center",
           }}
         >
-          {!collapsed && (
+          {!effCollapsed && (
             <span
               className="k-title"
               style={{ fontSize: 13, color: "var(--color-primary)", whiteSpace: "nowrap" }}
@@ -189,7 +221,7 @@ export default function AdminLayout() {
             const open = group.label === "" ? true : groupOpen(key);
             return (
               <div key={key} style={{ marginBottom: 2 }}>
-                {group.label && !collapsed && (
+                {group.label && !effCollapsed && (
                   <button
                     onClick={() =>
                       setOpenGroups((prev) => ({ ...prev, [key]: !open }))
@@ -216,10 +248,10 @@ export default function AdminLayout() {
                     />
                   </button>
                 )}
-                {group.label && collapsed && (
+                {group.label && effCollapsed && (
                   <div style={{ height: 1, background: "var(--color-border)", margin: "10px 6px" }} />
                 )}
-                {(open || collapsed) &&
+                {(open || effCollapsed) &&
                   group.items.map((item) => {
                     const Icon = item.icon;
                     const active = isActive(item.path);
@@ -228,7 +260,7 @@ export default function AdminLayout() {
                         key={item.path}
                         to={item.path}
                         className={`k-nav-item ${active ? "k-nav-item-active" : ""}`}
-                        style={collapsed
+                        style={effCollapsed
                           // 收起态：图标在上、导航文字在下（60px 轨道容纳 4 字 10px 标签）
                           ? { flexDirection: "column", justifyContent: "center", gap: 3, padding: "7px 0 6px" }
                           : { justifyContent: "flex-start" }}
@@ -236,7 +268,7 @@ export default function AdminLayout() {
                         {/* 选中态仅浅底+主色文字，无指示条（.k-nav-item-active），勿再叠加内联 span */}
                         <Icon size={16} strokeWidth={1.6} />
                         <span
-                          style={collapsed
+                          style={effCollapsed
                             ? { fontSize: 10, lineHeight: 1.2, whiteSpace: "nowrap" }
                             : undefined}
                         >
@@ -252,9 +284,8 @@ export default function AdminLayout() {
 
         <button
           onClick={() => setCollapsed((v) => !v)}
-          className="k-link"
+          className="k-link hidden lg:flex"
           style={{
-            display: "flex",
             alignItems: "center",
             justifyContent: "center",
             gap: 6,
@@ -263,8 +294,8 @@ export default function AdminLayout() {
             fontSize: 12,
           }}
         >
-          {collapsed ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
-          {!collapsed && "收起侧边栏"}
+          {effCollapsed ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
+          {!effCollapsed && "收起侧边栏"}
         </button>
       </aside>
 
@@ -280,6 +311,15 @@ export default function AdminLayout() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* 手机汉堡：呼出侧边导航抽屉 */}
+            <button
+              onClick={() => setNavOpen(true)}
+              className="k-btn k-btn-ghost k-btn-sm lg:hidden"
+              style={{ padding: "5px 8px" }}
+              aria-label="打开导航"
+            >
+              <Menu size={16} />
+            </button>
             <img src={logoImg} alt="海创光电" style={{ height: 18 }} />
           </div>
 
@@ -470,7 +510,7 @@ export default function AdminLayout() {
           </div>
         </header>
 
-        <main className="flex-1" style={{ padding: 22, minWidth: 0 }}>
+        <main className="flex-1 min-w-0 p-3 lg:p-[22px]" style={{ minWidth: 0 }}>
           <Suspense
           fallback={
             <div className="flex items-center justify-center py-24">

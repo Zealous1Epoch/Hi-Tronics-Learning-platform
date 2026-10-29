@@ -104,7 +104,7 @@ function TreeSidebar({
     });
 
   return (
-    <div className="w-56 shrink-0 pr-3 border-r border-border">
+    <div className="w-full lg:w-56 shrink-0 lg:pr-3 border-b lg:border-b-0 lg:border-r border-border pb-2 lg:pb-0">
       <div
         onClick={() => onSelect(null)}
         className={`px-3 py-2 rounded-md cursor-pointer text-sm font-medium mb-2 ${
@@ -113,7 +113,7 @@ function TreeSidebar({
       >
         全部课程
       </div>
-      <div className="bg-bg-base rounded-lg border border-border max-h-[calc(100vh-240px)] overflow-y-auto">
+      <div className="bg-bg-base rounded-lg border border-border max-h-52 lg:max-h-[calc(100vh-240px)] overflow-y-auto">
         {tree.length === 0 ? (
           <p className="p-4 text-sm text-text-secondary">暂无分类</p>
         ) : (
@@ -299,7 +299,7 @@ export default function MyCourses() {
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">我的课程</h2>
 
-      <div className="flex gap-6">
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
         {/* 左侧分类树 */}
         <TreeSidebar
           tree={tree}

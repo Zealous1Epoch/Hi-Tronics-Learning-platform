@@ -276,7 +276,9 @@ input.k-date-empty::-webkit-calendar-picker-indicator { opacity: 0.5; }
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-default);
-  overflow: hidden;
+  /* 小屏兜底：表头 nowrap 导致表格有最小内容宽度，手机上一律横向滚动 */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 /* 极简表格：无斑马纹、无竖线、只有细横线（对齐招聘 .dt） */
 .k-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -551,4 +553,40 @@ input.k-date-empty::-webkit-calendar-picker-indicator { opacity: 0.5; }
 .video-js {
   border-radius: var(--radius-default);
   overflow: hidden;
+}
+
+/* ---------- 移动端适配（<768px 视为手机） ----------
+   放层外 + 必要处 !important：压过页面内联 style 的固定宽度与各页
+   Tailwind max-w-* 工具类，让所有 k-* 弹窗/表格/分页在小屏统一退化。 */
+
+@media (max-width: 767px) {
+  /* 弹窗：小屏近似全屏，内部超高时自身滚动
+     （内联 style 只写 width 不写 max-width，这里 max-width 即可锁住宽度） */
+  .k-overlay {
+    padding: 10px;
+    align-items: flex-start;
+    overflow-y: auto;
+  }
+  .k-modal {
+    max-width: calc(100vw - 20px) !important;
+    max-height: calc(100dvh - 20px);
+    overflow-y: auto;
+    padding: 16px 14px;
+  }
+  /* 分页条窄屏换行，避免统计文字和翻页按钮挤爆 */
+  .k-pager { flex-wrap: wrap; row-gap: 6px; }
+  /* iOS Safari：聚焦 <16px 输入框会强制整页放大，小屏输入一律 16px */
+  .k-input, .k-textarea, .k-select, .k-ctl,
+  .k-search > input { font-size: 16px; }
+  /* 卡片头在窄屏允许标题与操作按钮换行 */
+  .k-card-head { flex-wrap: wrap; row-gap: 8px; padding: 12px 14px; }
+  .k-card-body { padding: 12px 14px; }
+  /* 底部 TabBar 避让 iPhone 横条 */
+  .k-safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom, 0px)); }
+}
+
+/* 触屏设备：行内迷你按钮加大点击热区（不改视觉尺寸，用 padding 补偿） */
+@media (hover: none) and (pointer: coarse) {
+  .k-btn-xs { padding: 6px 10px; }
+  .k-link { padding: 4px 2px; }
 }

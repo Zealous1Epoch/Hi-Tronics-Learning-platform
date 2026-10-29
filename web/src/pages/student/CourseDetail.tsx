@@ -333,11 +333,11 @@ export default function CourseDetail() {
         </div>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* 播放器（统一线上课程始终渲染） */}
         <div className="flex-1 min-w-0">
           {/* 课件模式：卡片撑到视口底部，阅读器吃满高度（视频/考试模式保持自适应） */}
-          <div className={`bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden ${activeMaterial && !showExamView ? "h-[calc(100vh-210px)]" : ""}`}>
+          <div className={`bg-bg-base rounded-xl border border-border shadow-sm overflow-hidden ${activeMaterial && !showExamView ? "h-[70vh] lg:h-[calc(100vh-210px)]" : ""}`}>
             {showExamView ? (
               <div className="p-6">
                 <div className="flex items-center gap-2 mb-1">
@@ -443,8 +443,8 @@ export default function CourseDetail() {
           )}
         </div>
 
-        {/* 章节列表 */}
-        <div className="w-64 flex-shrink-0">
+        {/* 章节列表（小屏堆到播放器下方） */}
+        <div className="w-full lg:w-64 flex-shrink-0">
           <div className="bg-bg-base rounded-lg border border-border" ref={chapterListRef}>
             <div className="px-4 py-3 text-sm font-bold text-primary/80">课程内容</div>
             {/* 续播提示 */}

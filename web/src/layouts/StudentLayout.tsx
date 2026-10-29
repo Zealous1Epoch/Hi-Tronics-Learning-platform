@@ -1,7 +1,10 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Routes, Route, Link, NavLink, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { ChevronDown, LogOut, LayoutDashboard } from "lucide-react";
+import {
+  ChevronDown, LogOut, LayoutDashboard,
+  Home, ClipboardList, BookOpen, Map, FolderClosed,
+} from "lucide-react";
 
 // 路由级按需加载：各页面及其重型依赖（播放器 / 课件预览 / 知识地图画布等）
 // 仅在访问对应路由时才下载，避免全部页面代码进入首屏。
@@ -16,11 +19,11 @@ const ScanCheckIn = lazy(() => import("../pages/student/ScanCheckIn"));
 import logoImg from "../assets/logo.png";
 
 const navItems = [
-  { label: "首页", to: "/student" },
-  { label: "代办任务", to: "/student/tasks" },
-  { label: "我的课程", to: "/student/courses" },
-  { label: "知识地图", to: "/student/knowledge" },
-  { label: "学习档案", to: "/student/profile" },
+  { label: "首页", short: "首页", to: "/student", icon: Home },
+  { label: "代办任务", short: "待办", to: "/student/tasks", icon: ClipboardList },
+  { label: "我的课程", short: "课程", to: "/student/courses", icon: BookOpen },
+  { label: "知识地图", short: "地图", to: "/student/knowledge", icon: Map },
+  { label: "学习档案", short: "档案", to: "/student/profile", icon: FolderClosed },
 ];
 
 export default function StudentLayout() {
@@ -64,7 +67,8 @@ export default function StudentLayout() {
         >
           <div className="flex items-center gap-6" style={{ minWidth: 0 }}>
             <img src={logoImg} alt="海创光电" style={{ height: 24, flexShrink: 0 }} />
-            <nav className="flex items-center gap-1" style={{ overflowX: "auto" }}>
+            {/* 手机小屏用底部 TabBar，顶栏导航隐藏 */}
+            <nav className="hidden md:flex items-center gap-1" style={{ overflowX: "auto" }}>
               {navItems.map((item) => (
                 <NavLink
                   key={item.to}
@@ -129,7 +133,7 @@ export default function StudentLayout() {
               >
                 {user?.name?.slice(0, 1) ?? "学"}
               </span>
-              <span style={{ fontSize: 12 }}>{user?.name}</span>
+              <span className="hidden sm:inline" style={{ fontSize: 12 }}>{user?.name}</span>
               <ChevronDown size={12} />
             </button>
             {menuOpen && (
@@ -178,7 +182,7 @@ export default function StudentLayout() {
         </div>
       </header>
 
-      <main style={{ maxWidth: 1400, margin: "0 auto", padding: "24px 32px" }}>
+      <main className="mx-auto p-4 pb-24 md:p-6 lg:px-8" style={{ maxWidth: 1400 }}>
         <Suspense
           fallback={
             <div className="flex items-center justify-center py-24">
@@ -202,6 +206,40 @@ export default function StudentLayout() {
         </Routes>
         </Suspense>
       </main>
+
+      {/* 手机底部 TabBar（≥768px 隐藏，顶栏导航接管） */}
+      <nav
+        className="k-safe-bottom md:hidden fixed bottom-0 left-0 right-0 z-40 flex"
+        style={{
+          background: "var(--color-bg-card)",
+          borderTop: "1px solid var(--color-border)",
+        }}
+      >
+        {navItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.to === "/student"}
+            className="flex-1"
+            style={{ textDecoration: "none" }}
+          >
+            {({ isActive }) => (
+              <div
+                className="flex flex-col items-center gap-0.5"
+                style={{
+                  padding: "8px 0 6px",
+                  fontSize: 11,
+                  color: isActive ? "var(--color-primary)" : "var(--color-text-muted)",
+                  fontWeight: isActive ? 500 : 400,
+                }}
+              >
+                <item.icon size={18} strokeWidth={isActive ? 2.2 : 1.8} />
+                {item.short}
+              </div>
+            )}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }

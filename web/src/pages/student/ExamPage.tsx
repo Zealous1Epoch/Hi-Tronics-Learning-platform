@@ -472,7 +472,7 @@ export default function ExamPage() {
                 <input type="text" value={(answers[q.id] as string) || ""}
                   onChange={(e) => handleTextAnswer(q.id, e.target.value)}
                   placeholder="请输入答案"
-                  className="w-full max-w-md border border-border rounded-md px-3 py-2 text-sm" />
+                  className="w-full max-w-md border border-border rounded-md px-3 py-2 text-[16px] md:text-sm" />
               </div>
             )}
 
@@ -483,17 +483,17 @@ export default function ExamPage() {
                   onChange={(e) => handleTextAnswer(q.id, e.target.value)}
                   placeholder="请输入答案"
                   rows={4}
-                  className="w-full border border-border rounded-md px-3 py-2 text-sm" />
+                  className="w-full border border-border rounded-md px-3 py-2 text-[16px] md:text-sm" />
               </div>
             )}
           </div>
         ))}
       </div>
 
-      {/* 交卷按钮 */}
+      {/* 交卷按钮（手机端全宽，好点） */}
       <div className="mt-6 text-center">
         <button onClick={handleSubmit} disabled={submitting}
-          className="px-8 py-3 bg-primary text-white rounded-md text-sm hover:bg-primary-light disabled:opacity-50">
+          className="w-full sm:w-auto px-8 py-3 bg-primary text-white rounded-md text-sm hover:bg-primary-light disabled:opacity-50">
           {submitting ? "提交中..." : "交卷"}
         </button>
       </div>

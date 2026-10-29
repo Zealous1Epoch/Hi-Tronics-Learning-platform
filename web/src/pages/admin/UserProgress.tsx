@@ -200,9 +200,9 @@ export default function UserProgress() {
         </div>
       )}
 
-      <div className="flex gap-4">
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* 左侧部门树 */}
-        <div className="w-56 shrink-0 pr-4 border-r border-border">
+        <div className="w-full lg:w-56 shrink-0 lg:pr-4 lg:border-r border-border">
           <DepartmentTree
             selectedId={selectedDeptId}
             onSelect={setSelectedDeptId}

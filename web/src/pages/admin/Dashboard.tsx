@@ -655,7 +655,7 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.7fr) minmax(0, 1fr)", gap: 16, alignItems: "stretch", flex: 1, minHeight: 0 }}>
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-stretch" style={{ flex: 1, minHeight: 0 }}>
         <section className="k-card" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
           <div className="k-card-head">
             <h3 className="k-card-title">学习动态趋势</h3>

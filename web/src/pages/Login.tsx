@@ -81,8 +81,8 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg-layout">
-      <div className="bg-bg-base rounded-lg shadow-lg p-12 w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-bg-layout px-4">
+      <div className="bg-bg-base rounded-lg shadow-lg p-6 sm:p-12 w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-primary mb-2">海创光电在线学堂</h1>
           <p className="text-text-secondary">企业在线学习平台</p>
@@ -95,7 +95,7 @@ export default function Login() {
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              className="w-full border border-border rounded-md px-3 py-2.5 text-[16px] sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               placeholder="请输入用户名"
               required
             />
@@ -106,7 +106,7 @@ export default function Login() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              className="w-full border border-border rounded-md px-3 py-2.5 text-[16px] sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               placeholder="请输入密码"
               required
             />

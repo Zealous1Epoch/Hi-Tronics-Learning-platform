@@ -83,7 +83,7 @@ function SectionBlock({
           {title}
         </span>
       </div>
-      <div className="p-3 overflow-y-auto h-[66vh] space-y-2">
+      <div className="p-3 overflow-y-auto max-h-[70vh] lg:h-[66vh] space-y-2">
         {children}
       </div>
     </div>
@@ -133,7 +133,7 @@ export default function TodoTasks() {
     <div>
       <h2 className="text-xl font-bold text-primary mb-4">代办任务</h2>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* 进行中课程（左）—— 大于3天到期 */}
         <SectionBlock title="进行中课程">
           {activeCourses.length > 0 ? (

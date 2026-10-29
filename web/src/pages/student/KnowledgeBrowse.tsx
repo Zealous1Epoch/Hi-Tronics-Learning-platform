@@ -209,7 +209,7 @@ export default function KnowledgeBrowse() {
 
       {/* 面包屑 */}
       {breadcrumb.length > 0 && (
-        <div className="flex items-center gap-1.5 mb-3 text-sm">
+        <div className="flex items-center gap-1.5 mb-3 text-sm overflow-x-auto whitespace-nowrap">
           <button
             onClick={() => { setFocusId(null); setShowDetail(false); setDetailNode(null); }}
             className="text-text-secondary hover:text-primary transition-colors"
@@ -234,14 +234,14 @@ export default function KnowledgeBrowse() {
         </div>
       )}
 
-      {/* 画布 + 详情面板 */}
-      <div className="flex gap-4">
+      {/* 画布 + 详情面板（小屏上下堆叠） */}
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* 画布 */}
         <div
           className={`rounded-lg border border-border overflow-hidden bg-bg-layout transition-all ${
             showDetail ? "flex-1" : "flex-1"
           }`}
-          style={{ height: "calc(100vh - 260px)" }}
+          style={{ height: "min(60vh, 420px)" }}
         >
           {tree.length === 0 ? (
             <div className="flex items-center justify-center h-full text-text-secondary">
@@ -259,7 +259,7 @@ export default function KnowledgeBrowse() {
 
         {/* 详情面板 */}
         {showDetail && detailNode && (
-          <div className="w-96 shrink-0 bg-bg-base rounded-lg border border-border overflow-y-auto max-h-[calc(100vh-260px)]">
+          <div className="w-full lg:w-96 shrink-0 bg-bg-base rounded-lg border border-border overflow-y-auto max-h-[calc(100vh-260px)]">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <h3 className="font-bold text-sm text-primary truncate">{detailNode.title}</h3>
               <button

@@ -345,9 +345,9 @@ export default function CourseManage() {
         }
       />
 
-      <div className="flex gap-4 flex-1 min-h-0">
-        {/* 左：纯分类树 */}
-        <aside className="w-60 shrink-0 flex flex-col min-h-0">
+      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
+        {/* 左：纯分类树（小屏堆叠在列表上方，限高内部滚动） */}
+        <aside className="w-full lg:w-60 shrink-0 flex flex-col min-h-0 max-h-[38vh] lg:max-h-none">
           <CourseTree
             tree={tree}
             flatCategories={flatCategories}
